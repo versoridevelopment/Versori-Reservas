@@ -6,20 +6,18 @@ import Container from "../ui/Container";
 import { supabase } from "../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
 
-// Definimos un tipo para el perfil del usuario para mayor seguridad con TypeScript
 type UserProfile = {
   nombre: string | null;
   apellido: string | null;
 };
 
 const Navbar: FC = () => {
-  // --- Estados del componente ---
   const [hidden, setHidden] = useState<boolean>(false);
   const [lastScrollY, setLastScrollY] = useState<number>(0);
   const [session, setSession] = useState<Session | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null); // <-- NUEVO ESTADO PARA EL PERFIL
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  // --- Efecto para ocultar la barra al hacer scroll ---
+  // --- Ocultar barra al hacer scroll ---
   useEffect(() => {
     const handleScroll = () => {
       if (window.scrollY > lastScrollY && window.scrollY > 100) {
@@ -29,26 +27,39 @@ const Navbar: FC = () => {
       }
       setLastScrollY(window.scrollY);
     };
+
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY]);
 
-  // --- Efecto para gestionar la sesión y obtener el perfil ---
+  // --- Sesión + perfil ---
   useEffect(() => {
     const fetchSessionAndProfile = async () => {
       const {
         data: { session },
+        error,
       } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error("Error al obtener la sesión:", error.message);
+      }
+
       setSession(session);
 
       if (session) {
-        // Si hay sesión, buscamos el perfil del usuario
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("nombre, apellido")
-          .eq("id", session.user.id)
+          .eq("id_usuario", session.user.id) // 👈 CAMBIO CLAVE
           .single();
-        setUserProfile(profile);
+
+        if (profileError) {
+          console.error("Error al obtener el perfil:", profileError.message);
+        }
+
+        setUserProfile(profile ?? null);
+      } else {
+        setUserProfile(null);
       }
     };
 
@@ -58,16 +69,20 @@ const Navbar: FC = () => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
+
       if (session) {
-        // Si el estado de la sesión cambia (ej. login), buscamos el perfil
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("nombre, apellido")
-          .eq("id", session.user.id)
+          .eq("id_usuario", session.user.id) // 👈 IGUAL AQUÍ
           .single();
-        setUserProfile(profile);
+
+        if (profileError) {
+          console.error("Error al obtener el perfil (onAuthStateChange):", profileError.message);
+        }
+
+        setUserProfile(profile ?? null);
       } else {
-        // Si el usuario cierra sesión, limpiamos el perfil
         setUserProfile(null);
       }
     });
@@ -75,14 +90,13 @@ const Navbar: FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // --- Función para cerrar sesión con confirmación ---
   const handleLogout = async () => {
     const isConfirmed = window.confirm(
       "¿Estás seguro de que querés cerrar sesión?"
     );
     if (isConfirmed) {
       await supabase.auth.signOut();
-      // El listener onAuthStateChange se encargará de actualizar los estados session y userProfile a null
+      // onAuthStateChange se encarga de limpiar los estados
     }
   };
 
@@ -125,13 +139,15 @@ const Navbar: FC = () => {
             </>
           ) : (
             <>
-              {/* --- SALUDO CON NOMBRE Y APELLIDO --- */}
               <span className="text-neutral-400">
-                {userProfile ? `Hola, ${userProfile.nombre}` : "Cargando..."}
+                {userProfile
+                  ? `Hola, ${userProfile.nombre ?? ""} ${
+                      userProfile.apellido ?? ""
+                    }`
+                  : "Cargando..."}
               </span>
               <button
                 onClick={handleLogout}
-                // --- BOTÓN AZUL ---
                 className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md transition"
               >
                 Cerrar sesión
