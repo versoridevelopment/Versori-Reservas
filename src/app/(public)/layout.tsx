@@ -1,20 +1,23 @@
-import "./../globals.css";
+// src/app/layout.tsx (o app/(public)/layout.tsx si usás grupos)
+import "../globals.css";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import { getCurrentClub } from "@/lib/getCurrentClub";
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const club = await getCurrentClub();
+
+  console.log("CLUB ENCONTRADO DESDE RootLayout:", club);
+
   return (
     <html lang="es">
       <body className="relative min-h-screen text-white bg-black">
-        {/* 🌫️ Fondo degradado global */}
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
-
-        {/* 📌 Contenido */}
-        <Navbar />
+        <Navbar club={club} />
         <main>{children}</main>
         <Footer />
       </body>

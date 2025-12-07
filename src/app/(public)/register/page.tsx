@@ -1,11 +1,13 @@
 // src/app/register/page.tsx
 "use client";
 
-import { useState, FormEvent, FC } from "react";
+import { useState, useEffect, FormEvent, FC } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
-import { supabase } from "../../../lib/supabase/supabaseClient"; // ajustá la ruta si hace falta
+import { supabase } from "../../../lib/supabase/supabaseClient"; // ajustá si tu ruta cambia
+import { getSubdomainFromHost } from "@/lib/tenantUtils";
+import { getClubBySubdomain } from "@/lib/getClubBySubdomain";
 
 const RegisterPage: FC = () => {
   // Estados del formulario
@@ -20,15 +22,57 @@ const RegisterPage: FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
 
-  // 🔹 por ahora, un id de club fijo
-  // luego esto puede venir del subdominio, contexto, fetch, etc.
-  const ID_CLUB = 1;
+  // Club actual
+  const [clubId, setClubId] = useState<number | null>(null);
+  const [clubLoading, setClubLoading] = useState<boolean>(true);
+
+  // 🧠 Detectar subdominio + obtener club reutilizando helpers
+  useEffect(() => {
+    const fetchClub = async () => {
+      try {
+        const host = window.location.host; // ej: "padelcentral.localhost:3000"
+        const hostname = host.split(":")[0]; // "padelcentral.localhost"
+
+        const subdomain = getSubdomainFromHost(hostname);
+
+        if (!subdomain) {
+          console.error(
+            "[Register] No se pudo detectar subdominio desde host:",
+            host
+          );
+          return;
+        }
+
+        const club = await getClubBySubdomain(subdomain);
+
+        if (club) {
+          setClubId(club.id_club);
+        } else {
+          console.error(
+            "[Register] No se encontró club para subdominio:",
+            subdomain
+          );
+        }
+      } finally {
+        setClubLoading(false);
+      }
+    };
+
+    fetchClub();
+  }, []);
 
   const handleSignUp = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (password !== confirmPassword) {
       alert("Las contraseñas no coinciden. Por favor, intentalo de nuevo.");
+      return;
+    }
+
+    if (!clubId) {
+      alert(
+        "No se pudo identificar el club actual. Probá recargar la página o contactá al administrador."
+      );
       return;
     }
 
@@ -42,7 +86,7 @@ const RegisterPage: FC = () => {
           nombre,
           apellido,
           telefono,
-          id_club: ID_CLUB, // 👈 esto es lo que usa el trigger
+          id_club: clubId, // 👈 se reutiliza el mismo dato que usa tu trigger
         },
         emailRedirectTo: `${location.origin}/auth/callback`,
       },
@@ -56,6 +100,15 @@ const RegisterPage: FC = () => {
 
     setIsLoading(false);
   };
+
+  // Mientras buscamos el club mostramos un loader básico
+  if (clubLoading) {
+    return (
+      <section className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
+        <p>Cargando datos del club...</p>
+      </section>
+    );
+  }
 
   // Vista de confirmación después de enviar el formulario
   if (isSubmitted) {

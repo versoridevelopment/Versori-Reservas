@@ -5,17 +5,24 @@ import Link from "next/link";
 import Container from "../ui/Container";
 import { supabase } from "../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
+import type { Club } from "@/lib/getCurrentClub"; // 👈 reutilizamos el tipo
 
 type UserProfile = {
   nombre: string | null;
   apellido: string | null;
 };
 
-const Navbar: FC = () => {
+type NavbarProps = {
+  club: Club | null; // 👈 nuevo
+};
+
+const Navbar: FC<NavbarProps> = ({ club }) => {
   const [hidden, setHidden] = useState<boolean>(false);
   const [lastScrollY, setLastScrollY] = useState<number>(0);
   const [session, setSession] = useState<Session | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  // ... (todo tu código de scroll + sesión igual)
 
   // --- Ocultar barra al hacer scroll ---
   useEffect(() => {
@@ -37,25 +44,16 @@ const Navbar: FC = () => {
     const fetchSessionAndProfile = async () => {
       const {
         data: { session },
-        error,
       } = await supabase.auth.getSession();
-
-      if (error) {
-        console.error("Error al obtener la sesión:", error.message);
-      }
 
       setSession(session);
 
       if (session) {
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile } = await supabase
           .from("profiles")
           .select("nombre, apellido")
-          .eq("id_usuario", session.user.id) // 👈 CAMBIO CLAVE
+          .eq("id_usuario", session.user.id)
           .single();
-
-        if (profileError) {
-          console.error("Error al obtener el perfil:", profileError.message);
-        }
 
         setUserProfile(profile ?? null);
       } else {
@@ -71,15 +69,11 @@ const Navbar: FC = () => {
       setSession(session);
 
       if (session) {
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile } = await supabase
           .from("profiles")
           .select("nombre, apellido")
-          .eq("id_usuario", session.user.id) // 👈 IGUAL AQUÍ
+          .eq("id_usuario", session.user.id)
           .single();
-
-        if (profileError) {
-          console.error("Error al obtener el perfil (onAuthStateChange):", profileError.message);
-        }
 
         setUserProfile(profile ?? null);
       } else {
@@ -96,9 +90,11 @@ const Navbar: FC = () => {
     );
     if (isConfirmed) {
       await supabase.auth.signOut();
-      // onAuthStateChange se encarga de limpiar los estados
     }
   };
+
+  const brandName = club?.nombre ?? "VERSORI";
+  const brandDotColor = club?.color_primario ?? "#3b82f6"; // azul por defecto
 
   return (
     <header
@@ -108,7 +104,13 @@ const Navbar: FC = () => {
     >
       <Container className="flex items-center justify-between py-4">
         <Link href="/" className="text-xl font-bold text-white tracking-wide">
-          VERSORI<span className="text-blue-500">.</span>
+          {brandName}
+          <span
+            className="ml-0.5"
+            style={{ color: brandDotColor }}
+          >
+            .
+          </span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-neutral-300">
