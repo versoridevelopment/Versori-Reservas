@@ -6,123 +6,186 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
 
+type MessageType = "success" | "error" | "info" | null;
+
 const ResetPasswordPage = () => {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
   const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<MessageType>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
   const [isSessionValid, setIsSessionValid] = useState(true);
+  const [isCompleted, setIsCompleted] = useState(false);
 
   // 1. AL CARGAR: Verificar sesión y SETEAR COOKIE
-  // Esta cookie es la señal que el Middleware buscará para bloquear otras páginas.
   useEffect(() => {
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
-      
+
       if (!data.session) {
         setIsSessionValid(false);
         setMessage("El enlace es inválido o ya fue utilizado. Solicitá uno nuevo.");
-        
-        // Si no hay sesión, borramos la cookie por seguridad para no bloquear el futuro login
+
+        // Si no hay sesión, borramos la cookie para no bloquear el futuro login
         document.cookie = "recovery_pending=; path=/; max-age=0";
       } else {
-        // 🔥 ESTA ES LA CLAVE PARA EL MIDDLEWARE:
-        // Creamos una cookie llamada 'recovery_pending' que dura 1 hora.
-        // El middleware leerá esto antes de renderizar cualquier otra página.
-        document.cookie = "recovery_pending=true; path=/; max-age=3600"; 
+        // Cookie que el middleware usa para bloquear otras páginas
+        document.cookie = "recovery_pending=true; path=/; max-age=3600";
       }
     };
     checkSession();
   }, []);
 
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!password) {
+      newErrors.password = "La contraseña es obligatoria.";
+    } else if (password.length < 6) {
+      newErrors.password = "La contraseña debe tener al menos 6 caracteres.";
+    }
+
+    if (!confirmPassword) {
+      newErrors.confirmPassword = "Debés confirmar la contraseña.";
+    } else if (password !== confirmPassword) {
+      newErrors.confirmPassword = "Las contraseñas no coinciden.";
+    }
+
+    setErrors(newErrors);
+
+    if (Object.keys(newErrors).length > 0) {
+      setMessage("Revisá los campos marcados en rojo.");
+      setMessageType("error");
+      return false;
+    }
+
+    return true;
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
+    setMessage(null);
+    setMessageType(null);
+    setErrors({});
+
     if (!isSessionValid) {
-      alert("No hay una sesión válida para cambiar la contraseña.");
+      setMessage("No hay una sesión válida para cambiar la contraseña.");
+      setMessageType("error");
       return;
     }
 
-    if (password !== confirmPassword) {
-      alert("Las contraseñas no coinciden.");
-      return;
-    }
+    const isValid = validateForm();
+    if (!isValid) return;
 
     setIsLoading(true);
-    setMessage(null);
 
     try {
-      // 2. Race Condition Fix (Tu solución para el zombie promise)
+      // 2. Race Condition Fix
       const updatePasswordPromise = async () => {
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
       };
 
-      // Timeout de seguridad de 3 segundos
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("TIMEOUT_FORCE_SUCCESS")), 3000)
       );
 
       await Promise.race([updatePasswordPromise(), timeoutPromise]);
 
-      // ---------------------------------------------------------
-      // 3. ÉXITO: BORRAR COOKIE, CERRAR SESIÓN Y SALIR
-      // ---------------------------------------------------------
-      
-      // 🔥 IMPORTANTE: Borramos la cookie para liberar al middleware
+      // 3. ÉXITO: BORRAR COOKIE, CERRAR SESIÓN Y MOSTRAR MENSAJE EN PANTALLA
       document.cookie = "recovery_pending=; path=/; max-age=0";
-
       await supabase.auth.signOut();
-      
-      alert("Contraseña actualizada con éxito. Por favor, iniciá sesión nuevamente.");
-      router.push("/login");
 
+      setMessage("Tu contraseña se actualizó correctamente. Iniciá sesión nuevamente.");
+      setMessageType("success");
+      setIsCompleted(true);
     } catch (err: any) {
-      // Manejo del Timeout Forzado (éxito asumido)
       if (err.message === "TIMEOUT_FORCE_SUCCESS") {
         console.warn("Forzando éxito por timeout.");
-        
-        // También borramos la cookie aquí
+
         document.cookie = "recovery_pending=; path=/; max-age=0";
-        
         await supabase.auth.signOut();
-        alert("Contraseña actualizada. Iniciá sesión nuevamente.");
-        router.push("/login");
-        
+
+        setMessage("Tu contraseña se actualizó correctamente. Iniciá sesión nuevamente.");
+        setMessageType("success");
+        setIsCompleted(true);
       } else {
-        // Errores reales
         console.error("[ResetPassword] error:", err);
-        const msg = typeof err?.message === "string" &&
+        const msg =
+          typeof err?.message === "string" &&
           (err.message.toLowerCase().includes("authsessionmissing") ||
-           err.message.toLowerCase().includes("session"))
+            err.message.toLowerCase().includes("session"))
             ? "El enlace ya expiró. Por favor solicitá un correo nuevo."
             : "Ocurrió un error. Intentá nuevamente.";
         setMessage(msg);
+        setMessageType("error");
       }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Si la sesión no es válida desde el inicio, bloqueamos la UI visualmente
-  if (!isSessionValid) {
-     return (
-        <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
-            <div className="bg-[#0b2545] p-10 rounded-3xl text-center border border-red-900/50">
-                <h2 className="text-xl text-red-400 font-bold mb-2">Enlace Expirado</h2>
-                <p className="text-gray-300 mb-4">Este enlace de recuperación ya no es válido.</p>
-                <button 
-                  onClick={() => router.push("/login")}
-                  className="bg-blue-600 px-4 py-2 rounded-xl text-sm"
-                >
-                  Volver al inicio
-                </button>
-            </div>
-        </section>
-     )
+  // Vista cuando la sesión del enlace es inválida
+  if (!isSessionValid && !isCompleted) {
+    return (
+      <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
+        <div className="bg-[#0b2545] p-10 rounded-3xl text-center border border-red-900/50 max-w-md w-full">
+          <h2 className="text-xl text-red-400 font-bold mb-2">Enlace Expirado</h2>
+          <p className="text-gray-300 mb-4">
+            Este enlace de recuperación ya no es válido.
+          </p>
+          <button
+            onClick={() => router.push("/login")}
+            className="bg-blue-600 px-4 py-2 rounded-xl text-sm hover:bg-blue-700 transition"
+          >
+            Volver al inicio
+          </button>
+        </div>
+      </section>
+    );
   }
 
+  // Vista de éxito después de actualizar la contraseña
+  if (isCompleted && message) {
+    return (
+      <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
+        >
+          <Image
+            src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
+            alt="Versori Logo"
+            width={90}
+            height={90}
+            className="mx-auto mb-6 opacity-90"
+          />
+
+          <h1 className="text-3xl font-bold mb-4">Contraseña actualizada</h1>
+
+          <div className="mb-6 text-sm p-3 rounded-xl border bg-emerald-500/10 text-emerald-300 border-emerald-500/40">
+            {message}
+          </div>
+
+          <button
+            onClick={() => router.push("/login")}
+            className="bg-blue-600 hover:bg-blue-700 transition-all py-3 px-6 rounded-xl font-semibold text-white"
+          >
+            Ir a iniciar sesión
+          </button>
+        </motion.div>
+      </section>
+    );
+  }
+
+  // Vista normal de formulario
   return (
     <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
       <motion.div
@@ -145,10 +208,24 @@ const ResetPasswordPage = () => {
         </p>
 
         {message && (
-          <p className="text-sm text-red-300 mb-4 text-left">{message}</p>
+          <div
+            className={`mb-4 text-sm p-3 rounded-xl text-left border ${
+              messageType === "error"
+                ? "bg-red-500/10 text-red-300 border-red-500/40"
+                : messageType === "success"
+                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
+                : "bg-blue-500/10 text-blue-200 border-blue-500/40"
+            }`}
+          >
+            {message}
+          </div>
         )}
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
+        <form
+          noValidate
+          onSubmit={handleSubmit}
+          className="flex flex-col gap-4 text-left"
+        >
           <div>
             <label className="block text-sm text-gray-300 mb-1">
               Nueva contraseña
@@ -156,10 +233,17 @@ const ResetPasswordPage = () => {
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full p-3 rounded-xl bg-[#112d57] border border-blue-900/40 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setErrors((prev) => ({ ...prev, password: "" }));
+              }}
+              className={`w-full p-3 rounded-xl bg-[#112d57] border ${
+                errors.password ? "border-red-500" : "border-blue-900/40"
+              } text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600`}
             />
+            {errors.password && (
+              <p className="mt-1 text-xs text-red-400">{errors.password}</p>
+            )}
           </div>
 
           <div>
@@ -169,10 +253,19 @@ const ResetPasswordPage = () => {
             <input
               type="password"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              className="w-full p-3 rounded-xl bg-[#112d57] border border-blue-900/40 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                setErrors((prev) => ({ ...prev, confirmPassword: "" }));
+              }}
+              className={`w-full p-3 rounded-xl bg-[#112d57] border ${
+                errors.confirmPassword ? "border-red-500" : "border-blue-900/40"
+              } text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600`}
             />
+            {errors.confirmPassword && (
+              <p className="mt-1 text-xs text-red-400">
+                {errors.confirmPassword}
+              </p>
+            )}
           </div>
 
           <button
@@ -180,7 +273,7 @@ const ResetPasswordPage = () => {
             disabled={isLoading}
             className="mt-4 bg-blue-600 hover:bg-blue-700 transition-all py-3 rounded-xl font-semibold text-white disabled:bg-blue-800 disabled:cursor-not-allowed"
           >
-            {isLoading ? "Actualizando..." : "Actualizar y Salir"}
+            {isLoading ? "Actualizando..." : "Actualizar y salir"}
           </button>
         </form>
       </motion.div>
