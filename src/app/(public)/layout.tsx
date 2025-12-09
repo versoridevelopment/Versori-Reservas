@@ -3,7 +3,6 @@ import "../globals.css";
 import Navbar from "@/app/(public)/components/layout/Navbar";
 import Footer from "@/app/(public)/components/layout/Footer";
 import { getCurrentClub } from "@/lib/getCurrentClub";
-import RecoveryGuard from "@/app/(public)/components//RecoveryGuard";
 
 export default async function RootLayout({
   children,
@@ -17,8 +16,7 @@ export default async function RootLayout({
   return (
     <html lang="es">
       <body className="relative min-h-screen text-white bg-black">
-        {/* 👇 2. Lo colocamos aquí para que vigile la navegación en todo el sitio */}
-        <RecoveryGuard />
+
 
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
         <Navbar club={club} />

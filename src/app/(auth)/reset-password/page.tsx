@@ -12,26 +12,25 @@ const ResetPasswordPage = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  
-  // Estado para saber si la sesión inicial del link es válida
   const [isSessionValid, setIsSessionValid] = useState(true);
 
-  // 1. Verificar al cargar si el link es válido Y activar el "Cerrojo"
+  // 1. AL CARGAR: Verificar sesión y SETEAR COOKIE
+  // Esta cookie es la señal que el Middleware buscará para bloquear otras páginas.
   useEffect(() => {
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
       
       if (!data.session) {
-        // Si no hay sesión, el link murió.
         setIsSessionValid(false);
         setMessage("El enlace es inválido o ya fue utilizado. Solicitá uno nuevo.");
         
-        // Importante: Si no hay sesión, limpiamos la marca por seguridad para no bloquear futuros logins normales
-        localStorage.removeItem('recovery_pending');
+        // Si no hay sesión, borramos la cookie por seguridad para no bloquear el futuro login
+        document.cookie = "recovery_pending=; path=/; max-age=0";
       } else {
-        // 🔥 NUEVO: Si la sesión es válida, marcamos al usuario localmente.
-        // El RecoveryGuard leerá esto y bloqueará la navegación a otras páginas.
-        localStorage.setItem('recovery_pending', 'true');
+        // 🔥 ESTA ES LA CLAVE PARA EL MIDDLEWARE:
+        // Creamos una cookie llamada 'recovery_pending' que dura 1 hora.
+        // El middleware leerá esto antes de renderizar cualquier otra página.
+        document.cookie = "recovery_pending=true; path=/; max-age=3600"; 
       }
     };
     checkSession();
@@ -41,7 +40,7 @@ const ResetPasswordPage = () => {
     e.preventDefault();
 
     if (!isSessionValid) {
-      alert("No hay una sesión válida para cambiar la contraseña. Solicitá un correo nuevo.");
+      alert("No hay una sesión válida para cambiar la contraseña.");
       return;
     }
 
@@ -60,6 +59,7 @@ const ResetPasswordPage = () => {
         if (error) throw error;
       };
 
+      // Timeout de seguridad de 3 segundos
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("TIMEOUT_FORCE_SUCCESS")), 3000)
       );
@@ -67,13 +67,12 @@ const ResetPasswordPage = () => {
       await Promise.race([updatePasswordPromise(), timeoutPromise]);
 
       // ---------------------------------------------------------
-      // 3. ÉXITO: Liberar al usuario, cerrar sesión y redirigir
+      // 3. ÉXITO: BORRAR COOKIE, CERRAR SESIÓN Y SALIR
       // ---------------------------------------------------------
       
-      // 🔥 NUEVO: Quitamos la marca para permitir la navegación futura
-      localStorage.removeItem('recovery_pending');
+      // 🔥 IMPORTANTE: Borramos la cookie para liberar al middleware
+      document.cookie = "recovery_pending=; path=/; max-age=0";
 
-      // Cerramos la sesión actual (recovery session)
       await supabase.auth.signOut();
       
       alert("Contraseña actualizada con éxito. Por favor, iniciá sesión nuevamente.");
@@ -84,8 +83,8 @@ const ResetPasswordPage = () => {
       if (err.message === "TIMEOUT_FORCE_SUCCESS") {
         console.warn("Forzando éxito por timeout.");
         
-        // 🔥 NUEVO: También liberamos aquí si fue timeout
-        localStorage.removeItem('recovery_pending');
+        // También borramos la cookie aquí
+        document.cookie = "recovery_pending=; path=/; max-age=0";
         
         await supabase.auth.signOut();
         alert("Contraseña actualizada. Iniciá sesión nuevamente.");
