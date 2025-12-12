@@ -16,6 +16,8 @@ function PreviewCard(props: {
   color_texto: string;
   texto_bienvenida_titulo: string;
   texto_bienvenida_subtitulo: string;
+  logoPreview?: string | null;
+  heroPreview?: string | null;
 }) {
   const {
     nombre,
@@ -27,6 +29,8 @@ function PreviewCard(props: {
     color_texto,
     texto_bienvenida_titulo,
     texto_bienvenida_subtitulo,
+    logoPreview,
+    heroPreview,
   } = props;
 
   return (
@@ -45,32 +49,79 @@ function PreviewCard(props: {
         <div className="mt-1 text-sm opacity-90">
           {texto_bienvenida_subtitulo || "Subtítulo de bienvenida"}
         </div>
-
         <div className="mt-4 text-xs opacity-90">
           {nombre || "Nombre del club"} · {subdominio || "subdominio"}
         </div>
       </div>
 
-      <div className="p-5 space-y-3">
-        <div className="text-sm text-gray-700">
-          <span className="font-semibold">Logo URL:</span>{" "}
-          <span className="break-all">{logo_url || "-"}</span>
+      <div className="p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-gray-200 p-3">
+            <div className="text-xs font-semibold text-gray-700">Logo</div>
+            <div className="mt-2">
+              {/* preview si hay file, sino url */}
+              {logoPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoPreview} alt="logo preview" className="h-20 w-20 object-cover rounded-lg border" />
+              ) : (
+                <div className="text-xs text-gray-500 break-all">{logo_url || "-"}</div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 p-3">
+            <div className="text-xs font-semibold text-gray-700">Hero</div>
+            <div className="mt-2">
+              {heroPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={heroPreview} alt="hero preview" className="h-20 w-full object-cover rounded-lg border" />
+              ) : (
+                <div className="text-xs text-gray-500 break-all">{imagen_hero_url || "-"}</div>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="text-sm text-gray-700">
-          <span className="font-semibold">Hero URL:</span>{" "}
-          <span className="break-all">{imagen_hero_url || "-"}</span>
-        </div>
+
         <div className="text-xs text-gray-500">
-          Siguiente paso: reemplazar URLs por upload a Storage.
+          Si seleccionás archivos, se suben a Storage al crear el club.
         </div>
       </div>
     </div>
   );
 }
 
+async function uploadClubImages(idClub: number, logoFile?: File | null, heroFile?: File | null) {
+  const fd = new FormData();
+  if (logoFile) fd.append("logo", logoFile);
+  if (heroFile) fd.append("hero", heroFile);
+
+  const res = await fetch(`/api/superadmin/clubes/${idClub}/upload`, {
+    method: "POST",
+    body: fd,
+  });
+
+  if (!res.ok) {
+    const e = await res.json().catch(() => null);
+    throw new Error(e?.error || "Error subiendo imágenes");
+  }
+
+  return res.json() as Promise<{
+    ok: boolean;
+    id_club: number;
+    logo_url: string | null;
+    imagen_hero_url: string | null;
+  }>;
+}
+
 export default function NuevoClubPage() {
   const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
+
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [heroFile, setHeroFile] = useState<File | null>(null);
+
+  const logoPreview = useMemo(() => (logoFile ? URL.createObjectURL(logoFile) : null), [logoFile]);
+  const heroPreview = useMemo(() => (heroFile ? URL.createObjectURL(heroFile) : null), [heroFile]);
 
   const [form, setForm] = useState({
     nombre: "",
@@ -108,6 +159,7 @@ export default function NuevoClubPage() {
 
     setIsSaving(true);
     try {
+      // 1) Crear club (devuelve id_club)
       const res = await fetch("/api/superadmin/clubes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -119,7 +171,14 @@ export default function NuevoClubPage() {
         throw new Error(err?.error || "No se pudo crear el club");
       }
 
-      const created = await res.json();
+      const created = await res.json(); // debe traer { id_club, ... }
+
+      // 2) Si hay archivos, subir a Storage y actualizar DB (vía API upload)
+      if (logoFile || heroFile) {
+        await uploadClubImages(created.id_club, logoFile, heroFile);
+      }
+
+      // 3) Ir a edición
       router.push(`/superadmin/clubes/${created.id_club}`);
     } catch (err: any) {
       alert(err?.message || "Error al crear club");
@@ -130,38 +189,28 @@ export default function NuevoClubPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">
-            Crear nuevo club
-          </h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">Crear nuevo club</h1>
           <p className="text-sm text-gray-600 mt-1">
-            Este alta crea también las carpetas base en Storage (public-media).
+            Podés pegar URLs o subir archivos (recomendado).
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <Link
-            href="/superadmin/clubes"
-            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50"
-          >
-            Volver
-          </Link>
-        </div>
+        <Link
+          href="/superadmin/clubes"
+          className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50"
+        >
+          Volver
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Form */}
-        <form
-          onSubmit={onSubmit}
-          className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-4"
-        >
+        <form onSubmit={onSubmit} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Nombre / Subdominio */}
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Nombre
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Nombre</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
                 value={form.nombre}
@@ -170,19 +219,14 @@ export default function NuevoClubPage() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Subdominio
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Subdominio</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm font-mono"
                 value={form.subdominio}
                 onChange={(e) =>
                   setField(
                     "subdominio",
-                    e.target.value
-                      .toLowerCase()
-                      .replace(/\s+/g, "")
-                      .replace(/[^a-z0-9-]/g, "")
+                    e.target.value.toLowerCase().replace(/\s+/g, "").replace(/[^a-z0-9-]/g, "")
                   )
                 }
               />
@@ -191,10 +235,32 @@ export default function NuevoClubPage() {
               </div>
             </div>
 
+            {/* Upload logo/hero */}
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Logo URL
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Logo (archivo)</label>
+              <input
+                type="file"
+                accept="image/*"
+                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
+                onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
+              />
+              <div className="mt-1 text-xs text-gray-500">Opcional. Si subís, pisa logo_url.</div>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-gray-700">Hero (archivo)</label>
+              <input
+                type="file"
+                accept="image/*"
+                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
+                onChange={(e) => setHeroFile(e.target.files?.[0] || null)}
+              />
+              <div className="mt-1 text-xs text-gray-500">Opcional. Si subís, pisa imagen_hero_url.</div>
+            </div>
+
+            {/* URLs (quedan por ahora) */}
+            <div>
+              <label className="text-sm font-semibold text-gray-700">Logo URL</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
                 value={form.logo_url}
@@ -203,9 +269,7 @@ export default function NuevoClubPage() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Hero URL
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Hero URL</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
                 value={form.imagen_hero_url}
@@ -213,10 +277,9 @@ export default function NuevoClubPage() {
               />
             </div>
 
+            {/* Colores */}
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Color primario
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Color primario</label>
               <input
                 type="color"
                 className="mt-1 h-10 w-full rounded-xl border border-gray-200 p-1"
@@ -226,9 +289,7 @@ export default function NuevoClubPage() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Color secundario
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Color secundario</label>
               <input
                 type="color"
                 className="mt-1 h-10 w-full rounded-xl border border-gray-200 p-1"
@@ -238,9 +299,7 @@ export default function NuevoClubPage() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Color texto
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Color texto</label>
               <input
                 type="color"
                 className="mt-1 h-10 w-full rounded-xl border border-gray-200 p-1"
@@ -249,29 +308,22 @@ export default function NuevoClubPage() {
               />
             </div>
 
+            {/* Textos */}
             <div className="md:col-span-2">
-              <label className="text-sm font-semibold text-gray-700">
-                Texto bienvenida (título)
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Texto bienvenida (título)</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
                 value={form.texto_bienvenida_titulo}
-                onChange={(e) =>
-                  setField("texto_bienvenida_titulo", e.target.value)
-                }
+                onChange={(e) => setField("texto_bienvenida_titulo", e.target.value)}
               />
             </div>
 
             <div className="md:col-span-2">
-              <label className="text-sm font-semibold text-gray-700">
-                Texto bienvenida (subtítulo)
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Texto bienvenida (subtítulo)</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
                 value={form.texto_bienvenida_subtitulo}
-                onChange={(e) =>
-                  setField("texto_bienvenida_subtitulo", e.target.value)
-                }
+                onChange={(e) => setField("texto_bienvenida_subtitulo", e.target.value)}
               />
             </div>
           </div>
@@ -294,8 +346,7 @@ export default function NuevoClubPage() {
           </div>
         </form>
 
-        {/* Preview */}
-        <PreviewCard {...form} />
+        <PreviewCard {...form} logoPreview={logoPreview} heroPreview={heroPreview} />
       </div>
     </div>
   );

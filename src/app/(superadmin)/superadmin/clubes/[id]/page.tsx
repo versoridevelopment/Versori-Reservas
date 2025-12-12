@@ -21,6 +21,33 @@ type Club = {
 
 type ApiError = { error: string };
 
+async function uploadClubImages(
+  idClub: number,
+  logoFile?: File | null,
+  heroFile?: File | null
+) {
+  const fd = new FormData();
+  if (logoFile) fd.append("logo", logoFile);
+  if (heroFile) fd.append("hero", heroFile);
+
+  const res = await fetch(`/api/superadmin/clubes/${idClub}/upload`, {
+    method: "POST",
+    body: fd,
+  });
+
+  if (!res.ok) {
+    const e = await res.json().catch(() => null);
+    throw new Error(e?.error || "Error subiendo imágenes");
+  }
+
+  return res.json() as Promise<{
+    ok: boolean;
+    id_club: number;
+    logo_url: string | null;
+    imagen_hero_url: string | null;
+  }>;
+}
+
 function PreviewCard(props: {
   nombre: string;
   subdominio: string;
@@ -32,6 +59,8 @@ function PreviewCard(props: {
   texto_bienvenida_titulo: string;
   texto_bienvenida_subtitulo: string;
   estado: boolean;
+  logoPreview?: string | null;
+  heroPreview?: string | null;
 }) {
   const {
     nombre,
@@ -44,6 +73,8 @@ function PreviewCard(props: {
     texto_bienvenida_titulo,
     texto_bienvenida_subtitulo,
     estado,
+    logoPreview,
+    heroPreview,
   } = props;
 
   return (
@@ -70,14 +101,48 @@ function PreviewCard(props: {
         </div>
       </div>
 
-      <div className="p-5 space-y-3">
-        <div className="text-sm text-gray-700">
-          <span className="font-semibold">Logo URL:</span>{" "}
-          <span className="break-all">{logo_url || "-"}</span>
+      <div className="p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-gray-200 p-3">
+            <div className="text-xs font-semibold text-gray-700">Logo</div>
+            <div className="mt-2">
+              {logoPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={logoPreview}
+                  alt="logo preview"
+                  className="h-20 w-20 object-cover rounded-lg border"
+                />
+              ) : (
+                <div className="text-xs text-gray-500 break-all">
+                  {logo_url || "-"}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 p-3">
+            <div className="text-xs font-semibold text-gray-700">Hero</div>
+            <div className="mt-2">
+              {heroPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={heroPreview}
+                  alt="hero preview"
+                  className="h-20 w-full object-cover rounded-lg border"
+                />
+              ) : (
+                <div className="text-xs text-gray-500 break-all">
+                  {imagen_hero_url || "-"}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="text-sm text-gray-700">
-          <span className="font-semibold">Hero URL:</span>{" "}
-          <span className="break-all">{imagen_hero_url || "-"}</span>
+
+        <div className="text-xs text-gray-500">
+          Si elegís archivos, al guardar se suben a Storage y se actualizan las
+          URLs del club.
         </div>
       </div>
     </div>
@@ -91,12 +156,27 @@ export default function EditarClubPage({
 }) {
   const router = useRouter();
   const id = params.id;
+  const idClub = Number(id);
 
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
   const [club, setClub] = useState<Club | null>(null);
   const [form, setForm] = useState<Club | null>(null);
+
+  // Archivos seleccionados
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [heroFile, setHeroFile] = useState<File | null>(null);
+
+  // Preview local
+  const logoPreview = useMemo(
+    () => (logoFile ? URL.createObjectURL(logoFile) : null),
+    [logoFile]
+  );
+  const heroPreview = useMemo(
+    () => (heroFile ? URL.createObjectURL(heroFile) : null),
+    [heroFile]
+  );
 
   const canSubmit = useMemo(() => {
     if (!form) return false;
@@ -120,7 +200,11 @@ export default function EditarClubPage({
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/superadmin/clubes/${id}`, {
+      if (!idClub || Number.isNaN(idClub)) {
+        throw new Error("ID de club inválido");
+      }
+
+      const res = await fetch(`/api/superadmin/clubes/${idClub}`, {
         cache: "no-store",
       });
 
@@ -132,6 +216,10 @@ export default function EditarClubPage({
       const data = (await res.json()) as Club;
       setClub(data);
       setForm({ ...data });
+
+      // limpiar archivos al recargar
+      setLogoFile(null);
+      setHeroFile(null);
     } catch (err: any) {
       alert(err?.message || "Error al cargar club");
       router.push("/superadmin/clubes");
@@ -143,7 +231,7 @@ export default function EditarClubPage({
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [idClub]);
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
@@ -151,16 +239,17 @@ export default function EditarClubPage({
 
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/superadmin/clubes/${id}`, {
+      // 1) Guardar datos base del club (texto/colores/estado)
+      const res = await fetch(`/api/superadmin/clubes/${idClub}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nombre: form.nombre,
           subdominio: form.subdominio,
-          logo_url: form.logo_url,
+          logo_url: form.logo_url, // si sube archivo, luego se pisa desde /upload
           color_primario: form.color_primario,
           color_secundario: form.color_secundario,
-          imagen_hero_url: form.imagen_hero_url,
+          imagen_hero_url: form.imagen_hero_url, // idem
           color_texto: form.color_texto,
           texto_bienvenida_titulo: form.texto_bienvenida_titulo,
           texto_bienvenida_subtitulo: form.texto_bienvenida_subtitulo,
@@ -173,9 +262,14 @@ export default function EditarClubPage({
         throw new Error(err?.error || "No se pudo guardar el club");
       }
 
-      const updated = (await res.json()) as Club;
-      setClub(updated);
-      setForm({ ...updated });
+      // 2) Si hay archivos, subirlos y actualizar URLs en DB
+      if (logoFile || heroFile) {
+        await uploadClubImages(idClub, logoFile, heroFile);
+      }
+
+      // 3) Recargar para reflejar URLs finales y limpiar selección
+      await load();
+
       alert("Cambios guardados.");
     } catch (err: any) {
       alert(err?.message || "Error al guardar");
@@ -188,7 +282,7 @@ export default function EditarClubPage({
     if (!confirm("¿Desactivar este club? (baja lógica)")) return;
 
     try {
-      const res = await fetch(`/api/superadmin/clubes/${id}`, {
+      const res = await fetch(`/api/superadmin/clubes/${idClub}`, {
         method: "DELETE",
       });
 
@@ -205,7 +299,7 @@ export default function EditarClubPage({
 
   async function onActivar() {
     try {
-      const res = await fetch(`/api/superadmin/clubes/${id}`, {
+      const res = await fetch(`/api/superadmin/clubes/${idClub}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado: true }),
@@ -276,6 +370,7 @@ export default function EditarClubPage({
           className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-4"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Nombre / Subdominio */}
             <div>
               <label className="text-sm font-semibold text-gray-700">
                 Nombre
@@ -306,6 +401,38 @@ export default function EditarClubPage({
               />
             </div>
 
+            {/* Upload logo/hero */}
+            <div>
+              <label className="text-sm font-semibold text-gray-700">
+                Logo (archivo)
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
+                onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
+              />
+              <div className="mt-1 text-xs text-gray-500">
+                Opcional. Si subís, pisa logo_url al guardar.
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-gray-700">
+                Hero (archivo)
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
+                onChange={(e) => setHeroFile(e.target.files?.[0] || null)}
+              />
+              <div className="mt-1 text-xs text-gray-500">
+                Opcional. Si subís, pisa imagen_hero_url al guardar.
+              </div>
+            </div>
+
+            {/* URLs (se mantienen por compatibilidad) */}
             <div>
               <label className="text-sm font-semibold text-gray-700">
                 Logo URL
@@ -328,6 +455,7 @@ export default function EditarClubPage({
               />
             </div>
 
+            {/* Colores */}
             <div>
               <label className="text-sm font-semibold text-gray-700">
                 Color primario
@@ -364,6 +492,7 @@ export default function EditarClubPage({
               />
             </div>
 
+            {/* Textos */}
             <div className="md:col-span-2">
               <label className="text-sm font-semibold text-gray-700">
                 Texto bienvenida (título)
@@ -432,6 +561,8 @@ export default function EditarClubPage({
           texto_bienvenida_titulo={form.texto_bienvenida_titulo}
           texto_bienvenida_subtitulo={form.texto_bienvenida_subtitulo}
           estado={form.estado}
+          logoPreview={logoPreview}
+          heroPreview={heroPreview}
         />
       </div>
     </div>
