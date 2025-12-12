@@ -11,11 +11,11 @@ interface CanchaCardProps {
   slug: string;
 
   // Extras (opcionales pero recomendados)
-  deporte?: string;              // "padel" | "futbol"
-  tipo?: string;                 // "futbol_5", "padel_standard", etc.
-  capacidad?: number | null;     // 4, 10, 14...
-  precioHora?: number;           // 5000, 7000...
-  esExterior?: boolean;          // true = exterior, false = techada
+  deporte?: string; // "padel" | "futbol"
+  tipo?: string; // "futbol_5", "padel_standard", etc.
+  capacidad?: number | null; // 4, 10, 14...
+  precioHora?: number; // 5000, 7000...
+  esExterior?: boolean; // true = exterior, false = techada
 }
 
 export default function CanchaCard({
@@ -50,17 +50,24 @@ export default function CanchaCard({
       : null;
 
   const ambienteLabel =
-    esExterior === undefined
-      ? null
-      : esExterior
-      ? "Exterior"
-      : "Interior / Techada";
+    esExterior === undefined ? null : esExterior ? "Exterior" : "Interior / Techada";
 
   const deporteBadgeClasses = isPadel
     ? "bg-emerald-500/10 text-emerald-300 border-emerald-400/40"
     : isFutbol
     ? "bg-orange-500/10 text-orange-300 border-orange-400/40"
     : "bg-sky-500/10 text-sky-300 border-sky-400/40";
+
+  /**
+   * IMPORTANTÍSIMO:
+   * - next/image requiere que el hostname esté permitido en next.config.js
+   * - Saneamos la URL por si viene con espacios o nullish
+   * - Si no hay imagen válida, usamos fallback local
+   */
+  const safeImage =
+    typeof imagen === "string" && imagen.trim().length > 0
+      ? imagen.trim()
+      : "/reserva/cancha_interior.jpg";
 
   return (
     <Link href={`/reserva/${slug}`} className="block">
@@ -73,11 +80,13 @@ export default function CanchaCard({
         {/* Imagen principal */}
         <div className="relative w-full h-48">
           <Image
-            src={imagen}
+            src={safeImage}
             alt={nombre}
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-500"
             sizes="(max-width: 768px) 100vw, 33vw"
+            priority={false}
+            loading="lazy"
           />
 
           {/* Etiqueta de ambiente (interior / exterior) */}
@@ -136,9 +145,7 @@ export default function CanchaCard({
                 <span className="text-base md:text-lg font-extrabold text-blue-100">
                   {formattedPrice}
                 </span>
-                <span className="ml-1 text-[0.7rem] text-blue-200/80">
-                  / hora
-                </span>
+                <span className="ml-1 text-[0.7rem] text-blue-200/80">/ hora</span>
               </div>
             )}
           </div>

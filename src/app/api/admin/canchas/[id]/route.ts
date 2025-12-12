@@ -1,6 +1,10 @@
 // src/app/api/admin/canchas/[id]/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
+import {
+  uploadCanchaImage,
+  extractPathFromPublicUrl,
+} from "@/lib/storage/uploadCanchaImage";
 
 export const runtime = "nodejs";
 
@@ -16,16 +20,13 @@ function parseId(params: { id?: string }) {
 
 /**
  * GET /api/admin/canchas/:id
- * Devuelve una cancha (sea estado true o false)
  */
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } }
 ) {
   const { id, error: parseError } = parseId(params);
-  if (parseError) {
-    return NextResponse.json({ error: parseError }, { status: 400 });
-  }
+  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
 
   try {
     const { data, error } = await supabaseAdmin
@@ -35,54 +36,99 @@ export async function GET(
       .single();
 
     if (error || !data) {
-      return NextResponse.json(
-        { error: "Cancha no encontrada" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Cancha no encontrada" }, { status: 404 });
     }
 
     return NextResponse.json(data);
   } catch (err) {
     console.error("[ADMIN GET /canchas/:id] ex:", err);
-    return NextResponse.json(
-      { error: "Error interno" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
 
 /**
  * PATCH /api/admin/canchas/:id
- * Actualiza campos y permite reactivar/desactivar (estado true/false)
+ * - JSON o multipart/form-data
+ * - Si viene file "imagen": sube a club_{id_club}/canchas/..., actualiza imagen_url y borra anterior (best-effort)
  */
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } }
 ) {
   const { id, error: parseError } = parseId(params);
-  if (parseError) {
-    return NextResponse.json({ error: parseError }, { status: 400 });
-  }
+  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
 
   try {
-    const body = await req.json();
-
-    const allowed = [
-      "nombre",
-      "descripcion",
-      "precio_hora",
-      "imagen_url",
-      "es_exterior",
-      "activa",
-      "id_tipo_cancha",
-      "estado", // el admin puede poner estado=true (reactivar) o estado=false (desactivar)
-    ];
-
+    const contentType = req.headers.get("content-type") || "";
     const updateData: any = {};
 
-    for (const key of allowed) {
-      if (body[key] !== undefined) {
-        updateData[key] = body[key];
+    let oldImagePath: string | null = null;
+    let idClubForSafety: number | null = null;
+
+    if (contentType.includes("multipart/form-data")) {
+      const form = await req.formData();
+
+      const nombre = form.get("nombre");
+      const descripcion = form.get("descripcion");
+      const precio_hora = form.get("precio_hora");
+      const es_exterior = form.get("es_exterior");
+      const activa = form.get("activa");
+      const id_tipo_cancha = form.get("id_tipo_cancha");
+      const estado = form.get("estado");
+
+      if (nombre !== null) updateData.nombre = String(nombre);
+      if (descripcion !== null) updateData.descripcion = String(descripcion);
+      if (precio_hora !== null) updateData.precio_hora = Number(precio_hora);
+      if (es_exterior !== null) updateData.es_exterior = String(es_exterior) === "true";
+      if (activa !== null) updateData.activa = String(activa) === "true";
+      if (id_tipo_cancha !== null) updateData.id_tipo_cancha = Number(id_tipo_cancha);
+      if (estado !== null) updateData.estado = String(estado) === "true";
+
+      const file = form.get("imagen");
+      if (file && file instanceof File && file.size > 0) {
+        // 1) Traer id_club + imagen_url actual
+        const { data: canchaActual, error: canchaActualError } = await supabaseAdmin
+          .from("canchas")
+          .select("id_club, imagen_url")
+          .eq("id_cancha", id)
+          .single();
+
+        if (canchaActualError || !canchaActual) {
+          return NextResponse.json(
+            { error: "No se pudo obtener la cancha actual para reemplazar imagen" },
+            { status: 400 }
+          );
+        }
+
+        const id_club_db = canchaActual.id_club as number;
+        idClubForSafety = id_club_db;
+
+        const oldUrl = (canchaActual.imagen_url as string | null) ?? null;
+        oldImagePath = oldUrl ? extractPathFromPublicUrl(oldUrl, "public-media") : null;
+
+        // 2) Subir nueva imagen (IMPORTANTE: path correcto club_{id}/canchas/..)
+        const uploaded = await uploadCanchaImage({ id_club: id_club_db, file });
+        updateData.imagen_url = uploaded.publicUrl;
+      } else {
+        // opcional: permitir setear imagen_url manual
+        const imagen_url = form.get("imagen_url");
+        if (imagen_url !== null) updateData.imagen_url = String(imagen_url);
+      }
+    } else {
+      // JSON
+      const body = await req.json();
+      const allowed = [
+        "nombre",
+        "descripcion",
+        "precio_hora",
+        "imagen_url",
+        "es_exterior",
+        "activa",
+        "id_tipo_cancha",
+        "estado",
+      ];
+      for (const key of allowed) {
+        if (body[key] !== undefined) updateData[key] = body[key];
       }
     }
 
@@ -102,39 +148,58 @@ export async function PATCH(
 
     if (error) {
       console.error("[ADMIN PATCH /canchas/:id] error:", error);
-      return NextResponse.json(
-        { error: "Error al actualizar la cancha" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Error al actualizar la cancha" }, { status: 500 });
+    }
+
+    // 3) Borrar imagen anterior (best-effort), validando que sea del club y carpeta correcta
+    if (oldImagePath && typeof oldImagePath === "string") {
+      const expectedPrefix =
+        idClubForSafety !== null ? `club_${idClubForSafety}/canchas/` : "club_";
+
+      // Seguridad: solo borramos si está dentro del árbol club_X/canchas/
+      const okToDelete =
+        idClubForSafety !== null
+          ? oldImagePath.startsWith(expectedPrefix)
+          : oldImagePath.includes("/canchas/") && oldImagePath.startsWith("club_");
+
+      if (okToDelete) {
+        const { error: removeError } = await supabaseAdmin.storage
+          .from("public-media")
+          .remove([oldImagePath]);
+
+        if (removeError) {
+          console.warn("[ADMIN PATCH /canchas/:id] remove old image error:", removeError);
+          // best-effort: no rompemos la respuesta
+        }
+      } else {
+        console.warn(
+          "[ADMIN PATCH /canchas/:id] skip remove (path fuera de club/canchas):",
+          oldImagePath
+        );
+      }
     }
 
     return NextResponse.json(data);
   } catch (err) {
     console.error("[ADMIN PATCH /canchas/:id] ex:", err);
-    return NextResponse.json(
-      { error: "Error interno" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
 
 /**
- * DELETE /api/admin/canchas/:id
- * BAJA LÓGICA → estado = false
+ * DELETE /api/admin/canchas/:id (baja lógica)
  */
 export async function DELETE(
   _req: Request,
   { params }: { params: { id: string } }
 ) {
   const { id, error: parseError } = parseId(params);
-  if (parseError) {
-    return NextResponse.json({ error: parseError }, { status: 400 });
-  }
+  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
 
   try {
     const { error } = await supabaseAdmin
       .from("canchas")
-      .update({ estado: false }) // baja lógica
+      .update({ estado: false })
       .eq("id_cancha", id);
 
     if (error) {
@@ -145,15 +210,9 @@ export async function DELETE(
       );
     }
 
-    return NextResponse.json(
-      { message: "Cancha desactivada (estado = 0)" },
-      { status: 200 }
-    );
+    return NextResponse.json({ message: "Cancha desactivada (estado = 0)" }, { status: 200 });
   } catch (err) {
     console.error("[ADMIN DELETE /canchas/:id] ex:", err);
-    return NextResponse.json(
-      { error: "Error interno" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }

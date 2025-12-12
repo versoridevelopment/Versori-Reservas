@@ -26,7 +26,7 @@ interface ReservaClientProps {
 export default function ReservaClient({ club, canchas }: ReservaClientProps) {
   return (
     <section className="min-h-screen bg-gradient-to-b from-[#001a33] to-[#003366] py-24 px-6 text-white flex flex-col items-center">
-      {/* Header con datos del club */}
+      {/* Header */}
       <motion.div
         className="mb-10 text-center max-w-3xl"
         initial={{ opacity: 0, y: -30 }}
@@ -36,16 +36,18 @@ export default function ReservaClient({ club, canchas }: ReservaClientProps) {
         <p className="text-sm uppercase tracking-[0.3em] text-blue-200 mb-3">
           {club.nombre}
         </p>
+
         <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight drop-shadow-lg mb-3">
           Selecciona tu cancha
         </h1>
+
         <p className="text-sm md:text-base text-blue-100">
           {club.texto_bienvenida_subtitulo ||
             "Elegí la cancha, el día y el horario que mejor se adapten a tu juego."}
         </p>
       </motion.div>
 
-      {/* Grid de canchas */}
+      {/* Grid */}
       <motion.div
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 w-full max-w-6xl"
         initial={{ opacity: 0, y: 20 }}
@@ -64,8 +66,7 @@ export default function ReservaClient({ club, canchas }: ReservaClientProps) {
             capacidad={cancha.capacidad}
             precioHora={cancha.precioHora}
             esExterior={cancha.esExterior}
-            />
-
+          />
         ))}
 
         {canchas.length === 0 && (

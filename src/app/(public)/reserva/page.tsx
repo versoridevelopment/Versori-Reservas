@@ -19,11 +19,9 @@ type CanchaFromApi = {
 export default async function ReservaPage() {
   // 1) Club actual según subdominio (multi-tenant)
   const club = await getCurrentClub();
-  if (!club) {
-    notFound();
-  }
+  if (!club) notFound();
 
-  // 2) Obtener canchas usando la misma lógica que la API, pero directo (sin fetch HTTP)
+  // 2) Obtener canchas del club (estado=true y activa=true ya lo filtra tu lib)
   let apiData: CanchaFromApi[] = [];
   try {
     apiData = (await getCanchasBySubdomain(club.subdominio)) as CanchaFromApi[];
@@ -32,18 +30,16 @@ export default async function ReservaPage() {
     throw new Error("No se pudieron cargar las canchas.");
   }
 
-  // 3) Mapear al formato que usará el componente cliente
+  // 3) Mapeo a UI
   const canchas = apiData.map((c) => ({
     id: c.id_cancha,
     nombre: c.nombre,
     descripcion:
       c.descripcion ??
       `${c.deporte_nombre.toUpperCase()} · ${c.tipo_nombre}${
-        c.capacidad_jugadores
-          ? ` · ${c.capacidad_jugadores} jugadores`
-          : ""
+        c.capacidad_jugadores ? ` · ${c.capacidad_jugadores} jugadores` : ""
       }`,
-    imagen: c.imagen_url || "/reserva/cancha_interior.jpg",
+    imagen: c.imagen_url || "/reserva/cancha_interior.jpg", // fallback local
     slug: `cancha-${c.id_cancha}`,
     deporte: c.deporte_nombre,
     tipo: c.tipo_nombre,
