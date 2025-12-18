@@ -116,6 +116,12 @@ export function Sidebar() {
                 >
                   Canchas
                 </Link>
+                <Link
+                  href="/admin/personalizacion/tarifas"
+                  className="block px-2 py-1 text-sm text-gray-300 hover:text-white hover:bg-[#1b263b] rounded-md transition"
+                >
+                  Tarifas
+                </Link>
               </div>
             )}
           </div>
