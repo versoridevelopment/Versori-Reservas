@@ -27,8 +27,7 @@ const ForgotPasswordPage = () => {
     setMessage(null);
 
     // Dominio "central" sin subdominio
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
     // Vamos a un callback central que luego redirige al subdominio
     const redirectTo = `${siteUrl}/password-callback${

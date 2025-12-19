@@ -105,10 +105,7 @@ const Navbar: FC<NavbarProps> = ({ club }) => {
       <Container className="flex items-center justify-between py-4">
         <Link href="/" className="text-xl font-bold text-white tracking-wide">
           {brandName}
-          <span
-            className="ml-0.5"
-            style={{ color: brandDotColor }}
-          >
+          <span className="ml-0.5" style={{ color: brandDotColor }}>
             .
           </span>
         </Link>

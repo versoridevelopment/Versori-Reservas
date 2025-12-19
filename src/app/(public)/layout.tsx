@@ -16,8 +16,6 @@ export default async function RootLayout({
   return (
     <html lang="es">
       <body className="relative min-h-screen text-white bg-black">
-
-
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
         <Navbar club={club} />
         <main>{children}</main>

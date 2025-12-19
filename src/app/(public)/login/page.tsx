@@ -38,7 +38,10 @@ const LoginPage: FC = () => {
         setSubdomain(sub);
 
         if (!sub) {
-          console.error("[Login] No se pudo detectar subdominio desde host:", host);
+          console.error(
+            "[Login] No se pudo detectar subdominio desde host:",
+            host
+          );
           return;
         }
 
@@ -105,13 +108,11 @@ const LoginPage: FC = () => {
     setIsLoading(true);
 
     // 1️⃣ Login con Supabase Auth
-    const {
-      data: loginData,
-      error: loginError,
-    } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    const { data: loginData, error: loginError } =
+      await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
     if (loginError || !loginData?.user) {
       console.error("[Login] Error signInWithPassword:", loginError);
@@ -288,7 +289,10 @@ const LoginPage: FC = () => {
         </p>
         <p className="text-gray-400 text-sm mt-4">
           ¿Olvidaste tu contraseña?{" "}
-          <Link href="/forgot-password" className="text-blue-400 hover:underline">
+          <Link
+            href="/forgot-password"
+            className="text-blue-400 hover:underline"
+          >
             Recuperarla
           </Link>
         </p>
