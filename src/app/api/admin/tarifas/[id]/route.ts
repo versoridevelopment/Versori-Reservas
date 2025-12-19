@@ -15,9 +15,13 @@ function parseId(params: { id?: string }) {
  * PATCH /api/admin/tarifas/:id
  * Body: campos editables (segmento, dow, hora_desde, hora_hasta, cruza_medianoche, duracion_min, precio, prioridad, activo, vigente_desde, vigente_hasta)
  */
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   const parsed = parseId(params);
-  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  if ("error" in parsed)
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   try {
     const body = await req.json().catch(() => null);
@@ -36,10 +40,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     ];
 
     const updateData: any = {};
-    for (const k of allowed) if (body?.[k] !== undefined) updateData[k] = body[k];
+    for (const k of allowed)
+      if (body?.[k] !== undefined) updateData[k] = body[k];
 
     if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ error: "No se enviaron campos para actualizar" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No se enviaron campos para actualizar" },
+        { status: 400 }
+      );
     }
 
     const { data, error } = await supabaseAdmin
@@ -57,7 +65,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json(data);
   } catch (err: any) {
     console.error("[ADMIN PATCH /tarifas/:id] ex:", err);
-    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }
 
@@ -65,9 +76,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
  * DELETE /api/admin/tarifas/:id
  * Baja lógica: activo=false
  */
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
   const parsed = parseId(params);
-  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  if ("error" in parsed)
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   try {
     const { data, error } = await supabaseAdmin
@@ -85,6 +100,9 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
     return NextResponse.json({ ok: true, regla: data });
   } catch (err: any) {
     console.error("[ADMIN DELETE /tarifas/:id] ex:", err);
-    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }
