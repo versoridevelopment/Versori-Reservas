@@ -26,7 +26,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   const { id, error: parseError } = parseId(params);
-  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
+  if (parseError)
+    return NextResponse.json({ error: parseError }, { status: 400 });
 
   try {
     const { data, error } = await supabaseAdmin
@@ -36,7 +37,10 @@ export async function GET(
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ error: "Cancha no encontrada" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Cancha no encontrada" },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json(data);
@@ -50,13 +54,17 @@ export async function GET(
  * PATCH /api/admin/canchas/:id
  * - JSON o multipart/form-data
  * - Si viene file "imagen": sube a club_{id_club}/canchas/..., actualiza imagen_url y borra anterior (best-effort)
+ * - Soporta id_tarifario:
+ *    - null / "" => usar default del tipo de cancha (club_tarifarios_default)
+ *    - number    => override por cancha
  */
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } }
 ) {
   const { id, error: parseError } = parseId(params);
-  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
+  if (parseError)
+    return NextResponse.json({ error: parseError }, { status: 400 });
 
   try {
     const contentType = req.headers.get("content-type") || "";
@@ -76,22 +84,36 @@ export async function PATCH(
       const id_tipo_cancha = form.get("id_tipo_cancha");
       const estado = form.get("estado");
 
+      // NUEVO: id_tarifario (puede venir vacío para dejar NULL)
+      const id_tarifario = form.get("id_tarifario");
+
       if (nombre !== null) updateData.nombre = String(nombre);
       if (descripcion !== null) updateData.descripcion = String(descripcion);
       if (precio_hora !== null) updateData.precio_hora = Number(precio_hora);
-      if (es_exterior !== null) updateData.es_exterior = String(es_exterior) === "true";
+      if (es_exterior !== null)
+        updateData.es_exterior = String(es_exterior) === "true";
       if (activa !== null) updateData.activa = String(activa) === "true";
-      if (id_tipo_cancha !== null) updateData.id_tipo_cancha = Number(id_tipo_cancha);
+      if (id_tipo_cancha !== null)
+        updateData.id_tipo_cancha = Number(id_tipo_cancha);
       if (estado !== null) updateData.estado = String(estado) === "true";
+
+      // Manejo robusto de id_tarifario:
+      // - "" => null (usar default)
+      // - "123" => 123
+      if (id_tarifario !== null) {
+        const v = String(id_tarifario).trim();
+        updateData.id_tarifario = v === "" ? null : Number(v);
+      }
 
       const file = form.get("imagen");
       if (file && file instanceof File && file.size > 0) {
         // 1) Traer id_club + imagen_url actual
-        const { data: canchaActual, error: canchaActualError } = await supabaseAdmin
-          .from("canchas")
-          .select("id_club, imagen_url")
-          .eq("id_cancha", id)
-          .single();
+        const { data: canchaActual, error: canchaActualError } =
+          await supabaseAdmin
+            .from("canchas")
+            .select("id_club, imagen_url")
+            .eq("id_cancha", id)
+            .single();
 
         if (canchaActualError || !canchaActual) {
           return NextResponse.json(
@@ -104,7 +126,9 @@ export async function PATCH(
         idClubForSafety = id_club_db;
 
         const oldUrl = (canchaActual.imagen_url as string | null) ?? null;
-        oldImagePath = oldUrl ? extractPathFromPublicUrl(oldUrl, "public-media") : null;
+        oldImagePath = oldUrl
+          ? extractPathFromPublicUrl(oldUrl, "public-media")
+          : null;
 
         // 2) Subir nueva imagen (IMPORTANTE: path correcto club_{id}/canchas/..)
         const uploaded = await uploadCanchaImage({ id_club: id_club_db, file });
@@ -126,15 +150,32 @@ export async function PATCH(
         "activa",
         "id_tipo_cancha",
         "estado",
+        "id_tarifario", // NUEVO
       ];
+
       for (const key of allowed) {
         if (body[key] !== undefined) updateData[key] = body[key];
       }
+
+      // Normalización: si mandan "" en JSON, lo pasamos a null
+      if (updateData.id_tarifario === "") updateData.id_tarifario = null;
     }
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
         { error: "No se enviaron campos para actualizar" },
+        { status: 400 }
+      );
+    }
+
+    // Validaciones leves: si viene id_tarifario number, que sea numérico
+    if (
+      updateData.id_tarifario !== undefined &&
+      updateData.id_tarifario !== null &&
+      Number.isNaN(Number(updateData.id_tarifario))
+    ) {
+      return NextResponse.json(
+        { error: "id_tarifario debe ser numérico o null" },
         { status: 400 }
       );
     }
@@ -148,7 +189,10 @@ export async function PATCH(
 
     if (error) {
       console.error("[ADMIN PATCH /canchas/:id] error:", error);
-      return NextResponse.json({ error: "Error al actualizar la cancha" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Error al actualizar la cancha" },
+        { status: 500 }
+      );
     }
 
     // 3) Borrar imagen anterior (best-effort), validando que sea del club y carpeta correcta
@@ -168,7 +212,10 @@ export async function PATCH(
           .remove([oldImagePath]);
 
         if (removeError) {
-          console.warn("[ADMIN PATCH /canchas/:id] remove old image error:", removeError);
+          console.warn(
+            "[ADMIN PATCH /canchas/:id] remove old image error:",
+            removeError
+          );
           // best-effort: no rompemos la respuesta
         }
       } else {
@@ -194,7 +241,8 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const { id, error: parseError } = parseId(params);
-  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
+  if (parseError)
+    return NextResponse.json({ error: parseError }, { status: 400 });
 
   try {
     const { error } = await supabaseAdmin
@@ -210,7 +258,10 @@ export async function DELETE(
       );
     }
 
-    return NextResponse.json({ message: "Cancha desactivada (estado = 0)" }, { status: 200 });
+    return NextResponse.json(
+      { message: "Cancha desactivada (estado = 0)" },
+      { status: 200 }
+    );
   } catch (err) {
     console.error("[ADMIN DELETE /canchas/:id] ex:", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

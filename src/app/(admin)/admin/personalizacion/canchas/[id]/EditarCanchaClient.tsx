@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 
 type ApiError = { error: string };
 
+type Tarifario = {
+  id_tarifario: number;
+  nombre: string;
+  activo: boolean;
+};
+
 type Cancha = {
   id_cancha: number;
   id_club: number;
@@ -16,14 +22,16 @@ type Cancha = {
   es_exterior: boolean;
   activa: boolean;
   estado: boolean;
+
+  // NUEVO
+  id_tarifario: number | null;
+  tarifario_nombre?: string | null;
+
   tipo_nombre?: string;
   deporte_nombre?: string;
 };
 
-function PreviewCanchaCard(props: {
-  cancha: Cancha;
-  imgPreview?: string | null;
-}) {
+function PreviewCanchaCard(props: { cancha: Cancha; imgPreview?: string | null }) {
   const { cancha, imgPreview } = props;
 
   return (
@@ -38,9 +46,11 @@ function PreviewCanchaCard(props: {
         <div className="text-sm opacity-90">
           Preview (Cancha) · {cancha.estado ? "Activa" : "Inactiva"}
         </div>
+
         <div className="mt-2 text-2xl font-extrabold tracking-tight">
           {cancha.nombre || "Nombre de la cancha"}
         </div>
+
         <div className="mt-1 text-sm opacity-90">
           {cancha.descripcion || "Descripción"}
         </div>
@@ -60,6 +70,13 @@ function PreviewCanchaCard(props: {
             {cancha.tipo_nombre ? `Tipo: ${cancha.tipo_nombre}` : ""}
           </div>
         )}
+
+        <div className="mt-2 text-xs opacity-90">
+          Tarifario:{" "}
+          <span className="font-semibold">
+            {cancha.id_tarifario ? `#${cancha.id_tarifario}` : "Default del tipo"}
+          </span>
+        </div>
       </div>
 
       <div className="p-5 space-y-3">
@@ -89,8 +106,8 @@ function PreviewCanchaCard(props: {
         </div>
 
         <div className="text-xs text-gray-500">
-          Para cambiarla, seleccioná un archivo y guardá. Se sube al Storage y
-          se actualiza la DB automáticamente.
+          Para cambiarla, seleccioná un archivo y guardá. Se sube al Storage y se
+          actualiza la DB automáticamente.
         </div>
       </div>
     </div>
@@ -113,18 +130,15 @@ export default function EditarCanchaClient({
 
   const [cancha, setCancha] = useState<Cancha | null>(null);
 
+  const [tarifarios, setTarifarios] = useState<Tarifario[]>([]);
+
   const [file, setFile] = useState<File | null>(null);
-  const imgPreview = useMemo(
-    () => (file ? URL.createObjectURL(file) : null),
-    [file]
-  );
+  const imgPreview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/canchas/${idCancha}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`/api/admin/canchas/${idCancha}`, { cache: "no-store" });
 
       if (!res.ok) {
         const err = (await res.json().catch(() => null)) as ApiError | null;
@@ -138,7 +152,13 @@ export default function EditarCanchaClient({
         throw new Error("La cancha no pertenece al club actual.");
       }
 
-      setCancha(data);
+      // Por si la vista vieja no trae id_tarifario, aseguramos defaults en front
+      const safe: Cancha = {
+        ...data,
+        id_tarifario: (data as any).id_tarifario ?? null,
+      };
+
+      setCancha(safe);
       setFile(null);
     } catch (err: any) {
       alert(err?.message || "Error al cargar cancha");
@@ -148,8 +168,31 @@ export default function EditarCanchaClient({
     }
   }
 
+  async function loadTarifarios() {
+    try {
+      const res = await fetch(`/api/admin/tarifarios?id_club=${clubId}`, { cache: "no-store" });
+      if (!res.ok) return;
+
+      const payload = await res.json();
+      const items = (payload?.tarifarios ?? []) as any[];
+
+      setTarifarios(
+        items
+          .filter((t) => t.activo === true)
+          .map((t) => ({
+            id_tarifario: t.id_tarifario,
+            nombre: t.nombre,
+            activo: t.activo,
+          }))
+      );
+    } catch {
+      // best-effort
+    }
+  }
+
   useEffect(() => {
     load();
+    loadTarifarios();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idCancha]);
 
@@ -175,6 +218,10 @@ export default function EditarCanchaClient({
       fd.append("es_exterior", String(cancha.es_exterior));
       fd.append("activa", String(cancha.activa));
       fd.append("estado", String(cancha.estado));
+
+      // NUEVO: id_tarifario
+      // "" => null (default del tipo)
+      fd.append("id_tarifario", cancha.id_tarifario === null ? "" : String(cancha.id_tarifario));
 
       // Si hay archivo, tu API lo sube y además borra el anterior (cleanup)
       if (file) fd.append("imagen", file);
@@ -202,9 +249,7 @@ export default function EditarCanchaClient({
     if (!confirm("¿Desactivar esta cancha? (baja lógica)")) return;
 
     try {
-      const res = await fetch(`/api/admin/canchas/${idCancha}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(`/api/admin/canchas/${idCancha}`, { method: "DELETE" });
 
       if (!res.ok) {
         const err = (await res.json().catch(() => null)) as ApiError | null;
@@ -289,9 +334,7 @@ export default function EditarCanchaClient({
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <label className="text-sm font-semibold text-gray-700">
-                Nombre
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Nombre</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
                 value={cancha.nombre}
@@ -302,34 +345,25 @@ export default function EditarCanchaClient({
             </div>
 
             <div className="md:col-span-2">
-              <label className="text-sm font-semibold text-gray-700">
-                Descripción
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Descripción</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
                 value={cancha.descripcion ?? ""}
                 onChange={(e) =>
-                  setCancha((prev) =>
-                    prev ? { ...prev, descripcion: e.target.value } : prev
-                  )
+                  setCancha((prev) => (prev ? { ...prev, descripcion: e.target.value } : prev))
                 }
               />
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Precio por hora
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Precio por hora</label>
               <input
                 className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
                 value={String(cancha.precio_hora)}
                 onChange={(e) =>
                   setCancha((prev) =>
                     prev
-                      ? {
-                          ...prev,
-                          precio_hora: Number(e.target.value.replace(/[^\d]/g, "")) || 0,
-                        }
+                      ? { ...prev, precio_hora: Number(e.target.value.replace(/[^\d]/g, "")) || 0 }
                       : prev
                   )
                 }
@@ -337,9 +371,7 @@ export default function EditarCanchaClient({
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Imagen (reemplazar)
-              </label>
+              <label className="text-sm font-semibold text-gray-700">Imagen (reemplazar)</label>
               <input
                 type="file"
                 accept="image/*"
@@ -351,14 +383,41 @@ export default function EditarCanchaClient({
               </div>
             </div>
 
+            {/* NUEVO: Tarifario */}
+            <div className="md:col-span-2">
+              <label className="text-sm font-semibold text-gray-700">
+                Tarifario (opcional)
+              </label>
+
+              <select
+                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
+                value={cancha.id_tarifario ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCancha((prev) =>
+                    prev ? { ...prev, id_tarifario: v === "" ? null : Number(v) } : prev
+                  );
+                }}
+              >
+                <option value="">Usar default del tipo de cancha</option>
+                {tarifarios.map((t) => (
+                  <option key={t.id_tarifario} value={t.id_tarifario}>
+                    {t.nombre}
+                  </option>
+                ))}
+              </select>
+
+              <div className="mt-1 text-xs text-gray-500">
+                Si dejás “Default”, la cancha toma el tarifario definido en Personalización → Tarifarios (default por tipo).
+              </div>
+            </div>
+
             <div className="md:col-span-2 flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={!!cancha.es_exterior}
                 onChange={(e) =>
-                  setCancha((prev) =>
-                    prev ? { ...prev, es_exterior: e.target.checked } : prev
-                  )
+                  setCancha((prev) => (prev ? { ...prev, es_exterior: e.target.checked } : prev))
                 }
               />
               <span className="text-sm text-gray-700">Es exterior</span>
@@ -369,14 +428,10 @@ export default function EditarCanchaClient({
                 type="checkbox"
                 checked={!!cancha.activa}
                 onChange={(e) =>
-                  setCancha((prev) =>
-                    prev ? { ...prev, activa: e.target.checked } : prev
-                  )
+                  setCancha((prev) => (prev ? { ...prev, activa: e.target.checked } : prev))
                 }
               />
-              <span className="text-sm text-gray-700">
-                Operativa (activa = 1)
-              </span>
+              <span className="text-sm text-gray-700">Operativa (activa = 1)</span>
             </div>
 
             <div className="md:col-span-2 flex items-center gap-2">
@@ -384,14 +439,10 @@ export default function EditarCanchaClient({
                 type="checkbox"
                 checked={!!cancha.estado}
                 onChange={(e) =>
-                  setCancha((prev) =>
-                    prev ? { ...prev, estado: e.target.checked } : prev
-                  )
+                  setCancha((prev) => (prev ? { ...prev, estado: e.target.checked } : prev))
                 }
               />
-              <span className="text-sm text-gray-700">
-                Cancha activa (estado = 1)
-              </span>
+              <span className="text-sm text-gray-700">Cancha activa (estado = 1)</span>
             </div>
           </div>
 
