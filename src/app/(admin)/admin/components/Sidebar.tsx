@@ -158,7 +158,6 @@ export function Sidebar() {
 
             {/* Submenú con animación simple */}
             {isPersonalizacionOpen && (
-<<<<<<< HEAD
               <div className="mt-1 ml-4 space-y-1 border-l-2 border-gray-700 pl-2">
                 {personalizacionLinks.map((subLink) => (
                   <Link
@@ -171,27 +170,6 @@ export function Sidebar() {
                     {subLink.label}
                   </Link>
                 ))}
-=======
-              <div className="ml-8 mt-2 space-y-1">
-                <Link
-                  href="/admin/personalizacion/club"
-                  className="block px-2 py-1 text-sm text-gray-300 hover:text-white hover:bg-[#1b263b] rounded-md transition"
-                >
-                  Club
-                </Link>
-                <Link
-                  href="/admin/personalizacion/canchas"
-                  className="block px-2 py-1 text-sm text-gray-300 hover:text-white hover:bg-[#1b263b] rounded-md transition"
-                >
-                  Canchas
-                </Link>
-                <Link
-                  href="/admin/personalizacion/tarifas"
-                  className="block px-2 py-1 text-sm text-gray-300 hover:text-white hover:bg-[#1b263b] rounded-md transition"
-                >
-                  Tarifas
-                </Link>
->>>>>>> c42cf90db0689d29fffb89e1b1d5c918906ccec8
               </div>
             )}
           </div>
