@@ -4,7 +4,9 @@ export const PUBLIC_MEDIA_BUCKET = "public-media";
 
 // --- HELPERS DE RUTAS ---
 export function clubBasePath(idClub: number) {
-  return `club_${idClub}`;
+  // .toString().trim() elimina cualquier espacio accidental
+  // .replace(/\s+/g, '') asegura que no haya espacios internos
+  return `club_${idClub.toString().replace(/\s+/g, "")}`;
 }
 
 export function clubBrandingPath(idClub: number) {
