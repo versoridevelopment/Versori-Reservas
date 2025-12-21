@@ -58,3 +58,10 @@ export function buildStaffPath(idClub: number, file: File) {
   // Guardamos en la carpeta 'staff'
   return `${clubBasePath(idClub)}/staff/profe-${Date.now()}.${ext}`;
 }
+
+export function buildBrandPath(idClub: number, file: File) {
+  const ext = file.name.split(".").pop();
+  // Usamos timestamp para evitar caché si cambian la imagen
+  const fileName = `brand-${Date.now()}.${ext}`;
+  return `${clubBasePath(idClub)}/branding/marcas/${fileName}`;
+}
