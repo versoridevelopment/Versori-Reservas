@@ -11,19 +11,25 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
-// --- AQUÍ ESTÁ LA MAGIA DEL ÍCONO DINÁMICO ---
+// --- GENERACIÓN DE METADATOS (SERVER SIDE) ---
 export async function generateMetadata(): Promise<Metadata> {
-  // 1. Obtenemos los datos del club desde el servidor
   const club = await getCurrentClub();
+
+  // Creamos un timestamp para obligar al navegador a recargar el ícono
+  const timestamp = new Date().getTime();
+
+  // Si hay logo, le pegamos el timestamp. Si no, usamos un fallback (asegurate de tener un icon.png o similar si borras el favicon.ico)
+  const iconUrl = club?.logo_url
+    ? `${club.logo_url}?v=${timestamp}`
+    : "/icon.png"; // Puedes poner una imagen genérica en public llamada icon.png
 
   return {
     title: club?.nombre || "Ferpadel",
     description: "Reserva tu cancha de pádel",
     icons: {
-      // 2. Si existe un logo subido, úsalo como ícono. Si no, usa el default.
-      icon: club?.logo_url || "/favicon.ico",
-      shortcut: club?.logo_url || "/favicon.ico",
-      apple: club?.logo_url || "/favicon.ico", // Para iPhone/iPad
+      icon: iconUrl,
+      shortcut: iconUrl,
+      apple: iconUrl,
     },
   };
 }
@@ -40,9 +46,7 @@ export default async function RootLayout({
       <body
         className={`relative min-h-screen text-white bg-black ${montserrat.className}`}
       >
-        {/* Fondo fijo degradado */}
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
-
         <Navbar club={club} />
         <main>{children}</main>
         <Footer />
