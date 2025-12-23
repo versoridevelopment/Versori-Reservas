@@ -10,14 +10,14 @@ export default async function ClubAdminPage() {
     return <div className="p-8 text-red-500">Error: Club no identificado.</div>;
   }
 
-  // 2. Obtener datos del CLUB (incluyendo los nuevos campos de estilo y marcas)
+  // 2. Obtener datos del CLUB (Identidad + Marcas)
   const { data: clubData } = await supabase
     .from("clubes")
     .select("*")
     .eq("id_club", club.id_club)
     .single();
 
-  // 3. Obtener datos de CONTACTO (Unión con Dirección y Teléfono)
+  // 3. Obtener datos de CONTACTO
   const { data: contactoData } = await supabase
     .from("contacto")
     .select(
@@ -31,8 +31,15 @@ export default async function ClubAdminPage() {
     .eq("id_club", club.id_club)
     .maybeSingle();
 
-  // 4. Preparar los datos planos para el formulario (ClubForm)
-  const flattenedData = {
+  // 4. NUEVO: Obtener datos de SOBRE NOSOTROS
+  const { data: nosotrosData } = await supabase
+    .from("nosotros")
+    .select("*")
+    .eq("id_club", club.id_club)
+    .maybeSingle();
+
+  // 5. Preparar los datos planos para el formulario principal
+  const flattenedClubData = {
     // Identidad
     nombre: clubData.nombre,
     subdominio: clubData.subdominio,
@@ -42,17 +49,17 @@ export default async function ClubAdminPage() {
     color_secundario: clubData.color_secundario || "#1f2937",
     color_texto: clubData.color_texto || "#ffffff",
 
-    // Textos
+    // Textos Home
     texto_bienvenida_titulo:
       clubData.texto_bienvenida_titulo || "EL MEJOR LUGAR PARA VIVIR EL PÁDEL",
     texto_bienvenida_subtitulo:
       clubData.texto_bienvenida_subtitulo ||
       "Reserva tu cancha y únete a la comunidad.",
 
-    // Marcas (Aseguramos que sea un array)
+    // Marcas
     marcas: Array.isArray(clubData.marcas) ? clubData.marcas : [],
 
-    // Contacto (Datos planos)
+    // Contacto
     email: contactoData?.email || "",
     usuario_instagram: contactoData?.usuario_instagram || "",
     telefono: contactoData?.telefono?.[0]?.numero || "",
@@ -61,6 +68,12 @@ export default async function ClubAdminPage() {
     barrio: contactoData?.direccion?.[0]?.barrio || "",
   };
 
-  // 5. Renderizar el FORMULARIO (No el LandingClient)
-  return <ClubForm initialData={flattenedData} clubId={club.id_club} />;
+  // 6. Pasamos AMBOS conjuntos de datos al formulario
+  return (
+    <ClubForm
+      initialData={flattenedClubData}
+      nosotrosInitialData={nosotrosData} // <--- Pasamos los datos nuevos aquí
+      clubId={club.id_club}
+    />
+  );
 }

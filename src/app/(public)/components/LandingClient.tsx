@@ -40,33 +40,35 @@ export default function LandingClient({
   profesores,
   contacto,
 }: LandingProps) {
-  // 1. DEFINIR DATOS SEGUROS PARA "NOSOTROS"
-  // Si 'nosotros' es null (no cargaste nada en admin), usamos este objeto por defecto para que la sección NO desaparezca.
-  const safeNosotros = nosotros || {
-    historia_titulo: "Bienvenido a " + club.nombre,
-    // Texto de relleno para visualizar el diseño
-    historia_contenido:
-      "Todavía no se ha cargado la historia del club. Ve al panel de administración > Sobre Nosotros para completar esta información y contarle a tus clientes sobre tu pasión por el pádel. Esta sección es ideal para generar confianza.",
-    galeria_inicio: [], // Usaremos la imagen del hero como fallback en el slider
-    frase_cierre: "Pasión por el deporte",
+  // 1. LÓGICA DE DATOS "NOSOTROS" (Fallback Inteligente)
+  // Si no hay datos cargados, mostramos un ejemplo para que no se rompa el diseño.
+  const dataNosotros = nosotros || {
+    historia_titulo: `Bienvenido a ${club.nombre}`,
+    hero_descripcion:
+      "El mejor lugar para disfrutar del pádel con amigos. Contamos con instalaciones de primer nivel y un ambiente inmejorable.",
+    historia_contenido: "",
+    frase_cierre: "Pasión por el deporte.",
+    historia_imagen_url: club.imagen_hero_url, // Usamos hero como fallback
+    galeria_inicio: [],
     valores: [
-      { titulo: "Comunidad", contenido: "Fomentamos el deporte y la amistad." },
-      { titulo: "Calidad", contenido: "Canchas de primer nivel." },
-      { titulo: "Pasión", contenido: "Vivimos el pádel día a día." },
+      { titulo: "Comunidad", contenido: "Un espacio para compartir." },
+      { titulo: "Calidad", contenido: "Canchas profesionales." },
+      { titulo: "Pasión", contenido: "Vivimos el deporte." },
     ],
   };
 
-  // Lógica segura para extraer datos de contacto
-  const telefonoPrincipal =
-    contacto?.telefonos && contacto.telefonos.length > 0
-      ? contacto.telefonos[0].numero
-      : null;
+  // Determinar qué imágenes mostrar en el slider
+  // Prioridad: 1. Galería Slider (Admin) -> 2. Imagen Historia (Admin) -> 3. Hero del Club
+  const sliderImages =
+    dataNosotros.galeria_inicio && dataNosotros.galeria_inicio.length > 0
+      ? dataNosotros.galeria_inicio
+      : [dataNosotros.historia_imagen_url || club.imagen_hero_url].filter(
+          Boolean
+        );
 
-  const direccionPrincipal =
-    contacto?.direcciones && contacto.direcciones.length > 0
-      ? contacto.direcciones[0]
-      : null;
-
+  // 2. LÓGICA DE CONTACTO
+  const telefonoPrincipal = contacto?.telefonos?.[0]?.numero || null;
+  const direccionPrincipal = contacto?.direcciones?.[0];
   const direccionTexto = direccionPrincipal
     ? `${direccionPrincipal.calle || ""} ${
         direccionPrincipal.altura_calle || ""
@@ -80,7 +82,6 @@ export default function LandingClient({
     <main className="min-h-screen bg-[#0b0d12] text-gray-200 overflow-x-hidden">
       {/* ================= HERO SECTION ================= */}
       <section className="relative h-screen flex items-center justify-center overflow-hidden">
-        {/* Fondo (Video o Imagen) */}
         <div className="absolute inset-0 z-0">
           {club.imagen_hero_url ? (
             isVideo(club.imagen_hero_url) ? (
@@ -103,21 +104,17 @@ export default function LandingClient({
               />
             )
           ) : (
-            // Fallback si no hay imagen
             <div className="absolute inset-0 bg-gradient-to-b from-blue-900/20 via-[#0b0d12] to-[#0b0d12]" />
           )}
-          {/* Overlay oscuro */}
           <div className="absolute inset-0 bg-black/60 z-10" />
         </div>
 
-        {/* Contenido Hero */}
         <div className="container mx-auto px-6 relative z-20 text-center">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
           >
-            {/* Logo o Nombre */}
             {club.logo_url ? (
               <div className="relative w-40 h-40 md:w-60 md:h-60 mx-auto mb-8">
                 <Image
@@ -134,7 +131,6 @@ export default function LandingClient({
               </h1>
             )}
 
-            {/* Textos Editables */}
             <h2 className="text-2xl md:text-4xl font-bold text-white mb-4 drop-shadow-md">
               {club.texto_titulo || "EL MEJOR LUGAR PARA VIVIR EL PÁDEL"}
             </h2>
@@ -142,7 +138,6 @@ export default function LandingClient({
               {leyendaHero}
             </p>
 
-            {/* Botones */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/reserva">
                 <button
@@ -157,19 +152,15 @@ export default function LandingClient({
         </div>
       </section>
 
-      {/* ================= CARRUSEL DE MARCAS (INFINITO) ================= */}
+      {/* ================= MARCAS (CARRUSEL) ================= */}
       {club.marcas && club.marcas.length > 0 && (
         <section className="py-5 bg-[#050608] border-y border-gray-900 overflow-hidden select-none relative z-20">
-          {/* Contenedor Flex para el loop infinito (2 listas idénticas) */}
           <div className="flex overflow-hidden group w-full">
-            {/* LISTA 1 */}
             <div className="flex shrink-0 animate-marquee items-center justify-around gap-24 pr-24 min-w-full group-hover:[animation-play-state:paused]">
               {club.marcas.map((marca, i) => (
                 <BrandItem key={`brand-1-${i}`} marca={marca} />
               ))}
             </div>
-
-            {/* LISTA 2 (Clon para el efecto infinito) */}
             <div
               aria-hidden="true"
               className="flex shrink-0 animate-marquee items-center justify-around gap-24 pr-24 min-w-full group-hover:[animation-play-state:paused]"
@@ -182,8 +173,7 @@ export default function LandingClient({
         </section>
       )}
 
-      {/* ================= SECCIÓN NOSOTROS (AHORA SIEMPRE VISIBLE) ================= */}
-      {/* Eliminamos el chequeo estricto {nosotros && ...} y usamos safeNosotros */}
+      {/* ================= SOBRE NOSOTROS (DINÁMICO) ================= */}
       <section
         id="nosotros"
         className="py-24 overflow-hidden relative"
@@ -191,7 +181,7 @@ export default function LandingClient({
       >
         <div className="container mx-auto px-6 relative z-10">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
-            {/* --- Columna Izquierda: Texto Resumido --- */}
+            {/* --- Columna Izquierda: Texto Dinámico --- */}
             <motion.div
               initial={{ opacity: 0, x: -30 }}
               whileInView={{ opacity: 1, x: 0 }}
@@ -206,12 +196,13 @@ export default function LandingClient({
               </div>
 
               <h2 className="text-4xl md:text-5xl font-bold text-white leading-tight">
-                {safeNosotros.historia_titulo}
+                {dataNosotros.historia_titulo}
               </h2>
 
-              <p className="text-lg text-gray-400 leading-relaxed line-clamp-4">
-                {safeNosotros.hero_descripcion ||
-                  safeNosotros.historia_contenido}
+              {/* Usamos hero_descripcion (corto) y si no hay, historia_contenido (largo) */}
+              <p className="text-lg text-gray-400 leading-relaxed line-clamp-5 whitespace-pre-line">
+                {dataNosotros.hero_descripcion ||
+                  dataNosotros.historia_contenido}
               </p>
 
               <div className="pt-4">
@@ -227,18 +218,35 @@ export default function LandingClient({
                   </button>
                 </Link>
               </div>
+
+              {/* --- Valores Dinámicos (Integrados bajo el texto) --- */}
+              {dataNosotros.valores && dataNosotros.valores.length > 0 && (
+                <div className="grid grid-cols-2 gap-4 mt-8 pt-8 border-t border-white/10">
+                  {dataNosotros.valores
+                    .slice(0, 4)
+                    .map((val: any, i: number) => (
+                      <div key={i} className="flex gap-3">
+                        <Trophy
+                          className="w-5 h-5 shrink-0 mt-1"
+                          style={{ color: club.color_primario }}
+                        />
+                        <div>
+                          <h4 className="text-white font-bold text-sm">
+                            {val.titulo}
+                          </h4>
+                          <p className="text-gray-500 text-xs leading-snug">
+                            {val.contenido}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </motion.div>
 
-            {/* --- Columna Derecha: Slider Elegante --- */}
+            {/* --- Columna Derecha: Slider Dinámico --- */}
             <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-black/50">
-              <ElegantSlider
-                // Si no hay galería, usamos imagen de historia, o imagen de hero, o placeholder
-                images={
-                  safeNosotros.galeria_inicio?.length > 0
-                    ? safeNosotros.galeria_inicio
-                    : [safeNosotros.historia_imagen_url || club.imagen_hero_url]
-                }
-              />
+              <ElegantSlider images={sliderImages} />
             </div>
           </div>
         </div>
@@ -275,15 +283,13 @@ export default function LandingClient({
       >
         <div className="container mx-auto px-6">
           <div className="grid md:grid-cols-3 gap-12 mb-16">
-            {/* Branding */}
             <div>
               <h3 className="text-2xl font-bold text-white mb-6">
                 {club.nombre}
               </h3>
-              <p className="text-gray-500">{safeNosotros.frase_cierre}</p>
+              <p className="text-gray-500">{dataNosotros.frase_cierre}</p>
             </div>
 
-            {/* Navegación */}
             <div>
               <h4 className="text-white font-semibold mb-6">Navegación</h4>
               <ul className="space-y-4 text-gray-400">
@@ -303,7 +309,6 @@ export default function LandingClient({
               </ul>
             </div>
 
-            {/* Contacto */}
             <div>
               <h4 className="text-white font-semibold mb-6">Contacto</h4>
               <ul className="space-y-4 text-gray-400">
@@ -364,28 +369,22 @@ export default function LandingClient({
 }
 
 // =====================================================================
-// COMPONENTE: SLIDER ELEGANTE (FADE AUTOMÁTICO)
+// COMPONENTE: SLIDER ELEGANTE
 // =====================================================================
 const ElegantSlider = ({ images }: { images: string[] }) => {
-  // Aseguramos que sea un array válido. Si falla, placeholder.
   const validImages = Array.isArray(images) && images.length > 0 ? images : [];
-
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Auto-play
   useEffect(() => {
     if (validImages.length <= 1) return;
-
     const timer = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % validImages.length);
-    }, 5000); // Cambia cada 5 segundos
-
+    }, 5000);
     return () => clearInterval(timer);
   }, [validImages.length]);
 
-  // Si no hay imágenes válidas, mostramos un div vacío o un placeholder simple
   if (validImages.length === 0)
-    return <div className="w-full h-full bg-gray-800" />;
+    return <div className="w-full h-full bg-gray-800 animate-pulse" />;
 
   return (
     <div className="relative w-full h-full bg-gray-900">
@@ -407,7 +406,7 @@ const ElegantSlider = ({ images }: { images: string[] }) => {
               sizes="(max-width: 768px) 100vw, 50vw"
             />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         </motion.div>
       </AnimatePresence>
 
@@ -432,7 +431,7 @@ const ElegantSlider = ({ images }: { images: string[] }) => {
 };
 
 // =====================================================================
-// COMPONENTE AUXILIAR PARA CADA MARCA (TEXTO O IMAGEN)
+// COMPONENTE AUXILIAR PARA CADA MARCA
 // =====================================================================
 const BrandItem = ({
   marca,
@@ -442,7 +441,6 @@ const BrandItem = ({
   return (
     <div className="flex items-center justify-center">
       {marca.tipo === "imagen" && marca.valor ? (
-        // --- RENDERIZADO DE IMAGEN (Logo) ---
         <div className="opacity-85 hover:opacity-100 relative w-48 h-24 md:w-40 md:h-20 transition-transform duration-300 hover:scale-105">
           <Image
             src={marca.valor}
@@ -453,7 +451,6 @@ const BrandItem = ({
           />
         </div>
       ) : (
-        // --- RENDERIZADO DE TEXTO ---
         <span className="text-3xl md:text-5xl font-black text-gray-300 hover:text-white transition-colors uppercase cursor-default whitespace-nowrap drop-shadow-md tracking-wider">
           {marca.valor}
         </span>
