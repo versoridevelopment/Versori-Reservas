@@ -1,3 +1,4 @@
+// src/app/(admin)/admin/personalizacion/tarifarios/page.tsx
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import TarifariosClient from "./TarifariosClient";
 
@@ -14,4 +15,3 @@ export default async function TarifariosPage() {
 
   return <TarifariosClient clubId={club.id_club} clubNombre={club.nombre} />;
 }
-
