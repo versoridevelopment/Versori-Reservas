@@ -4,6 +4,7 @@ import Footer from "@/app/(public)/components/layout/Footer";
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import { Montserrat } from "next/font/google";
 import { Metadata } from "next";
+import { supabase } from "@/lib/supabase/supabaseClient";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -11,17 +12,13 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
-// --- GENERACIÓN DE METADATOS (SERVER SIDE) ---
+// --- GENERACIÓN DE METADATOS ---
 export async function generateMetadata(): Promise<Metadata> {
   const club = await getCurrentClub();
-
-  // Creamos un timestamp para obligar al navegador a recargar el ícono
   const timestamp = new Date().getTime();
-
-  // Si hay logo, le pegamos el timestamp. Si no, usamos un fallback (asegurate de tener un icon.png o similar si borras el favicon.ico)
   const iconUrl = club?.logo_url
     ? `${club.logo_url}?v=${timestamp}`
-    : "/icon.png"; // Puedes poner una imagen genérica en public llamada icon.png
+    : "/icon.png";
 
   return {
     title: club?.nombre || "Ferpadel",
@@ -34,12 +31,27 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+// --- COMPONENTE LAYOUT ---
 export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // 1. Obtener club
   const club = await getCurrentClub();
+
+  // 2. Calcular si tiene quincho (Lógica dentro del componente)
+  let tieneQuincho = false;
+
+  if (club) {
+    const { data: quinchoData } = await supabase
+      .from("quinchos")
+      .select("activo")
+      .eq("id_club", club.id_club)
+      .maybeSingle(); // Usamos maybeSingle para que no de error si no existe
+
+    tieneQuincho = quinchoData?.activo || false;
+  }
 
   return (
     <html lang="es">
@@ -47,7 +59,10 @@ export default async function RootLayout({
         className={`relative min-h-screen text-white bg-black ${montserrat.className}`}
       >
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
-        <Navbar club={club} />
+
+        {/* 3. Pasar ambas props al Navbar */}
+        <Navbar club={club} tieneQuincho={tieneQuincho} />
+
         <main>{children}</main>
         <Footer />
       </body>
