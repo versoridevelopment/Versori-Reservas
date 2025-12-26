@@ -89,7 +89,13 @@ export function Sidebar() {
       label: "Contacto y Ubicación",
       icon: <MapPin size={14} />,
     },
+    {
+      href: "/admin/personalizacion/tarifarios",
+      label: "Tarifarios",
+      icon: <MapPin size={14} />,
+    },
   ];
+
 
   const handleLogout = () => alert("Sesión cerrada");
 
@@ -169,6 +175,7 @@ export function Sidebar() {
                     <span className="opacity-70">{subLink.icon}</span>
                     {subLink.label}
                   </Link>
+                  
                 ))}
               </div>
             )}

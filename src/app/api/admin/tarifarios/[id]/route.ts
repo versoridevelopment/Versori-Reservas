@@ -1,3 +1,4 @@
+// src/app/api/admin/tarifarios/[id]/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
@@ -5,22 +6,54 @@ export const runtime = "nodejs";
 
 function parseId(params: { id?: string }) {
   const idParam = params.id;
-  if (!idParam) return { error: "id es requerido" as const };
+  if (!idParam) return { error: "id es requerido" };
+
   const id = Number(idParam);
-  if (Number.isNaN(id)) return { error: "id debe ser numérico" as const };
+  if (Number.isNaN(id)) return { error: "id debe ser numérico" };
+
   return { id };
 }
 
+/**
+ * GET /api/admin/tarifarios/:id
+ */
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const { id, error: parseError } = parseId(params);
+  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("canchas_tarifarios")
+      .select("id_tarifario,id_club,nombre,descripcion,activo,created_at")
+      .eq("id_tarifario", id)
+      .single();
+
+    if (error || !data) {
+      return NextResponse.json({ error: "Tarifario no encontrado" }, { status: 404 });
+    }
+
+    return NextResponse.json(data);
+  } catch (err) {
+    console.error("[ADMIN GET /tarifarios/:id] ex:", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH /api/admin/tarifarios/:id
+ * Body JSON: { nombre?, descripcion?, activo? }
+ */
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const parsed = parseId(params);
-  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  const { id, error: parseError } = parseId(params);
+  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
 
   try {
     const body = await req.json().catch(() => null);
-    const allowed = ["nombre", "descripcion", "activo"];
     const updateData: any = {};
 
-    for (const k of allowed) if (body?.[k] !== undefined) updateData[k] = body[k];
+    if (body?.nombre !== undefined) updateData.nombre = String(body.nombre).trim();
+    if (body?.descripcion !== undefined) updateData.descripcion = body.descripcion;
+    if (body?.activo !== undefined) updateData.activo = Boolean(body.activo);
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: "No se enviaron campos para actualizar" }, { status: 400 });
@@ -29,43 +62,44 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const { data, error } = await supabaseAdmin
       .from("canchas_tarifarios")
       .update(updateData)
-      .eq("id_tarifario", parsed.id)
-      .select()
+      .eq("id_tarifario", id)
+      .select("id_tarifario,id_club,nombre,descripcion,activo,created_at")
       .single();
 
     if (error) {
-      console.error("[PATCH /tarifarios/:id] error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[ADMIN PATCH /tarifarios/:id] error:", error);
+      return NextResponse.json({ error: "Error al actualizar tarifario" }, { status: 500 });
     }
 
     return NextResponse.json(data);
-  } catch (err: any) {
-    console.error("[PATCH /tarifarios/:id] ex:", err);
-    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
+  } catch (err) {
+    console.error("[ADMIN PATCH /tarifarios/:id] ex:", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
 
+/**
+ * DELETE /api/admin/tarifarios/:id
+ * Baja lógica: activo=false
+ */
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const parsed = parseId(params);
-  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  const { id, error: parseError } = parseId(params);
+  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
 
   try {
-    // soft delete: activo=false
-    const { data, error } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("canchas_tarifarios")
       .update({ activo: false })
-      .eq("id_tarifario", parsed.id)
-      .select()
-      .single();
+      .eq("id_tarifario", id);
 
     if (error) {
-      console.error("[DELETE /tarifarios/:id] error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[ADMIN DELETE /tarifarios/:id] error:", error);
+      return NextResponse.json({ error: "Error al desactivar tarifario" }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, tarifario: data });
-  } catch (err: any) {
-    console.error("[DELETE /tarifarios/:id] ex:", err);
-    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json({ message: "Tarifario desactivado" }, { status: 200 });
+  } catch (err) {
+    console.error("[ADMIN DELETE /tarifarios/:id] ex:", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
