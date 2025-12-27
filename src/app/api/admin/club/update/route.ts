@@ -164,6 +164,8 @@ export async function POST(req: NextRequest) {
     const { error: errNosotros } = await supabaseAdmin.from("nosotros").upsert(
       {
         id_club: clubId,
+        activo_nosotros: nosotrosData.activo_nosotros,
+        // Eliminado: activo_profesores (se maneja en /api/admin/equipo/config)
         historia_titulo: nosotrosData.historia_titulo,
         hero_descripcion: nosotrosData.hero_descripcion,
         historia_contenido: nosotrosData.historia_contenido,

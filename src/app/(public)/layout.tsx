@@ -15,7 +15,10 @@ const montserrat = Montserrat({
 // --- GENERACIÓN DE METADATOS ---
 export async function generateMetadata(): Promise<Metadata> {
   const club = await getCurrentClub();
+
+  // Timestamp para forzar actualización de caché de imágenes si cambiaron
   const timestamp = new Date().getTime();
+
   const iconUrl = club?.logo_url
     ? `${club.logo_url}?v=${timestamp}`
     : "/icon.png";
@@ -37,20 +40,36 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // 1. Obtener club
+  // 1. Obtener club actual
   const club = await getCurrentClub();
 
-  // 2. Calcular si tiene quincho (Lógica dentro del componente)
+  // 2. Inicializar estados por defecto
   let tieneQuincho = false;
+  let showNosotros = true; // Por defecto visible si no hay config
+  let showProfesores = true; // Por defecto visible si no hay config
 
   if (club) {
+    // A) Consultar estado del Quincho
     const { data: quinchoData } = await supabase
       .from("quinchos")
       .select("activo")
       .eq("id_club", club.id_club)
-      .maybeSingle(); // Usamos maybeSingle para que no de error si no existe
+      .maybeSingle();
 
     tieneQuincho = quinchoData?.activo || false;
+
+    // B) Consultar estado de Nosotros y Profesores (Tabla 'nosotros')
+    const { data: configData } = await supabase
+      .from("nosotros")
+      .select("activo_nosotros, activo_profesores")
+      .eq("id_club", club.id_club)
+      .maybeSingle();
+
+    if (configData) {
+      // Usamos '??' (nullish coalescing) para que si es null, sea true por defecto
+      showNosotros = configData.activo_nosotros ?? true;
+      showProfesores = configData.activo_profesores ?? true;
+    }
   }
 
   return (
@@ -60,8 +79,13 @@ export default async function RootLayout({
       >
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
 
-        {/* 3. Pasar ambas props al Navbar */}
-        <Navbar club={club} tieneQuincho={tieneQuincho} />
+        {/* 3. Pasar todas las props de visibilidad al Navbar */}
+        <Navbar
+          club={club}
+          tieneQuincho={tieneQuincho}
+          showNosotros={showNosotros}
+          showProfesores={showProfesores}
+        />
 
         <main>{children}</main>
         <Footer />

@@ -20,6 +20,8 @@ import {
   BookOpen,
   Layers,
   X,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 
 // --- TIPOS ---
@@ -45,6 +47,7 @@ type ClubData = {
 type Valor = { titulo: string; contenido: string };
 
 type NosotrosData = {
+  activo_nosotros: boolean; // NUEVO CAMPO
   historia_titulo: string;
   hero_descripcion: string;
   historia_contenido: string;
@@ -80,6 +83,7 @@ export default function ClubForm({
   // --- ESTADO NOSOTROS ---
   const [nosotrosData, setNosotrosData] = useState<NosotrosData>(
     nosotrosInitialData || {
+      activo_nosotros: true, // Default visible
       historia_titulo: "",
       hero_descripcion: "",
       historia_contenido: "",
@@ -100,7 +104,7 @@ export default function ClubForm({
   // Helpers
   const isVideo = (url: string) => url?.match(/\.(mp4|webm|mov)$/i);
 
-  // === EFECTO PARA CAMBIAR EL ÍCONO (FAVICON) EN TIEMPO REAL ===
+  // === EFECTO PARA EL ÍCONO ===
   useEffect(() => {
     if (formData.logo_url) {
       let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
@@ -109,8 +113,21 @@ export default function ClubForm({
         link.rel = "icon";
         document.getElementsByTagName("head")[0].appendChild(link);
       }
-      // Timestamp para romper caché
-      link.href = `${formData.logo_url}?t=${Date.now()}`;
+      const isRemote =
+        formData.logo_url.startsWith("http") &&
+        !formData.logo_url.startsWith("blob:");
+      const faviconUrl = isRemote
+        ? `${formData.logo_url}?t=${Date.now()}`
+        : formData.logo_url;
+
+      const existingLinks = document.querySelectorAll("link[rel*='icon']");
+      existingLinks.forEach((el) => el.remove());
+
+      const newLink = document.createElement("link");
+      newLink.type = "image/x-icon";
+      newLink.rel = "icon";
+      newLink.href = faviconUrl;
+      document.head.appendChild(newLink);
     }
   }, [formData.logo_url]);
 
@@ -272,6 +289,7 @@ export default function ClubForm({
       formDataToSend.append(
         "nosotrosData",
         JSON.stringify({
+          activo_nosotros: nosotrosData.activo_nosotros, // ENVIAMOS EL ESTADO
           historia_titulo: nosotrosData.historia_titulo,
           hero_descripcion: nosotrosData.hero_descripcion,
           historia_contenido: nosotrosData.historia_contenido,
@@ -520,6 +538,46 @@ export default function ClubForm({
             {/* TAB NOSOTROS */}
             {activeTab === "nosotros" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                {/* --- TOGGLE ACTIVAR/DESACTIVAR --- */}
+                <section className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                  <div>
+                    <h3 className="font-bold text-slate-800">
+                      Visibilidad de la Sección
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Ocultar o mostrar el enlace &quot;Nosotros&quot; en el
+                      menú.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleNosotrosChange(
+                        "activo_nosotros",
+                        !nosotrosData.activo_nosotros
+                      )
+                    }
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${
+                      nosotrosData.activo_nosotros
+                        ? "bg-green-100 text-green-700"
+                        : "bg-slate-100 text-slate-500"
+                    }`}
+                    title={
+                      nosotrosData.activo_nosotros
+                        ? "Desactivar sección"
+                        : "Activar sección"
+                    }
+                    aria-label="Alternar visibilidad de nosotros"
+                  >
+                    {nosotrosData.activo_nosotros ? (
+                      <ToggleRight className="w-6 h-6" />
+                    ) : (
+                      <ToggleLeft className="w-6 h-6" />
+                    )}
+                    {nosotrosData.activo_nosotros ? "Visible" : "Oculto"}
+                  </button>
+                </section>
+
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <BookOpen className="w-5 h-5 text-blue-600" /> Historia &
@@ -1104,7 +1162,6 @@ export default function ClubForm({
                   )}
                   <div className="relative z-10 text-center px-6 mt-6">
                     {formData.logo_url && (
-                      /* key forces update when logo changes */
                       <div className="relative w-20 h-20 mx-auto mb-2">
                         <Image
                           key={formData.logo_url}
