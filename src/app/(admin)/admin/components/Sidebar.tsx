@@ -13,13 +13,13 @@ import {
   ChevronRight,
   LogOut,
   Building2,
-  MapPin,
   Users2,
   Trophy,
   Home,
   Tag,
   Menu, // Icono Hamburguesa
   X, // Icono Cerrar
+  BookOpen, // Icono para Nosotros
 } from "lucide-react";
 import { Rol } from "@/lib/roles";
 
@@ -30,16 +30,16 @@ export function Sidebar() {
   // Estado para desplegables
   const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(true);
 
-  // NUEVO: Estado para abrir/cerrar menú en MÓVIL
+  // Estado para menú móvil
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const user = {
     nombreCompleto: "Juan Cruz",
     rol: "Administrador",
-    fotoPerfil: "/placeholder-avatar.png",
+    fotoPerfil: "/placeholder-avatar.png", // Asegúrate de que esta imagen exista en public o cambia la ruta
   };
 
-  // Enlaces principales
+  // Enlaces principales del Dashboard
   const links = [
     {
       key: "dashboard",
@@ -67,21 +67,26 @@ export function Sidebar() {
     },
   ];
 
-  // Submenú Personalización
+  // --- SUBMENÚ REORGANIZADO (PERSONALIZACIÓN) ---
   const personalizacionLinks = [
     {
       href: "/admin/personalizacion/club",
-      label: "Configuración Web",
+      label: "Home / Config General", // Contiene Identidad, Portada y Slider Home
       icon: <Building2 size={14} />,
     },
     {
-      href: "/admin/equipo",
-      label: "Equipo / Profesores",
+      href: "/admin/personalizacion/nosotros", // Página "Nosotros" dedicada
+      label: "Página Nosotros",
+      icon: <BookOpen size={14} />,
+    },
+    {
+      href: "/admin/personalizacion/profesores", // Página "Profesores"
+      label: "Página Profesores",
       icon: <Users2 size={14} />,
     },
     {
-      href: "/admin/quinchos",
-      label: "Quincho / Eventos",
+      href: "/admin/quinchos", // Página "Quincho"
+      label: "Página Quincho",
       icon: <Home size={14} />,
     },
     {
@@ -97,6 +102,7 @@ export function Sidebar() {
   ];
 
   const handleLogout = () => {
+    // Aquí iría tu lógica real de logout (supabase.auth.signOut())
     alert("Sesión cerrada");
   };
 
@@ -115,7 +121,6 @@ export function Sidebar() {
   return (
     <>
       {/* --- 1. BOTÓN HAMBURGUESA MÓVIL (Flotante) --- */}
-      {/* Solo visible en pantallas pequeñas (md:hidden) */}
       <button
         onClick={() => setIsMobileOpen(!isMobileOpen)}
         className="md:hidden fixed top-4 left-4 z-50 p-2 bg-[#0d1b2a] text-white rounded-lg shadow-lg border border-gray-700 hover:bg-[#1b263b] transition-colors"
@@ -125,7 +130,6 @@ export function Sidebar() {
       </button>
 
       {/* --- 2. OVERLAY OSCURO (Solo Móvil) --- */}
-      {/* Fondo negro semitransparente para cerrar al hacer clic fuera */}
       {isMobileOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
@@ -146,7 +150,7 @@ export function Sidebar() {
           }
         `}
       >
-        {/* --- SECCIÓN USUARIO --- */}
+        {/* --- SECCIÓN USUARIO (Cabecera) --- */}
         <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
           <Link
             href="/admin/usuario"
@@ -154,14 +158,18 @@ export function Sidebar() {
             onClick={closeMobileMenu}
           >
             <div className="relative w-16 h-16 mx-auto transition-transform duration-300 group-hover:scale-105">
-              <Image
-                src={user.fotoPerfil}
-                alt="Perfil"
-                width={64}
-                height={64}
-                className="rounded-full border-2 border-blue-500/30 object-cover bg-gray-800 shadow-md"
-                priority
-              />
+              {/* Imagen de perfil con fallback si no carga */}
+              <div className="rounded-full overflow-hidden border-2 border-blue-500/30 w-16 h-16 bg-gray-800 relative">
+                <Image
+                  src={user.fotoPerfil}
+                  alt="Perfil"
+                  fill
+                  className="object-cover"
+                  sizes="64px"
+                  priority
+                />
+              </div>
+              {/* Indicador Online */}
               <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-[#0b1623] rounded-full"></div>
             </div>
           </Link>
@@ -173,7 +181,7 @@ export function Sidebar() {
           </span>
         </div>
 
-        {/* --- NAVEGACIÓN PRINCIPAL --- */}
+        {/* --- NAVEGACIÓN PRINCIPAL (Cuerpo) --- */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
           {links.map((link) => (
             <Link
@@ -213,7 +221,7 @@ export function Sidebar() {
               )}
             </button>
 
-            {/* Submenú */}
+            {/* Submenú Dinámico */}
             {isPersonalizacionOpen && (
               <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
                 {personalizacionLinks.map((subLink) => (
@@ -234,7 +242,7 @@ export function Sidebar() {
           </div>
         </nav>
 
-        {/* --- LOGOUT --- */}
+        {/* --- LOGOUT (Pie de página) --- */}
         <div className="p-3 border-t border-gray-800 bg-[#0b1623]">
           <button
             onClick={() => {

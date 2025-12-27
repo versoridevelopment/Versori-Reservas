@@ -104,30 +104,36 @@ export default function ClubForm({
   // Helpers
   const isVideo = (url: string) => url?.match(/\.(mp4|webm|mov)$/i);
 
-  // === EFECTO PARA EL ÍCONO ===
+  // === EFECTO PARA ACTUALIZAR EL FAVICON EN TIEMPO REAL ===
   useEffect(() => {
+    // Función auxiliar para cambiar el icono
+    const changeFavicon = (src: string) => {
+      const link = document.createElement("link");
+      const oldLinks = document.querySelectorAll(
+        'link[rel="icon"], link[rel="shortcut icon"]'
+      );
+
+      // Eliminamos los iconos viejos para que no haya conflicto
+      oldLinks.forEach((e) => e.parentNode?.removeChild(e));
+
+      link.id = "dynamic-favicon";
+      link.rel = "icon";
+      link.href = src;
+
+      document.head.appendChild(link);
+    };
+
     if (formData.logo_url) {
-      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
-      if (!link) {
-        link = document.createElement("link");
-        link.rel = "icon";
-        document.getElementsByTagName("head")[0].appendChild(link);
-      }
-      const isRemote =
-        formData.logo_url.startsWith("http") &&
-        !formData.logo_url.startsWith("blob:");
+      // Si es una URL remota (Supabase), le agregamos un timestamp para romper la caché
+      const isRemote = formData.logo_url.startsWith("http");
       const faviconUrl = isRemote
-        ? `${formData.logo_url}?t=${Date.now()}`
-        : formData.logo_url;
+        ? `${formData.logo_url}?t=${new Date().getTime()}`
+        : formData.logo_url; // Si es blob (preview local), se usa directo
 
-      const existingLinks = document.querySelectorAll("link[rel*='icon']");
-      existingLinks.forEach((el) => el.remove());
-
-      const newLink = document.createElement("link");
-      newLink.type = "image/x-icon";
-      newLink.rel = "icon";
-      newLink.href = faviconUrl;
-      document.head.appendChild(newLink);
+      changeFavicon(faviconUrl);
+    } else {
+      // Si no hay logo, volvemos al default
+      changeFavicon("/icon.png");
     }
   }, [formData.logo_url]);
 

@@ -12,24 +12,27 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
-// --- GENERACIÓN DE METADATOS ---
+// --- GENERACIÓN DE METADATOS (FAVICON DINÁMICO) ---
 export async function generateMetadata(): Promise<Metadata> {
+  // 1. Obtenemos datos frescos
   const club = await getCurrentClub();
 
-  // Timestamp para forzar actualización de caché de imágenes si cambiaron
+  // 2. Generamos una marca de tiempo actual
+  // Esto obliga al navegador a ignorar la caché anterior
   const timestamp = new Date().getTime();
 
+  // 3. Construimos la URL con el parámetro ?v=...
   const iconUrl = club?.logo_url
     ? `${club.logo_url}?v=${timestamp}`
-    : "/icon.png";
+    : "/icon.png"; // Fallback si no hay logo
 
   return {
     title: club?.nombre || "Ferpadel",
     description: "Reserva tu cancha de pádel",
     icons: {
-      icon: iconUrl,
-      shortcut: iconUrl,
-      apple: iconUrl,
+      icon: iconUrl, // Icono estándar
+      shortcut: iconUrl, // Acceso directo
+      apple: iconUrl, // Icono para iPhone/iPad
     },
   };
 }
@@ -40,16 +43,14 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // 1. Obtener club actual
   const club = await getCurrentClub();
 
-  // 2. Inicializar estados por defecto
+  // Estados por defecto
   let tieneQuincho = false;
-  let showNosotros = true; // Por defecto visible si no hay config
-  let showProfesores = true; // Por defecto visible si no hay config
+  let showNosotros = true;
+  let showProfesores = true;
 
   if (club) {
-    // A) Consultar estado del Quincho
     const { data: quinchoData } = await supabase
       .from("quinchos")
       .select("activo")
@@ -58,7 +59,6 @@ export default async function RootLayout({
 
     tieneQuincho = quinchoData?.activo || false;
 
-    // B) Consultar estado de Nosotros y Profesores (Tabla 'nosotros')
     const { data: configData } = await supabase
       .from("nosotros")
       .select("activo_nosotros, activo_profesores")
@@ -66,7 +66,6 @@ export default async function RootLayout({
       .maybeSingle();
 
     if (configData) {
-      // Usamos '??' (nullish coalescing) para que si es null, sea true por defecto
       showNosotros = configData.activo_nosotros ?? true;
       showProfesores = configData.activo_profesores ?? true;
     }
@@ -79,7 +78,6 @@ export default async function RootLayout({
       >
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
 
-        {/* 3. Pasar todas las props de visibilidad al Navbar */}
         <Navbar
           club={club}
           tieneQuincho={tieneQuincho}

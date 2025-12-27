@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image"; // Importamos Image
 import Container from "../ui/Container";
 import { supabase } from "../../../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
@@ -125,15 +126,32 @@ const Navbar = ({
         }`}
       >
         <Container className="flex items-center justify-between py-4 h-20">
-          {/* --- 1. LOGO (Visible siempre) --- */}
+          {/* --- 1. LOGO + NOMBRE (Izquierda) --- */}
           <Link
             href="/"
-            className="text-xl font-bold text-white tracking-wide z-50 relative shrink-0"
+            className="flex items-center gap-3 z-50 relative shrink-0 group"
             onClick={closeMenu}
+            aria-label="Ir al inicio"
           >
-            {brandName}
-            <span className="ml-0.5" style={{ color: brandDotColor }}>
-              .
+            {/* Si hay URL de logo, mostramos la imagen */}
+            {club?.logo_url && (
+              <div className="relative w-8 h-8 md:w-10 md:h-10 transition-transform group-hover:scale-105">
+                <Image
+                  src={club.logo_url}
+                  alt={`${brandName} Logo`}
+                  fill
+                  className="object-contain"
+                  sizes="(max-width: 768px) 32px, 40px"
+                  priority
+                />
+              </div>
+            )}
+
+            <span className="text-xl font-bold text-white tracking-wide">
+              {brandName}
+              <span className="ml-0.5" style={{ color: brandDotColor }}>
+                .
+              </span>
             </span>
           </Link>
 

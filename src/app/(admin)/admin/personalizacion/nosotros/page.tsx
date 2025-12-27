@@ -1,32 +1,25 @@
 import { supabase } from "@/lib/supabase/supabaseClient";
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
-import SobreNosotrosForm from "./SobreNosotrosForm";
+import NosotrosPageForm from "../../components/NosotrosPageForm";
 
-export default async function SobreNosotrosPage() {
+export default async function AdminNosotrosPage() {
   const club = await getCurrentClub();
+  if (!club) return <div>Cargando...</div>;
 
-  if (!club) {
-    return (
-      <div className="flex items-center justify-center h-[50vh] text-red-500 font-semibold bg-red-50 m-4 rounded-xl">
-        Error: No se ha detectado el club.
-      </div>
-    );
-  }
-
-  // Traemos los datos de la DB
   const { data: nosotrosData } = await supabase
     .from("nosotros")
-    .select(
-      "hero_descripcion, historia_titulo, historia_contenido, historia_imagen_url, valores, frase_cierre"
-    )
+    .select("*")
     .eq("id_club", club.id_club)
-    .single();
+    .maybeSingle();
 
   return (
-    <SobreNosotrosForm
-      initialData={nosotrosData}
-      clubId={club.id_club}
-      subdominio={club.subdominio}
-    />
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10 -m-6 md:-m-10">
+      <div className="max-w-5xl mx-auto space-y-8 pb-32">
+        <h1 className="text-3xl font-extrabold text-slate-900">
+          Gestión Página Nosotros
+        </h1>
+        <NosotrosPageForm clubId={club.id_club} initialData={nosotrosData} />
+      </div>
+    </div>
   );
 }
