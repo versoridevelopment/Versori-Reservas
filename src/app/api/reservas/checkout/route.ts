@@ -60,8 +60,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No hay draft de reserva" }, { status: 400 });
     }
 
+    // ✅ 1) Obtener usuario real (NO confiar en draft.user_id) y OBLIGAR LOGIN
+    const supabase = await getSupabaseServerClient();
+    const { data: userRes, error: uErr } = await supabase.auth.getUser();
+
+    if (uErr) {
+      return NextResponse.json({ error: "No se pudo validar la sesión" }, { status: 401 });
+    }
+
+    const userId = userRes?.user?.id ?? null;
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Tenés que iniciar sesión para confirmar la reserva" },
+        { status: 401 }
+      );
+    }
+
     // 0) Determinar fin_dia_offset (cruce de medianoche)
-    // Regla: si fin <= inicio => termina al día siguiente (offset 1)
     const iniMin = toMin(draft.inicio);
     const finMin = toMin(draft.fin);
 
@@ -71,13 +86,7 @@ export async function POST(req: Request) {
 
     const fin_dia_offset: 0 | 1 = finMin <= iniMin ? 1 : 0;
 
-    // 1) Obtener usuario real (no confiar en draft.user_id)
-    const supabase = await getSupabaseServerClient();
-    const { data: userRes } = await supabase.auth.getUser();
-    const userId = userRes?.user?.id ?? null;
-
     // 2) Recalcular precio server-side (anti-manipulación)
-    // Nota: tu calcular-precio ya debe soportar cruces (23:30-01:30) a nivel de cálculo.
     const calcRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
       method: "POST",
       headers: {
@@ -87,7 +96,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         id_club: draft.id_club,
         id_cancha: draft.id_cancha,
-        fecha: draft.fecha, // fecha del inicio
+        fecha: draft.fecha,
         inicio: draft.inicio,
         fin: draft.fin,
       }),
@@ -127,15 +136,14 @@ export async function POST(req: Request) {
     const monto_anticipo = round2(precio_total * (pct / 100));
 
     // 4) Concurrencia atómica: insertar pendiente_pago si no hay solapamiento
-    // IMPORTANTE: RPC actualizado para recibir p_fin_dia_offset
     const { data: created, error: rpcErr } = await supabaseAdmin.rpc("reservas_create_pending", {
       p_id_club: draft.id_club,
       p_id_cancha: draft.id_cancha,
-      p_id_usuario: userId, // puede ser null si permitís invitados
-      p_fecha: draft.fecha, // fecha del inicio
+      p_id_usuario: userId, // ✅ ahora siempre viene
+      p_fecha: draft.fecha,
       p_inicio: draft.inicio,
       p_fin: draft.fin,
-      p_fin_dia_offset: fin_dia_offset, // ✅ NUEVO
+      p_fin_dia_offset: fin_dia_offset,
       p_precio_total: precio_total,
       p_anticipo_porcentaje: pct,
       p_monto_anticipo: monto_anticipo,
@@ -147,20 +155,9 @@ export async function POST(req: Request) {
 
     if (rpcErr) {
       const msg = rpcErr.message || "";
-
-      // Mapeo explícito del “TURNOS_SOLAPADOS”
       if (msg.includes("TURNOS_SOLAPADOS")) {
         return NextResponse.json({ error: "Ese horario ya no está disponible" }, { status: 409 });
       }
-
-      // Si todavía te aparece, es que NO actualizaste SQL/constraints
-      if (msg.toLowerCase().includes("rango inválido") || msg.includes("fin <= inicio")) {
-        return NextResponse.json(
-          { error: "Rango inválido. Verificá cruce de medianoche y fin_dia_offset en DB/RPC.", detail: msg },
-          { status: 400 }
-        );
-      }
-
       return NextResponse.json({ error: `Error creando reserva pendiente: ${msg}` }, { status: 500 });
     }
 
@@ -172,8 +169,6 @@ export async function POST(req: Request) {
     const id_reserva = Number(row.id_reserva);
     const expires_at = String(row.expires_at);
 
-    // 5) Crear checkout en el proveedor de pagos (placeholder)
-    // Ideal: en MercadoPago/Stripe, usar external_reference = id_reserva y amount = monto_anticipo.
     const checkout_url = `/pago/iniciar?id_reserva=${id_reserva}`;
 
     return NextResponse.json({
@@ -184,7 +179,6 @@ export async function POST(req: Request) {
       anticipo_porcentaje: pct,
       monto_anticipo,
       checkout_url,
-      // Opcional para debug/UI:
       fin_dia_offset,
     });
   } catch (e: any) {
