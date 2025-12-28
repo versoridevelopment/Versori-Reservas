@@ -12,21 +12,27 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
-// --- GENERACIÓN DE METADATOS ---
+// --- GENERACIÓN DE METADATOS (FAVICON DINÁMICO) ---
 export async function generateMetadata(): Promise<Metadata> {
+  // 1. Obtenemos datos frescos
   const club = await getCurrentClub();
+
+  // 2. Generamos una marca de tiempo actual
+  // Esto obliga al navegador a ignorar la caché anterior
   const timestamp = new Date().getTime();
+
+  // 3. Construimos la URL con el parámetro ?v=...
   const iconUrl = club?.logo_url
     ? `${club.logo_url}?v=${timestamp}`
-    : "/icon.png";
+    : "/icon.png"; // Fallback si no hay logo
 
   return {
     title: club?.nombre || "Ferpadel",
     description: "Reserva tu cancha de pádel",
     icons: {
-      icon: iconUrl,
-      shortcut: iconUrl,
-      apple: iconUrl,
+      icon: iconUrl, // Icono estándar
+      shortcut: iconUrl, // Acceso directo
+      apple: iconUrl, // Icono para iPhone/iPad
     },
   };
 }
@@ -37,20 +43,32 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // 1. Obtener club
   const club = await getCurrentClub();
 
-  // 2. Calcular si tiene quincho (Lógica dentro del componente)
+  // Estados por defecto
   let tieneQuincho = false;
+  let showNosotros = true;
+  let showProfesores = true;
 
   if (club) {
     const { data: quinchoData } = await supabase
       .from("quinchos")
       .select("activo")
       .eq("id_club", club.id_club)
-      .maybeSingle(); // Usamos maybeSingle para que no de error si no existe
+      .maybeSingle();
 
     tieneQuincho = quinchoData?.activo || false;
+
+    const { data: configData } = await supabase
+      .from("nosotros")
+      .select("activo_nosotros, activo_profesores")
+      .eq("id_club", club.id_club)
+      .maybeSingle();
+
+    if (configData) {
+      showNosotros = configData.activo_nosotros ?? true;
+      showProfesores = configData.activo_profesores ?? true;
+    }
   }
 
   return (
@@ -60,8 +78,12 @@ export default async function RootLayout({
       >
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
 
-        {/* 3. Pasar ambas props al Navbar */}
-        <Navbar club={club} tieneQuincho={tieneQuincho} />
+        <Navbar
+          club={club}
+          tieneQuincho={tieneQuincho}
+          showNosotros={showNosotros}
+          showProfesores={showProfesores}
+        />
 
         <main>{children}</main>
         <Footer />
