@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image"; // Import Image
+import Image from "next/image";
 import Container from "../ui/Container";
 import { supabase } from "../../../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
 import type { Club } from "@/lib/ObetenerClubUtils/getCurrentClub";
-import { Menu, X, LogOut, User } from "lucide-react";
+import { Menu, X, LogOut, User, Settings } from "lucide-react"; // Agregué Settings por si quieres usarlo, aunque User va bien
 
-// 1. TYPES
+// 1. TIPOS
 interface NavbarProps {
   club: Club | null;
   tieneQuincho: boolean;
@@ -22,7 +22,7 @@ type UserProfile = {
   apellido: string | null;
 };
 
-// 2. COMPONENT
+// 2. COMPONENTE
 const Navbar = ({
   club,
   tieneQuincho,
@@ -34,13 +34,12 @@ const Navbar = ({
   const [session, setSession] = useState<Session | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  // MOBILE MENU STATE
+  // ESTADO PARA EL MENÚ MÓVIL
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // --- Scroll Logic ---
   useEffect(() => {
     const handleScroll = () => {
-      // If mobile menu is open, DO NOT hide the bar
       if (isMobileMenuOpen) return;
 
       if (window.scrollY > lastScrollY && window.scrollY > 100) {
@@ -100,10 +99,9 @@ const Navbar = ({
     }
   };
 
-  // Closes the menu when a link is clicked
   const closeMenu = () => setIsMobileMenuOpen(false);
 
-  // Lock body scroll when menu is open
+  // Bloquear scroll body
   useEffect(() => {
     if (isMobileMenuOpen) {
       document.body.style.overflow = "hidden";
@@ -126,14 +124,13 @@ const Navbar = ({
         }`}
       >
         <Container className="flex items-center justify-between py-4 h-20">
-          {/* --- 1. LOGO + NAME (Left) --- */}
+          {/* --- 1. LOGO + NOMBRE --- */}
           <Link
             href="/"
             className="flex items-center gap-3 z-50 relative shrink-0 group"
             onClick={closeMenu}
             aria-label="Ir al inicio"
           >
-            {/* If there is a logo URL, show the image */}
             {club?.logo_url && (
               <div className="relative w-8 h-8 md:w-10 md:h-10 transition-transform group-hover:scale-105">
                 <Image
@@ -155,7 +152,7 @@ const Navbar = ({
             </span>
           </Link>
 
-          {/* --- 2. DESKTOP NAV (Strictly hidden on mobile) --- */}
+          {/* --- 2. DESKTOP NAV --- */}
           <div className="hidden md:flex items-center gap-6">
             <nav className="flex items-center gap-6 text-sm font-medium text-neutral-300">
               {showProfesores && (
@@ -203,14 +200,23 @@ const Navbar = ({
               </div>
             ) : (
               <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
-                <span className="text-neutral-400 text-xs text-right whitespace-nowrap">
-                  {userProfile
-                    ? `${userProfile.nombre} ${userProfile.apellido}`
-                    : "Usuario"}
-                </span>
+                {/* --- AQUI ESTÁ EL CAMBIO PRINCIPAL (DESKTOP) --- */}
+                {/* Convertimos el span en un Link hacia /perfil */}
+                <Link
+                  href="/perfil"
+                  className="group flex flex-col items-end cursor-pointer"
+                  title="Ir a mi perfil"
+                >
+                  <span className="text-neutral-400 text-xs text-right whitespace-nowrap group-hover:text-white transition-colors font-medium">
+                    {userProfile
+                      ? `${userProfile.nombre} ${userProfile.apellido}`
+                      : "Mi Cuenta"}
+                  </span>
+                </Link>
+
                 <button
                   onClick={handleLogout}
-                  className="text-red-400 hover:text-red-300 transition"
+                  className="text-red-400 hover:text-red-300 transition p-1 hover:bg-white/5 rounded-full"
                   title="Cerrar Sesión"
                 >
                   <LogOut size={18} />
@@ -219,7 +225,7 @@ const Navbar = ({
             )}
           </div>
 
-          {/* --- 3. MOBILE HAMBURGER BUTTON (Visible only on mobile) --- */}
+          {/* --- 3. MOBILE HAMBURGER --- */}
           <button
             className="md:hidden text-white z-50 relative p-2 focus:outline-none"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -230,17 +236,15 @@ const Navbar = ({
         </Container>
       </header>
 
-      {/* --- 4. MOBILE MENU OVERLAY (Full Screen) --- */}
+      {/* --- 4. MOBILE MENU OVERLAY --- */}
       <div
         className={`fixed inset-0 bg-[#0b0d12] z-40 flex flex-col justify-center items-center gap-8 transition-opacity duration-300 ease-in-out md:hidden ${
           isMobileMenuOpen
             ? "opacity-100 visible"
             : "opacity-0 invisible pointer-events-none"
         }`}
-        // ADDED: Close menu when clicking the overlay
         onClick={closeMenu}
       >
-        {/* ADDED: Stop propagation to prevent closing when clicking inside the menu content */}
         <div
           className="flex flex-col items-center gap-8 w-full"
           onClick={(e) => e.stopPropagation()}
@@ -307,12 +311,21 @@ const Navbar = ({
               </div>
             ) : (
               <div className="flex flex-col gap-6 items-center border-t border-neutral-800 pt-8">
-                <div className="flex items-center gap-3 text-neutral-300 text-lg">
+                {/* --- CAMBIO PRINCIPAL (MOBILE) --- */}
+                {/* Envolvemos la info de usuario en un Link */}
+                <Link
+                  href="/perfil"
+                  onClick={closeMenu}
+                  className="flex items-center gap-3 text-neutral-300 text-lg hover:text-white transition-colors"
+                >
                   <User size={24} />
                   <span>
-                    {userProfile ? `${userProfile.nombre}` : "Mi Cuenta"}
+                    {userProfile
+                      ? `${userProfile.nombre} ${userProfile.apellido}`
+                      : "Mi Cuenta"}
                   </span>
-                </div>
+                </Link>
+
                 <button
                   onClick={() => {
                     handleLogout();
