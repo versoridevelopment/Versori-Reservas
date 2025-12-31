@@ -6,51 +6,103 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
 import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
+import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
 const ForgotPasswordPage = () => {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [subdomain, setSubdomain] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<"success" | "error" | null>(
+    null
+  );
 
+  // Estados para Branding Dinámico
+  const [subdomain, setSubdomain] = useState<string | null>(null);
+  const [clubName, setClubName] = useState<string>("Versori");
+  const [clubLogo, setClubLogo] = useState<string | null>(null);
+  const [isClubLoading, setIsClubLoading] = useState(true);
+
+  // 1. Detectar Club al cargar
   useEffect(() => {
-    const host = window.location.host; // ej: "greenpadel.localhost:3000"
-    const hostname = host.split(":")[0]; // "greenpadel.localhost"
-    const sub = getSubdomainFromHost(hostname);
-    setSubdomain(sub);
+    const fetchClubData = async () => {
+      try {
+        const host = window.location.host;
+        const hostname = host.split(":")[0];
+        const sub = getSubdomainFromHost(hostname);
+        setSubdomain(sub);
+
+        if (sub) {
+          const club = await getClubBySubdomain(sub);
+          if (club) {
+            setClubName(club.nombre);
+            setClubLogo(club.logo_url);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching club data:", error);
+      } finally {
+        setIsClubLoading(false);
+      }
+    };
+
+    fetchClubData();
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setMessage(null);
+    setMessageType(null);
 
-    // Dominio "central" sin subdominio
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+    try {
+      // 2. Llamada a NUESTRA API (no a supabase directo)
+      const response = await fetch("/api/auth/recover", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          clubName, // Enviamos nombre del club
+          clubLogo, // Enviamos logo del club
+          subdomain, // Enviamos subdominio para el redirect
+        }),
+      });
 
-    // Vamos a un callback central que luego redirige al subdominio
-    const redirectTo = `${siteUrl}/password-callback${
-      subdomain ? `?sub=${encodeURIComponent(subdomain)}` : ""
-    }`;
+      const data = await response.json();
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo,
-    });
+      if (!response.ok || data.error) {
+        throw new Error(data.error || "Error al enviar correo");
+      }
 
-    if (error) {
+      setMessage(
+        `Si el correo ${email} está registrado en ${clubName}, recibirás las instrucciones en breve.`
+      );
+      setMessageType("success");
+      setIsSubmitted(true);
+    } catch (error) {
       console.error("[ForgotPassword] error:", error);
-      setMessage("Ocurrió un error al enviar el correo. Intentá nuevamente.");
+      setMessage(
+        "Ocurrió un error al procesar tu solicitud. Intentá nuevamente."
+      );
+      setMessageType("error");
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    setMessage(
-      "Si el correo existe en el sistema, te enviamos un enlace para restablecer tu contraseña."
-    );
-    setIsSubmitted(true);
-    setIsLoading(false);
   };
+
+  if (isClubLoading) {
+    return (
+      <div className="min-h-screen bg-[#001a33] flex items-center justify-center text-white">
+        Cargando...
+      </div>
+    );
+  }
+
+  // Logo dinámico para la interfaz
+  const displayLogo = clubLogo || "/sponsors/versori/VERSORI_TRANSPARENTE.PNG";
+  const displayAlt = clubLogo ? `${clubName} Logo` : "Versori Logo";
 
   if (isSubmitted) {
     return (
@@ -61,11 +113,11 @@ const ForgotPasswordPage = () => {
           transition={{ duration: 0.8 }}
           className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
         >
-          <h2 className="text-3xl font-bold mb-4">
-            Revisá tu correo electrónico
-          </h2>
-          <p className="text-neutral-300">{message}</p>
-          <p className="text-neutral-400 text-sm mt-6">
+          <h2 className="text-3xl font-bold mb-4">Revisá tu correo</h2>
+          <div className="bg-emerald-500/10 border border-emerald-500/40 text-emerald-200 p-4 rounded-xl text-sm mb-6">
+            {message}
+          </div>
+          <p className="text-neutral-400 text-sm">
             Volver a{" "}
             <Link href="/login" className="text-blue-400 hover:underline">
               Iniciar sesión
@@ -84,19 +136,28 @@ const ForgotPasswordPage = () => {
         transition={{ duration: 0.8 }}
         className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
       >
-        <Image
-          src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
-          alt="Versori Logo"
-          width={90}
-          height={90}
-          className="mx-auto mb-6 opacity-90"
-        />
+        {/* LOGO DINÁMICO */}
+        <div className="relative w-24 h-24 mx-auto mb-6">
+          <Image
+            src={displayLogo}
+            alt={displayAlt}
+            fill
+            className="object-contain opacity-90"
+            sizes="96px"
+          />
+        </div>
 
         <h1 className="text-3xl font-bold mb-2">Recuperar contraseña</h1>
         <p className="text-neutral-400 text-sm mb-8">
-          Ingresá tu correo y te enviaremos un enlace para restablecer tu
-          contraseña.
+          Ingresá tu correo para restablecer tu contraseña de{" "}
+          <strong>{clubName}</strong>.
         </p>
+
+        {message && messageType === "error" && (
+          <div className="bg-red-500/10 border border-red-500/40 text-red-200 p-3 rounded-lg text-sm mb-4">
+            {message}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
           <div>
