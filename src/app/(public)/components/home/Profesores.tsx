@@ -6,10 +6,13 @@ import { ArrowRight } from "lucide-react";
 import Container from "../ui/Container";
 
 export default function Profesores({ profesores }: { profesores: any[] }) {
-  if (!profesores || profesores.length === 0) return null;
+  // FIX: Filtrar para mostrar solo profesores activos en la home.
+  const profesoresActivos = profesores?.filter((p) => p.activo !== false) || [];
+
+  if (profesoresActivos.length === 0) return null;
 
   // Mostramos máximo 4 en el home para no saturar
-  const displayProfesores = profesores.slice(0, 4);
+  const displayProfesores = profesoresActivos.slice(0, 4);
 
   return (
     <section className="py-24 bg-[#08090c] border-t border-white/5">
