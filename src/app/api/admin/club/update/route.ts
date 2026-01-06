@@ -10,12 +10,27 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const clubId = formData.get("clubId") as string;
 
-    // Parsear datos
-    const clubData = JSON.parse(formData.get("clubData") as string);
-    const nosotrosData = JSON.parse(formData.get("nosotrosData") as string);
+    if (!clubId) {
+      return NextResponse.json(
+        { error: "Falta el ID del club" },
+        { status: 400 }
+      );
+    }
 
-    // --- A. ACTUALIZAR TABLA 'CLUBES' ---
-    // Solo actualizamos lo que realmente existe en esta tabla
+    // Parsear datos JSON que vienen del formulario
+    const clubDataRaw = formData.get("clubData");
+    const nosotrosDataRaw = formData.get("nosotrosData");
+
+    if (!clubDataRaw || !nosotrosDataRaw) {
+      return NextResponse.json({ error: "Datos incompletos" }, { status: 400 });
+    }
+
+    const clubData = JSON.parse(clubDataRaw as string);
+    const nosotrosData = JSON.parse(nosotrosDataRaw as string);
+
+    // ---------------------------------------------------------
+    // A. ACTUALIZAR TABLA 'CLUBES'
+    // ---------------------------------------------------------
     const clubUpdates = {
       nombre: clubData.nombre,
       subdominio: clubData.subdominio,
@@ -25,9 +40,12 @@ export async function POST(request: Request) {
       texto_bienvenida_titulo: clubData.texto_bienvenida_titulo,
       texto_bienvenida_subtitulo: clubData.texto_bienvenida_subtitulo,
       marcas: clubData.marcas,
-      activo_profesores: clubData.activo_profesores, // Ahora sí se guarda
 
-      // Imágenes (si las hubiera, aquí iría la lógica de URL)
+      // Flags de activación
+      activo_profesores: clubData.activo_profesores,
+      activo_contacto_home: clubData.activo_contacto_home, // <--- ¡AQUÍ ESTÁ LA CLAVE!
+
+      // Imágenes (si las hubiera, la lógica de subida de archivos va aparte y actualiza esto)
       logo_url: clubData.logo_url,
       imagen_hero_url: clubData.imagen_hero_url,
 
@@ -39,11 +57,15 @@ export async function POST(request: Request) {
       .update(clubUpdates)
       .eq("id_club", clubId);
 
-    if (clubError)
+    if (clubError) {
+      console.error("Error al actualizar club:", clubError);
       throw new Error(`Error actualizando club: ${clubError.message}`);
+    }
 
-    // --- B. ACTUALIZAR TABLA 'CONTACTO' ---
-    // Primero buscamos el ID del contacto asociado al club
+    // ---------------------------------------------------------
+    // B. ACTUALIZAR TABLA 'CONTACTO'
+    // ---------------------------------------------------------
+    // 1. Buscamos el ID del contacto asociado al club
     const { data: contactoData, error: contactFetchError } = await supabase
       .from("contacto")
       .select("id_contacto")
@@ -51,24 +73,24 @@ export async function POST(request: Request) {
       .single();
 
     if (!contactFetchError && contactoData) {
-      // Actualizamos email e instagram en tabla contacto
+      // 2. Actualizamos datos básicos de contacto
       await supabase
         .from("contacto")
         .update({
           email: clubData.email,
-          updated_at: new Date().toISOString(),
-          // Si tuvieras columna instagram aquí, la agregas
+          usuario_instagram: clubData.usuario_instagram, // Asumiendo que existe la columna
+          // instagram_url: ... (si lo guardas derivado)
         })
         .eq("id_contacto", contactoData.id_contacto);
 
-      // --- C. ACTUALIZAR TABLA 'DIRECCION' ---
-      // Usamos el id_contacto para encontrar la dirección
-      // AQUÍ CORREGIMOS EL NOMBRE DE LA COLUMNA 'Altura_calle'
+      // ---------------------------------------------------------
+      // C. ACTUALIZAR TABLA 'DIRECCION'
+      // ---------------------------------------------------------
       const direccionUpdates = {
         calle: clubData.calle,
-        Altura_calle: clubData.altura, // Mapeamos 'altura' del form a 'Altura_calle' de la BD
+        altura_calle: clubData.altura, // Mapeamos 'altura' del form a la columna de la BD
         barrio: clubData.barrio,
-        updated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(), // Si tienes columna updated_at en direccion
       };
 
       // Verificamos si ya existe dirección para hacer Update o Insert
@@ -84,24 +106,49 @@ export async function POST(request: Request) {
           .update(direccionUpdates)
           .eq("id_direccion", existingDir.id_direccion);
       } else {
-        // Si no existe, creamos una nueva
         await supabase.from("direccion").insert({
           ...direccionUpdates,
           id_contacto: contactoData.id_contacto,
         });
       }
 
-      // --- D. ACTUALIZAR TELEFONO (Opcional simplificado) ---
-      // Por ahora asumimos que actualizamos el teléfono principal
-      // (Esto requeriría lógica más compleja si hay múltiples teléfonos, pero para este fix sirve)
-      // ...
+      // ---------------------------------------------------------
+      // D. ACTUALIZAR TABLA 'TELEFONO' (Principal)
+      // ---------------------------------------------------------
+      // Lógica simplificada: Actualizamos o creamos el teléfono tipo "Principal"
+      const { data: existingTel } = await supabase
+        .from("telefono")
+        .select("id_telefono")
+        .eq("id_contacto", contactoData.id_contacto)
+        .eq("tipo", "Principal") // O el criterio que uses para identificar el principal
+        .maybeSingle();
+
+      if (existingTel) {
+        await supabase
+          .from("telefono")
+          .update({ numero: clubData.telefono })
+          .eq("id_telefono", existingTel.id_telefono);
+      } else if (clubData.telefono) {
+        await supabase.from("telefono").insert({
+          id_contacto: contactoData.id_contacto,
+          numero: clubData.telefono,
+          tipo: "Principal",
+        });
+      }
+    } else {
+      // (Opcional) Si no existe contacto, podrías crearlo aquí
+      console.warn(
+        "No se encontró registro de contacto para el club ID:",
+        clubId
+      );
     }
 
-    // --- E. ACTUALIZAR 'NOSOTROS' ---
-    // (Misma lógica que tenías antes)
+    // ---------------------------------------------------------
+    // E. ACTUALIZAR TABLA 'NOSOTROS'
+    // ---------------------------------------------------------
     const { data: existingNosotros } = await supabase
       .from("nosotros")
-      .select("id")
+      .select("id_nosotros") // Corregido 'id' a 'id_nosotros' según tu esquema
       .eq("id_club", clubId)
       .maybeSingle();
 
@@ -129,7 +176,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error("Error en update:", error);
+    console.error("Error en update API:", error);
     return NextResponse.json(
       { error: error.message || "Error interno del servidor" },
       { status: 500 }

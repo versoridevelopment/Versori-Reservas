@@ -105,7 +105,7 @@ export default function ProfesoresUI({ profesores, teamPhotoUrl }: Props) {
           transition={{ duration: 0.9 }}
           viewport={{ once: true }}
         >
-          Contactate con nuestro equipo administrativo y sumate a la familia.
+          Contactate con nuestro equipo administrativo y sumate al club.
         </motion.p>
 
         <motion.a

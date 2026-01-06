@@ -21,6 +21,7 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
+  LayoutTemplate, // Icono para el botón del home
 } from "lucide-react";
 
 // --- TIPOS ---
@@ -41,6 +42,7 @@ type ClubData = {
   calle: string;
   altura: string;
   barrio: string;
+  activo_contacto_home: boolean; // <--- NUEVO CAMPO
 };
 
 type Valor = { titulo: string; contenido: string };
@@ -74,7 +76,12 @@ export default function ClubForm({
   >("identidad");
 
   // --- ESTADO CLUB ---
-  const [formData, setFormData] = useState<ClubData>(initialData);
+  // Inicializamos incluyendo el nuevo campo (si no viene de la DB, default false)
+  const [formData, setFormData] = useState<ClubData>({
+    ...initialData,
+    activo_contacto_home: initialData.activo_contacto_home ?? false,
+  });
+
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [heroFile, setHeroFile] = useState<File | null>(null);
   const [brandFiles, setBrandFiles] = useState<Record<string, File>>({});
@@ -240,6 +247,7 @@ export default function ClubForm({
       const formDataToSend = new FormData();
       formDataToSend.append("clubId", clubId.toString());
 
+      // ⚠️ IMPORTANTE: Aseguramos que 'activo_contacto_home' se envía en el JSON
       formDataToSend.append(
         "clubData",
         JSON.stringify({
@@ -259,6 +267,7 @@ export default function ClubForm({
           calle: formData.calle,
           altura: formData.altura,
           barrio: formData.barrio,
+          activo_contacto_home: formData.activo_contacto_home, // <--- CAMPO CLAVE
         })
       );
 
@@ -416,7 +425,6 @@ export default function ClubForm({
                       aria-label="Nombre del club"
                     />
                   </div>
-
                   <h2 className="text-lg font-bold text-slate-800 mb-4 mt-6">
                     Logo
                   </h2>
@@ -460,7 +468,6 @@ export default function ClubForm({
                     )}
                   </div>
                 </section>
-
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <h2 className="text-lg font-bold text-slate-800 mb-4">
                     Portada (Hero)
@@ -546,7 +553,6 @@ export default function ClubForm({
                     {nosotrosData.activo_nosotros ? "Visible" : "Oculto"}
                   </button>
                 </section>
-
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="mb-4">
                     <label
@@ -589,7 +595,6 @@ export default function ClubForm({
                     />
                   </div>
                 </section>
-
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-lg font-bold text-slate-800">
@@ -687,9 +692,9 @@ export default function ClubForm({
                           )
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        placeholder="Ej: Bienvenido al Club"
                         title="Título principal del home"
                         aria-label="Título principal del home"
+                        placeholder="Título del home"
                       />
                     </div>
                     <div>
@@ -710,9 +715,9 @@ export default function ClubForm({
                           )
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        placeholder="Ej: El mejor lugar..."
                         title="Subtítulo del home"
                         aria-label="Subtítulo del home"
+                        placeholder="Subtítulo del home"
                       />
                     </div>
                   </div>
@@ -723,11 +728,15 @@ export default function ClubForm({
                   </h2>
                   <div className="grid grid-cols-1 gap-4">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="color_primario"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         Primario
                       </label>
                       <div className="flex gap-2">
                         <input
+                          id="color_primario"
                           type="color"
                           value={formData.color_primario}
                           onChange={(e) =>
@@ -751,11 +760,15 @@ export default function ClubForm({
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="color_secundario"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         Secundario
                       </label>
                       <div className="flex gap-2">
                         <input
+                          id="color_secundario"
                           type="color"
                           value={formData.color_secundario}
                           onChange={(e) =>
@@ -783,7 +796,7 @@ export default function ClubForm({
               </div>
             )}
 
-            {/* TAB CONTACTO */}
+            {/* TAB CONTACTO (MODIFICADO) */}
             {activeTab === "contacto" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -842,7 +855,7 @@ export default function ClubForm({
                         htmlFor="telefono"
                         className="block text-sm font-semibold text-slate-700 mb-1"
                       >
-                        WhatsApp
+                        WhatsApp / Teléfono
                       </label>
                       <div className="relative">
                         <Phone className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -858,6 +871,49 @@ export default function ClubForm({
                           title="Número de whatsapp"
                           aria-label="Número de whatsapp"
                         />
+                      </div>
+                    </div>
+
+                    {/* --- NUEVO BLOQUE: TOGGLE ACCESO DIRECTO HOME --- */}
+                    <div className="mt-6 pt-6 border-t border-slate-100">
+                      <div className="flex items-center justify-between bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                        <div className="flex items-start gap-3">
+                          <div className="p-2 bg-white rounded-lg border border-blue-100 shadow-sm text-blue-600">
+                            <LayoutTemplate className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-slate-800 text-sm">
+                              Acceso directo en Home
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5 max-w-xs leading-relaxed">
+                              Activa un botón de `Consultar` en la portada que
+                              lleva directamente a este WhatsApp.
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleChange(
+                              "activo_contacto_home",
+                              !formData.activo_contacto_home
+                            )
+                          }
+                          className="transition-transform active:scale-95 focus:outline-none ml-4"
+                          title={
+                            formData.activo_contacto_home
+                              ? "Desactivar botón en home"
+                              : "Activar botón en home"
+                          }
+                          aria-label="Alternar visibilidad del botón de whatsapp en home"
+                        >
+                          {formData.activo_contacto_home ? (
+                            <ToggleRight className="w-10 h-10 text-green-500 transition-colors" />
+                          ) : (
+                            <ToggleLeft className="w-10 h-10 text-slate-400 transition-colors" />
+                          )}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -953,10 +1009,10 @@ export default function ClubForm({
                             <button
                               type="button"
                               onClick={() => toggleMarcaTipo(marca.id)}
-                              className={`p-1.5 rounded-lg transition-colors ${
+                              className={`p-1.5 rounded-lg ${
                                 marca.tipo === "texto"
                                   ? "bg-blue-100 text-blue-600"
-                                  : "text-slate-400 hover:bg-slate-200"
+                                  : "text-slate-400"
                               }`}
                               title="Usar texto"
                               aria-label="Usar texto"
@@ -966,10 +1022,10 @@ export default function ClubForm({
                             <button
                               type="button"
                               onClick={() => toggleMarcaTipo(marca.id)}
-                              className={`p-1.5 rounded-lg transition-colors ${
+                              className={`p-1.5 rounded-lg ${
                                 marca.tipo === "imagen"
                                   ? "bg-blue-100 text-blue-600"
-                                  : "text-slate-400 hover:bg-slate-200"
+                                  : "text-slate-400"
                               }`}
                               title="Usar imagen"
                               aria-label="Usar imagen"
@@ -1090,7 +1146,6 @@ export default function ClubForm({
                   className="p-6 bg-[#0b0d12]"
                   style={{ backgroundColor: formData.color_secundario }}
                 >
-                  {/* Título de sección Nosotros si está activa */}
                   <div
                     className="inline-block px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold tracking-widest uppercase mb-3"
                     style={{ color: formData.color_primario }}

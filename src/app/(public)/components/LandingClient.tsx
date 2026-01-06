@@ -6,6 +6,7 @@ import Profesores from "./home/Profesores";
 import Contacto from "./home/Contacto";
 import Marcas from "./home/Marcas";
 
+// Definición de tipos
 interface ClubData {
   id_club: number;
   nombre: string;
@@ -18,7 +19,8 @@ interface ClubData {
   texto_bienvenida_titulo: string;
   texto_bienvenida_subtitulo: string;
   marcas: any[];
-  activo_profesores: boolean; // Recibimos el flag aquí
+  activo_profesores: boolean;
+  activo_contacto_home?: boolean; // <--- Nuevo flag desde DB
 }
 
 interface Props {
@@ -26,6 +28,7 @@ interface Props {
   nosotros: any;
   profesores: any[];
   contacto: any;
+  whatsappHome?: string | null; // <--- Nuevo número para el Hero
 }
 
 export default function LandingClient({
@@ -33,6 +36,7 @@ export default function LandingClient({
   nosotros,
   profesores,
   contacto,
+  whatsappHome,
 }: Props) {
   return (
     <div className="flex flex-col min-h-screen">
@@ -41,6 +45,9 @@ export default function LandingClient({
         clubData={club}
         titulo={club.texto_bienvenida_titulo}
         subtitulo={club.texto_bienvenida_subtitulo}
+        // Pasamos la configuración del botón de WhatsApp
+        whatsappNumber={whatsappHome}
+        showWhatsapp={club.activo_contacto_home}
       />
 
       {/* 2. MARCAS */}
@@ -58,7 +65,7 @@ export default function LandingClient({
       )}
 
       {/* 4. PROFESORES */}
-      {/* CONDICIÓN DOBLE: Que existan profesores Y que la sección esté activa */}
+      {/* Condición: Que existan profesores Y que la sección esté activa */}
       {club.activo_profesores && profesores.length > 0 && (
         <Profesores profesores={profesores} />
       )}

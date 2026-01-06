@@ -52,6 +52,7 @@ export default function ProfesoresClient({
   initialActivo,
   initialTeamPhoto,
 }: Props) {
+  const MAX_PROFESORES = 10;
   // --- ESTADOS ---
   const [profesores, setProfesores] = useState<Profesor[]>(initialData || []);
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
@@ -218,6 +219,10 @@ export default function ProfesoresClient({
   };
 
   const handleNew = () => {
+    if (profesores.length >= MAX_PROFESORES) {
+      alert(`Has alcanzado el límite de ${MAX_PROFESORES} profesores.`);
+      return;
+    }
     setFormData({
       nombre: "",
       telefono: "",
@@ -446,6 +451,9 @@ export default function ProfesoresClient({
                 {subdominio}.versori.com/profesores
               </span>
             </p>
+            <p className="text-sm text-slate-500 mt-1">
+              Puedes añadir un máximo de {MAX_PROFESORES} profesores.
+            </p>
           </div>
           <div className="flex gap-4 items-center">
             {/* Toggle */}
@@ -491,8 +499,13 @@ export default function ProfesoresClient({
             {!editingId && (
               <button
                 onClick={handleNew}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-bold flex items-center gap-2"
-                title="Agregar nuevo profesor"
+                disabled={profesores.length >= MAX_PROFESORES}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl font-bold flex items-center gap-2 disabled:bg-slate-400 disabled:cursor-not-allowed"
+                title={
+                  profesores.length >= MAX_PROFESORES
+                    ? `Límite de ${MAX_PROFESORES} profesores alcanzado`
+                    : "Agregar nuevo profesor"
+                }
                 type="button"
               >
                 <Plus className="w-5 h-5" /> Nuevo

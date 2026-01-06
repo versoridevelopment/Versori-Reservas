@@ -36,7 +36,7 @@ export default async function HomePage() {
         .maybeSingle(),
     ]);
 
-  // 2. Consultas Secundarias
+  // 2. Consultas Secundarias (Teléfonos y Direcciones)
   let telefonosData: any[] = [];
   let direccionesData: any[] = [];
 
@@ -58,13 +58,19 @@ export default async function HomePage() {
       }
     : null;
 
+  // --- LÓGICA NUEVA: EXTRAER NÚMERO PRINCIPAL ---
+  // Tomamos el primer número encontrado en la tabla telefonos
+  const whatsappPrincipal =
+    telefonosData.length > 0 ? telefonosData[0].numero : null;
+
   // 3. Armado de objeto LandingData
   const landingData = {
     club: {
       ...club,
       ...clubRes.data,
-      // Aseguramos que el campo activo_profesores esté presente (default true)
+      // Flags de activación (default true para profesores, false para contacto home si es null)
       activo_profesores: clubRes.data?.activo_profesores ?? true,
+      activo_contacto_home: clubRes.data?.activo_contacto_home ?? false,
 
       color_primario: clubRes.data?.color_primario || "#3b82f6",
       color_secundario: clubRes.data?.color_secundario || "#0b0d12",
@@ -73,6 +79,9 @@ export default async function HomePage() {
     nosotros: nosotrosRes.data || null,
     profesores: profesoresRes.data || [],
     contacto: contactoCompleto,
+
+    // Pasamos el número al cliente
+    whatsappHome: whatsappPrincipal,
   };
 
   return <LandingClient {...landingData} />;
