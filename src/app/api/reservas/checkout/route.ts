@@ -60,7 +60,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No hay draft de reserva" }, { status: 400 });
     }
 
-    // ✅ 1) Obtener usuario real (NO confiar en draft.user_id) y OBLIGAR LOGIN
+    // 1) OBLIGAR LOGIN
     const supabase = await getSupabaseServerClient();
     const { data: userRes, error: uErr } = await supabase.auth.getUser();
 
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 0) Determinar fin_dia_offset (cruce de medianoche)
+    // 0) fin_dia_offset
     const iniMin = toMin(draft.inicio);
     const finMin = toMin(draft.fin);
 
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
 
     const fin_dia_offset: 0 | 1 = finMin <= iniMin ? 1 : 0;
 
-    // 2) Recalcular precio server-side (anti-manipulación)
+    // 2) Recalcular precio server-side
     const calcRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
       method: "POST",
       headers: {
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Precio inválido" }, { status: 400 });
     }
 
-    // 3) Leer anticipo_porcentaje del club
+    // 3) anticipo del club
     const { data: club, error: cErr } = await supabaseAdmin
       .from("clubes")
       .select("id_club, anticipo_porcentaje")
@@ -135,11 +135,11 @@ export async function POST(req: Request) {
     const pct = Math.min(100, Math.max(0, anticipo_porcentaje));
     const monto_anticipo = round2(precio_total * (pct / 100));
 
-    // 4) Concurrencia atómica: insertar pendiente_pago si no hay solapamiento
+    // 4) Crear reserva pendiente con RPC (concurrencia)
     const { data: created, error: rpcErr } = await supabaseAdmin.rpc("reservas_create_pending", {
       p_id_club: draft.id_club,
       p_id_cancha: draft.id_cancha,
-      p_id_usuario: userId, // ✅ ahora siempre viene
+      p_id_usuario: userId,
       p_fecha: draft.fecha,
       p_inicio: draft.inicio,
       p_fin: draft.fin,
@@ -169,17 +169,73 @@ export async function POST(req: Request) {
     const id_reserva = Number(row.id_reserva);
     const expires_at = String(row.expires_at);
 
-    const checkout_url = `/pago/iniciar?id_reserva=${id_reserva}`;
+    // 5) Si ya existe un pago activo (created/pending), reutilizarlo para evitar duplicados
+    const { data: existingPago, error: exErr } = await supabaseAdmin
+      .from("reservas_pagos")
+      .select("id_pago,status")
+      .eq("id_reserva", id_reserva)
+      .in("status", ["created", "pending"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (exErr) {
+      return NextResponse.json(
+        { error: `Error verificando pagos existentes: ${exErr.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (existingPago?.id_pago) {
+      const id_pago = Number(existingPago.id_pago);
+      const checkout_url = `/pago/iniciar?id_reserva=${id_reserva}&id_pago=${id_pago}`;
+
+      return NextResponse.json({
+        ok: true,
+        id_reserva,
+        id_pago,
+        expires_at,
+        precio_total,
+        anticipo_porcentaje: pct,
+        monto_anticipo,
+        checkout_url,
+        fin_dia_offset,
+        reused_pago: true,
+      });
+    }
+
+    // 6) Crear registro de pago (tabla aparte)
+    const { data: pago, error: pErr } = await supabaseAdmin
+      .from("reservas_pagos")
+      .insert({
+        id_reserva,
+        provider: "mercadopago",
+        status: "created",
+        amount: monto_anticipo,
+        currency: "ARS",
+        external_reference: String(id_reserva),
+      })
+      .select("id_pago")
+      .single();
+
+    if (pErr) {
+      return NextResponse.json({ error: `Error creando registro de pago: ${pErr.message}` }, { status: 500 });
+    }
+
+    const id_pago = Number(pago?.id_pago);
+    const checkout_url = `/pago/iniciar?id_reserva=${id_reserva}&id_pago=${id_pago}`;
 
     return NextResponse.json({
       ok: true,
       id_reserva,
+      id_pago,
       expires_at,
       precio_total,
       anticipo_porcentaje: pct,
       monto_anticipo,
       checkout_url,
       fin_dia_offset,
+      reused_pago: false,
     });
   } catch (e: any) {
     console.error("[POST /api/reservas/checkout] ex:", e);
