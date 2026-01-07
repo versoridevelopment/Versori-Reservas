@@ -6,10 +6,13 @@ import { ArrowRight } from "lucide-react";
 import Container from "../ui/Container";
 
 export default function Profesores({ profesores }: { profesores: any[] }) {
-  if (!profesores || profesores.length === 0) return null;
+  // FIX: Filtrar para mostrar solo profesores activos en la home.
+  const profesoresActivos = profesores?.filter((p) => p.activo !== false) || [];
+
+  if (profesoresActivos.length === 0) return null;
 
   // Mostramos máximo 4 en el home para no saturar
-  const displayProfesores = profesores.slice(0, 4);
+  const displayProfesores = profesoresActivos.slice(0, 4);
 
   return (
     <section className="py-24 bg-[#08090c] border-t border-white/5">
@@ -27,7 +30,8 @@ export default function Profesores({ profesores }: { profesores: any[] }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
           {displayProfesores.map((profe) => (
             <div
-              key={profe.id}
+              // CORRECCIÓN 1: Usamos 'id_profesor' en lugar de 'id'
+              key={profe.id_profesor}
               className="bg-[#12141a] rounded-2xl overflow-hidden border border-white/5 group hover:border-white/20 transition-all duration-300 hover:-translate-y-2 shadow-lg hover:shadow-blue-900/10"
             >
               <div className="relative h-72 w-full bg-gray-800">
@@ -36,6 +40,8 @@ export default function Profesores({ profesores }: { profesores: any[] }) {
                     src={profe.foto_url}
                     alt={profe.nombre}
                     fill
+                    // CORRECCIÓN 2: Propiedad sizes para optimización
+                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                     className="object-cover group-hover:scale-105 transition-transform duration-500 grayscale group-hover:grayscale-0"
                   />
                 ) : (

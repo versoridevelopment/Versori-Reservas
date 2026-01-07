@@ -1,189 +1,184 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
-import { PUBLIC_MEDIA_BUCKET } from "@/lib/storage/paths";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const formData = await req.formData();
+    const supabase = createRouteHandlerClient({ cookies });
 
-    // 1. Extraer datos básicos
+    // 1. Recibir FormData
+    const formData = await request.formData();
     const clubId = formData.get("clubId") as string;
-    const clubDataRaw = formData.get("clubData") as string;
-    const nosotrosDataRaw = formData.get("nosotrosData") as string;
 
-    if (!clubId)
-      return NextResponse.json({ error: "Falta Club ID" }, { status: 400 });
-
-    const clubData = JSON.parse(clubDataRaw);
-    const nosotrosData = JSON.parse(nosotrosDataRaw);
-
-    // --- FUNCIÓN HELPER PARA SUBIDAS ---
-    const uploadFile = async (file: File, path: string) => {
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = new Uint8Array(arrayBuffer);
-
-      const { error } = await supabaseAdmin.storage
-        .from(PUBLIC_MEDIA_BUCKET)
-        .upload(path, buffer, {
-          contentType: file.type,
-          upsert: true,
-        });
-
-      if (error) throw error;
-
-      const { data } = supabaseAdmin.storage
-        .from(PUBLIC_MEDIA_BUCKET)
-        .getPublicUrl(path);
-
-      return data.publicUrl;
-    };
-
-    // 2. PROCESAR ARCHIVOS PRINCIPALES
-    const logoFile = formData.get("logoFile") as File | null;
-    const heroFile = formData.get("heroFile") as File | null;
-    const nosotrosMainFile = formData.get("nosotrosMainFile") as File | null;
-
-    if (logoFile) {
-      const path = `club_${clubId}/branding/logo-${Date.now()}.${logoFile.name
-        .split(".")
-        .pop()}`;
-      clubData.logo_url = await uploadFile(logoFile, path);
-    }
-
-    if (heroFile) {
-      const path = `club_${clubId}/branding/hero-${Date.now()}.${heroFile.name
-        .split(".")
-        .pop()}`;
-      clubData.imagen_hero_url = await uploadFile(heroFile, path);
-    }
-
-    if (nosotrosMainFile) {
-      const path = `club_${clubId}/nosotros/main-${Date.now()}.${nosotrosMainFile.name
-        .split(".")
-        .pop()}`;
-      nosotrosData.historia_imagen_url = await uploadFile(
-        nosotrosMainFile,
-        path
+    if (!clubId) {
+      return NextResponse.json(
+        { error: "Falta el ID del club" },
+        { status: 400 }
       );
     }
 
-    // 3. PROCESAR MARCAS
-    if (clubData.marcas && Array.isArray(clubData.marcas)) {
-      for (let i = 0; i < clubData.marcas.length; i++) {
-        const marca = clubData.marcas[i];
-        if (marca.tipo === "imagen") {
-          const brandFile = formData.get(
-            `brand_file_${marca.id}`
-          ) as File | null;
-          if (brandFile) {
-            const path = `club_${clubId}/branding/marcas/${
-              marca.id
-            }-${Date.now()}.${brandFile.name.split(".").pop()}`;
-            clubData.marcas[i].valor = await uploadFile(brandFile, path);
-          }
-        }
-      }
+    // Parsear datos JSON que vienen del formulario
+    const clubDataRaw = formData.get("clubData");
+    const nosotrosDataRaw = formData.get("nosotrosData");
+
+    if (!clubDataRaw || !nosotrosDataRaw) {
+      return NextResponse.json({ error: "Datos incompletos" }, { status: 400 });
     }
 
-    // 4. PROCESAR GALERÍA
-    const galleryFiles = formData.getAll("galleryFiles") as File[];
-    const currentGallery = nosotrosData.galeria_inicio || [];
-    const newGalleryUrls: string[] = [];
+    const clubData = JSON.parse(clubDataRaw as string);
+    const nosotrosData = JSON.parse(nosotrosDataRaw as string);
 
-    for (const file of galleryFiles) {
-      const path = `club_${clubId}/nosotros/gallery/slide-${Date.now()}-${Math.random()
-        .toString(36)
-        .substring(7)}.${file.name.split(".").pop()}`;
-      const url = await uploadFile(file, path);
-      newGalleryUrls.push(url);
-    }
+    // ---------------------------------------------------------
+    // A. ACTUALIZAR TABLA 'CLUBES'
+    // ---------------------------------------------------------
+    const clubUpdates = {
+      nombre: clubData.nombre,
+      subdominio: clubData.subdominio,
+      color_primario: clubData.color_primario,
+      color_secundario: clubData.color_secundario,
+      color_texto: clubData.color_texto,
+      texto_bienvenida_titulo: clubData.texto_bienvenida_titulo,
+      texto_bienvenida_subtitulo: clubData.texto_bienvenida_subtitulo,
+      marcas: clubData.marcas,
 
-    nosotrosData.galeria_inicio = [...currentGallery, ...newGalleryUrls];
+      // Flags de activación
+      activo_profesores: clubData.activo_profesores,
+      activo_contacto_home: clubData.activo_contacto_home, // <--- ¡AQUÍ ESTÁ LA CLAVE!
 
-    // 5. ACTUALIZAR BASE DE DATOS
+      // Imágenes (si las hubiera, la lógica de subida de archivos va aparte y actualiza esto)
+      logo_url: clubData.logo_url,
+      imagen_hero_url: clubData.imagen_hero_url,
 
-    // A) Tabla Clubes
-    const { error: errClub } = await supabaseAdmin
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error: clubError } = await supabase
       .from("clubes")
-      .update({
-        nombre: clubData.nombre,
-        color_primario: clubData.color_primario,
-        color_secundario: clubData.color_secundario,
-        color_texto: clubData.color_texto,
-        texto_bienvenida_titulo: clubData.texto_bienvenida_titulo,
-        texto_bienvenida_subtitulo: clubData.texto_bienvenida_subtitulo,
-        logo_url: clubData.logo_url,
-        imagen_hero_url: clubData.imagen_hero_url,
-        marcas: clubData.marcas,
-      })
+      .update(clubUpdates)
       .eq("id_club", clubId);
 
-    if (errClub) throw errClub;
-
-    // B) Tabla Contacto
-    const { data: contactData, error: errContact } = await supabaseAdmin
-      .from("contacto")
-      .upsert(
-        {
-          id_club: clubId,
-          email: clubData.email,
-          usuario_instagram: clubData.usuario_instagram,
-        },
-        { onConflict: "id_club" }
-      )
-      .select()
-      .single();
-
-    if (errContact) throw errContact;
-
-    // C) Direcciones y Teléfonos
-    if (contactData) {
-      await supabaseAdmin
-        .from("direccion")
-        .delete()
-        .eq("id_contacto", contactData.id_contacto);
-      await supabaseAdmin.from("direccion").insert({
-        id_contacto: contactData.id_contacto,
-        calle: clubData.calle,
-        altura_calle: clubData.altura,
-        barrio: clubData.barrio,
-      });
-
-      await supabaseAdmin
-        .from("telefono")
-        .delete()
-        .eq("id_contacto", contactData.id_contacto);
-      await supabaseAdmin.from("telefono").insert({
-        id_contacto: contactData.id_contacto,
-        numero: clubData.telefono,
-        tipo: "Principal",
-      });
+    if (clubError) {
+      console.error("Error al actualizar club:", clubError);
+      throw new Error(`Error actualizando club: ${clubError.message}`);
     }
 
-    // D) Tabla Nosotros
-    const { error: errNosotros } = await supabaseAdmin.from("nosotros").upsert(
-      {
-        id_club: clubId,
-        activo_nosotros: nosotrosData.activo_nosotros,
-        // Eliminado: activo_profesores (se maneja en /api/admin/equipo/config)
-        historia_titulo: nosotrosData.historia_titulo,
-        hero_descripcion: nosotrosData.hero_descripcion,
-        historia_contenido: nosotrosData.historia_contenido,
-        frase_cierre: nosotrosData.frase_cierre,
-        historia_imagen_url: nosotrosData.historia_imagen_url,
-        galeria_inicio: nosotrosData.galeria_inicio,
-        valores: nosotrosData.valores,
-      },
-      { onConflict: "id_club" }
-    );
+    // ---------------------------------------------------------
+    // B. ACTUALIZAR TABLA 'CONTACTO'
+    // ---------------------------------------------------------
+    // 1. Buscamos el ID del contacto asociado al club
+    const { data: contactoData, error: contactFetchError } = await supabase
+      .from("contacto")
+      .select("id_contacto")
+      .eq("id_club", clubId)
+      .single();
 
-    if (errNosotros) throw errNosotros;
+    if (!contactFetchError && contactoData) {
+      // 2. Actualizamos datos básicos de contacto
+      await supabase
+        .from("contacto")
+        .update({
+          email: clubData.email,
+          usuario_instagram: clubData.usuario_instagram, // Asumiendo que existe la columna
+          // instagram_url: ... (si lo guardas derivado)
+        })
+        .eq("id_contacto", contactoData.id_contacto);
+
+      // ---------------------------------------------------------
+      // C. ACTUALIZAR TABLA 'DIRECCION'
+      // ---------------------------------------------------------
+      const direccionUpdates = {
+        calle: clubData.calle,
+        altura_calle: clubData.altura, // Mapeamos 'altura' del form a la columna de la BD
+        barrio: clubData.barrio,
+        updated_at: new Date().toISOString(), // Si tienes columna updated_at en direccion
+      };
+
+      // Verificamos si ya existe dirección para hacer Update o Insert
+      const { data: existingDir } = await supabase
+        .from("direccion")
+        .select("id_direccion")
+        .eq("id_contacto", contactoData.id_contacto)
+        .maybeSingle();
+
+      if (existingDir) {
+        await supabase
+          .from("direccion")
+          .update(direccionUpdates)
+          .eq("id_direccion", existingDir.id_direccion);
+      } else {
+        await supabase.from("direccion").insert({
+          ...direccionUpdates,
+          id_contacto: contactoData.id_contacto,
+        });
+      }
+
+      // ---------------------------------------------------------
+      // D. ACTUALIZAR TABLA 'TELEFONO' (Principal)
+      // ---------------------------------------------------------
+      // Lógica simplificada: Actualizamos o creamos el teléfono tipo "Principal"
+      const { data: existingTel } = await supabase
+        .from("telefono")
+        .select("id_telefono")
+        .eq("id_contacto", contactoData.id_contacto)
+        .eq("tipo", "Principal") // O el criterio que uses para identificar el principal
+        .maybeSingle();
+
+      if (existingTel) {
+        await supabase
+          .from("telefono")
+          .update({ numero: clubData.telefono })
+          .eq("id_telefono", existingTel.id_telefono);
+      } else if (clubData.telefono) {
+        await supabase.from("telefono").insert({
+          id_contacto: contactoData.id_contacto,
+          numero: clubData.telefono,
+          tipo: "Principal",
+        });
+      }
+    } else {
+      // (Opcional) Si no existe contacto, podrías crearlo aquí
+      console.warn(
+        "No se encontró registro de contacto para el club ID:",
+        clubId
+      );
+    }
+
+    // ---------------------------------------------------------
+    // E. ACTUALIZAR TABLA 'NOSOTROS'
+    // ---------------------------------------------------------
+    const { data: existingNosotros } = await supabase
+      .from("nosotros")
+      .select("id_nosotros") // Corregido 'id' a 'id_nosotros' según tu esquema
+      .eq("id_club", clubId)
+      .maybeSingle();
+
+    const nosotrosUpdates = {
+      activo_nosotros: nosotrosData.activo_nosotros,
+      historia_titulo: nosotrosData.historia_titulo,
+      hero_descripcion: nosotrosData.hero_descripcion,
+      historia_contenido: nosotrosData.historia_contenido,
+      frase_cierre: nosotrosData.frase_cierre,
+      galeria_inicio: nosotrosData.galeria_inicio,
+      valores: nosotrosData.valores,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existingNosotros) {
+      await supabase
+        .from("nosotros")
+        .update(nosotrosUpdates)
+        .eq("id_club", clubId);
+    } else {
+      await supabase
+        .from("nosotros")
+        .insert({ ...nosotrosUpdates, id_club: clubId });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error("Error en API update:", error);
+    console.error("Error en update API:", error);
     return NextResponse.json(
-      { error: error.message || "Error interno" },
+      { error: error.message || "Error interno del servidor" },
       { status: 500 }
     );
   }

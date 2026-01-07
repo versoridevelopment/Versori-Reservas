@@ -4,16 +4,17 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import { MessageCircle } from "lucide-react";
 import ProfesoresGrid from "./ProfesoresGrid";
-import { Profesor } from "./ProfesorCard";
+import { Profesor } from "./ProfesorCard"; // Asegúrate de que la ruta sea correcta
 
 interface Props {
   profesores: Profesor[];
+  teamPhotoUrl?: string | null; // <--- Nueva prop para la foto grupal
 }
 
-export default function ProfesoresUI({ profesores }: Props) {
+export default function ProfesoresUI({ profesores, teamPhotoUrl }: Props) {
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#0b0d12] to-[#0e1a2b] text-gray-200">
-      {/* HERO */}
+      {/* --- HERO --- */}
       <section className="text-center py-24 border-b border-blue-900/30">
         <motion.h1
           className="text-5xl font-bold text-white mb-4"
@@ -24,7 +25,7 @@ export default function ProfesoresUI({ profesores }: Props) {
           » PROFESORES «
         </motion.h1>
         <motion.p
-          className="text-gray-400 text-lg max-w-3xl mx-auto"
+          className="text-gray-400 text-lg max-w-3xl mx-auto px-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2, duration: 0.8 }}
@@ -35,7 +36,7 @@ export default function ProfesoresUI({ profesores }: Props) {
         </motion.p>
       </section>
 
-      {/* GRILLA DE PROFESORES (DINÁMICA) */}
+      {/* --- GRILLA DE PROFESORES --- */}
       <section className="py-20 container mx-auto px-6 max-w-6xl">
         <motion.h2
           className="text-3xl font-semibold text-center text-white mb-14"
@@ -50,40 +51,44 @@ export default function ProfesoresUI({ profesores }: Props) {
         <ProfesoresGrid profesores={profesores} />
       </section>
 
-      {/* EQUIPO COMPLETO (Imagen estática o decorativa) */}
-      <section className="py-20 bg-[#0d1522] border-t border-blue-900/30">
-        <div className="container mx-auto px-6 text-center">
-          <motion.h2
-            className="text-3xl font-semibold text-white mb-10"
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            viewport={{ once: true }}
-          >
-            Nuestro equipo de profesores
-          </motion.h2>
+      {/* --- EQUIPO COMPLETO (Dinámico) --- */}
+      {/* Solo se renderiza si teamPhotoUrl tiene valor */}
+      {teamPhotoUrl && (
+        <section className="py-20 bg-[#0d1522] border-t border-blue-900/30">
+          <div className="container mx-auto px-6 text-center">
+            <motion.h2
+              className="text-3xl font-semibold text-white mb-10"
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+              viewport={{ once: true }}
+            >
+              Nuestro equipo de profesores
+            </motion.h2>
 
-          <motion.div
-            className="flex justify-center"
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 1 }}
-            viewport={{ once: true }}
-          >
-            {/* Puedes hacer esta imagen dinámica en el futuro si quieres */}
-            <Image
-              src="/profesores/equipo.webp"
-              alt="Equipo de profesores"
-              width={1000}
-              height={600}
-              className="rounded-2xl shadow-lg border border-blue-900/40"
-            />
-          </motion.div>
-        </div>
-      </section>
+            <motion.div
+              className="flex justify-center"
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              transition={{ duration: 1 }}
+              viewport={{ once: true }}
+            >
+              {/* Contenedor con aspecto de imagen para evitar saltos de layout */}
+              <div className="relative w-full max-w-5xl aspect-video md:aspect-[21/9] rounded-2xl overflow-hidden shadow-2xl border border-blue-900/40">
+                <Image
+                  src={teamPhotoUrl}
+                  alt="Equipo de profesores"
+                  fill
+                  className="object-cover"
+                />
+              </div>
+            </motion.div>
+          </div>
+        </section>
+      )}
 
-      {/* CONTACTO WHATSAPP */}
-      <section className="py-16 text-center border-t border-blue-900/30">
+      {/* --- CONTACTO WHATSAPP --- */}
+      <section className="py-16 text-center border-t border-blue-900/30 px-4">
         <motion.h3
           className="text-2xl font-semibold text-white mb-6"
           initial={{ opacity: 0, y: 30 }}
@@ -100,7 +105,7 @@ export default function ProfesoresUI({ profesores }: Props) {
           transition={{ duration: 0.9 }}
           viewport={{ once: true }}
         >
-          Contactate con nuestro equipo administrativo y sumate a la familia.
+          Contactate con nuestro equipo administrativo y sumate al club.
         </motion.p>
 
         <motion.a
