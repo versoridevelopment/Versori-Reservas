@@ -401,7 +401,7 @@ export default function NuevaCanchaClient({
                   {/* Precio */}
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1.5">
-                      Precio por Hora
+                      Precio por Hora Desde
                     </label>
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
