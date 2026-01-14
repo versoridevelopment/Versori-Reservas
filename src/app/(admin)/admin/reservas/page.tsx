@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import {
   Calendar as CalendarIcon,
@@ -21,10 +21,10 @@ import {
   Trash2,
   Edit,
   CreditCard,
+  Save,
 } from "lucide-react";
 
 // --- TIPOS ---
-
 type Cancha = {
   id: number;
   nombre: string;
@@ -36,8 +36,8 @@ type Cancha = {
 
 type Reserva = {
   id: number;
-  fechaInicio: string; // ISO String
-  fechaFin: string; // ISO String
+  fechaInicio: string;
+  fechaFin: string;
   cliente: string;
   telefono: string;
   estado: "Confirmada" | "Pendiente" | "Finalizada" | "Cancelada";
@@ -79,8 +79,8 @@ const MOCK_CANCHAS: Cancha[] = [
 const MOCK_RESERVAS: Reserva[] = [
   {
     id: 101,
-    fechaInicio: new Date(new Date().setHours(10, 0, 0, 0)).toISOString(),
-    fechaFin: new Date(new Date().setHours(11, 30, 0, 0)).toISOString(),
+    fechaInicio: new Date(new Date().setHours(9, 30, 0, 0)).toISOString(),
+    fechaFin: new Date(new Date().setHours(11, 0, 0, 0)).toISOString(),
     cliente: "Juan Pérez",
     telefono: "+54 9 11 1234 5678",
     estado: "Confirmada",
@@ -92,7 +92,7 @@ const MOCK_RESERVAS: Reserva[] = [
   {
     id: 102,
     fechaInicio: new Date(new Date().setHours(14, 0, 0, 0)).toISOString(),
-    fechaFin: new Date(new Date().setHours(15, 0, 0, 0)).toISOString(),
+    fechaFin: new Date(new Date().setHours(15, 30, 0, 0)).toISOString(),
     cliente: "Clase Prof. Miguel",
     telefono: "-",
     estado: "Confirmada",
@@ -101,18 +101,6 @@ const MOCK_RESERVAS: Reserva[] = [
     montoSenia: 0,
     notas: "Cobrar al finalizar la clase.",
     color: "bg-purple-100 border-purple-300 text-purple-800",
-  },
-  {
-    id: 103,
-    fechaInicio: new Date(new Date().setHours(19, 0, 0, 0)).toISOString(),
-    fechaFin: new Date(new Date().setHours(20, 30, 0, 0)).toISOString(),
-    cliente: "Torneo Local",
-    telefono: "+54 9 11 9876 5432",
-    estado: "Pendiente",
-    pagoEstado: "Parcial",
-    montoTotal: 20000,
-    montoSenia: 5000,
-    color: "bg-orange-100 border-orange-300 text-orange-800",
   },
 ];
 
@@ -128,17 +116,21 @@ const formatTime = (isoString: string) =>
     minute: "2-digit",
   });
 
-// --- COMPONENTE: SIDEBAR DE DETALLES (NUEVO) ---
+// --- COMPONENTE: SIDEBAR (VER DETALLE O NUEVA RESERVA) ---
 const ReservaSidebar = ({
-  reserva,
   isOpen,
   onClose,
+  reserva,
+  isCreating,
+  selectedDate, // Para pre-llenar fecha en nueva reserva
 }: {
-  reserva: Reserva | null;
   isOpen: boolean;
   onClose: () => void;
+  reserva: Reserva | null;
+  isCreating: boolean;
+  selectedDate: Date;
 }) => {
-  // Manejo de cierre con tecla ESC
+  // Manejo de tecla ESC
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -147,32 +139,35 @@ const ReservaSidebar = ({
     return () => window.removeEventListener("keydown", handleEsc);
   }, [onClose]);
 
-  if (!reserva) return null;
+  // Si no está abierto, no renderizamos nada (o podríamos usar CSS translation si quisiéramos animar la salida siempre)
+  // Aquí usamos la clase translate para animar, así que mantenemos el componente montado pero oculto
 
   return (
     <>
-      {/* Backdrop (Fondo oscuro) */}
+      {/* Overlay Transparente (Captura click fuera) - SIN BLUR NI FONDO OSCURO */}
       <div
-        className={`fixed inset-0 bg-black/30 backdrop-blur-sm z-40 transition-opacity duration-300 ${
-          isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+        className={`fixed inset-0 z-40 transition-all duration-300 bg-transparent ${
+          isOpen ? "block" : "hidden pointer-events-none"
         }`}
         onClick={onClose}
       />
 
-      {/* Sidebar Panel */}
+      {/* Panel Lateral */}
       <div
-        className={`fixed inset-y-0 right-0 w-full md:w-[450px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out flex flex-col ${
+        className={`fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col border-l border-gray-200 ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        {/* Header Sidebar */}
-        <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-start bg-gray-50/50">
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/80">
           <div>
             <h2 className="text-xl font-bold text-gray-900">
-              Detalle de Reserva
+              {isCreating ? "Nueva Reserva" : "Detalle de Reserva"}
             </h2>
-            <p className="text-sm text-gray-500 font-mono mt-1">
-              ID: #{reserva.id}
+            <p className="text-xs text-gray-500 mt-0.5">
+              {isCreating
+                ? "Complete los datos para agendar."
+                : `ID Operación: #${reserva?.id}`}
             </p>
           </div>
           <button
@@ -183,143 +178,267 @@ const ReservaSidebar = ({
           </button>
         </div>
 
-        {/* Body Sidebar (Scrollable) */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-8">
-          {/* 1. Información Principal */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                  reserva.estado === "Confirmada"
-                    ? "bg-green-100 text-green-700"
-                    : reserva.estado === "Pendiente"
-                    ? "bg-orange-100 text-orange-700"
-                    : "bg-red-100 text-red-700"
-                }`}
-              >
-                {reserva.estado}
-              </span>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-gray-900">
-                  {formatTime(reserva.fechaInicio)}
-                </p>
-                <p className="text-xs text-gray-500">
-                  hasta {formatTime(reserva.fechaFin)}
-                </p>
+        {/* Contenido Scrollable */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* --- MODO: NUEVA RESERVA (FORMULARIO) --- */}
+          {isCreating ? (
+            <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
+              {/* Sección Cliente */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider border-b border-gray-100 pb-2">
+                  Cliente
+                </h3>
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Nombre Completo
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      placeholder="Ej: Maria Gonzalez"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Teléfono / WhatsApp
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="+54 9..."
+                    />
+                  </div>
+                </div>
               </div>
+
+              {/* Sección Horario */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider border-b border-gray-100 pb-2">
+                  Horario
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Fecha
+                    </label>
+                    <input
+                      type="date"
+                      defaultValue={selectedDate.toISOString().split("T")[0]}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Hora Inicio
+                    </label>
+                    <input
+                      type="time"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Duración
+                    </label>
+                    <div className="flex gap-2">
+                      {["60 min", "90 min", "120 min"].map((dur) => (
+                        <button
+                          type="button"
+                          key={dur}
+                          className="flex-1 py-2 text-sm border border-gray-300 rounded-lg hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 focus:ring-2 focus:ring-blue-500 transition-all"
+                        >
+                          {dur}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sección Pago */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider border-b border-gray-100 pb-2">
+                  Pago
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Precio Total
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Seña / Anticipo
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Notas Internas
+                  </label>
+                  <textarea
+                    rows={2}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Ej: Traen sus propias pelotas..."
+                  ></textarea>
+                </div>
+              </div>
+            </form>
+          ) : reserva ? (
+            /* --- MODO: VER DETALLE (RESUMEN) --- */
+            <div className="space-y-8 animate-in fade-in slide-in-from-right-2 duration-300">
+              {/* Header Info */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                      reserva.estado === "Confirmada"
+                        ? "bg-green-100 text-green-700"
+                        : reserva.estado === "Pendiente"
+                        ? "bg-orange-100 text-orange-700"
+                        : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {reserva.estado}
+                  </span>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold text-gray-900">
+                      {formatTime(reserva.fechaInicio)}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      hasta {formatTime(reserva.fechaFin)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cliente */}
+              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <User className="w-4 h-4 text-blue-500" /> Datos del Cliente
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between border-b border-gray-50 pb-2">
+                    <span className="text-sm text-gray-500">Nombre</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {reserva.cliente}
+                    </span>
+                  </div>
+                  <div className="flex justify-between pt-1">
+                    <span className="text-sm text-gray-500">Teléfono</span>
+                    <a
+                      href={`https://wa.me/${reserva.telefono.replace(
+                        /\D/g,
+                        ""
+                      )}`}
+                      target="_blank"
+                      className="text-sm font-medium text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <Phone className="w-3 h-3" /> {reserva.telefono}
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {/* Finanzas */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-green-600" /> Finanzas
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Total a Pagar</span>
+                    <span className="text-lg font-bold text-gray-900">
+                      {formatMoney(reserva.montoTotal)}
+                    </span>
+                  </div>
+
+                  {/* Barra de progreso de pago */}
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div
+                      className={`h-2.5 rounded-full ${
+                        reserva.pagoEstado === "Pagado"
+                          ? "bg-green-500"
+                          : "bg-orange-400"
+                      }`}
+                      style={{
+                        width: `${
+                          (reserva.montoSenia / reserva.montoTotal) * 100
+                        }%`,
+                      }}
+                    ></div>
+                  </div>
+
+                  <div className="flex justify-between text-xs pt-1">
+                    <span className="text-green-700 font-medium">
+                      Pagado: {formatMoney(reserva.montoSenia)}
+                    </span>
+                    <span className="text-red-600 font-medium">
+                      Resta:{" "}
+                      {formatMoney(reserva.montoTotal - reserva.montoSenia)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notas */}
+              {reserva.notas && (
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                    Notas Internas
+                  </h4>
+                  <p className="text-sm text-gray-600 bg-yellow-50 p-3 rounded-lg border border-yellow-100 italic">
+                    "{reserva.notas}"
+                  </p>
+                </div>
+              )}
             </div>
-          </div>
-
-          {/* 2. Datos del Cliente */}
-          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <User className="w-4 h-4 text-blue-500" /> Datos del Cliente
-            </h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Nombre</span>
-                <span className="text-sm font-medium text-gray-900">
-                  {reserva.cliente}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Teléfono</span>
-                <a
-                  href={`https://wa.me/${reserva.telefono.replace(/\D/g, "")}`}
-                  target="_blank"
-                  className="text-sm font-medium text-blue-600 hover:underline flex items-center gap-1"
-                >
-                  <Phone className="w-3 h-3" /> {reserva.telefono}
-                </a>
-              </div>
-            </div>
-          </div>
-
-          {/* 3. Estado de Pagos */}
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-green-600" /> Finanzas
-            </h3>
-
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total a Pagar</span>
-                <span className="text-lg font-bold text-gray-900">
-                  {formatMoney(reserva.montoTotal)}
-                </span>
-              </div>
-
-              {/* Barra de progreso de pago */}
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div
-                  className={`h-2.5 rounded-full ${
-                    reserva.pagoEstado === "Pagado"
-                      ? "bg-green-500"
-                      : "bg-orange-400"
-                  }`}
-                  style={{
-                    width: `${
-                      (reserva.montoSenia / reserva.montoTotal) * 100
-                    }%`,
-                  }}
-                ></div>
-              </div>
-
-              <div className="flex justify-between text-xs pt-1">
-                <span className="text-green-700 font-medium">
-                  Pagado: {formatMoney(reserva.montoSenia)}
-                </span>
-                <span className="text-red-600 font-medium">
-                  Resta: {formatMoney(reserva.montoTotal - reserva.montoSenia)}
-                </span>
-              </div>
-
-              <div className="pt-2 border-t border-gray-200 mt-2">
-                <span
-                  className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded ${
-                    reserva.pagoEstado === "Pagado"
-                      ? "bg-green-100 text-green-800"
-                      : "bg-yellow-100 text-yellow-800"
-                  }`}
-                >
-                  {reserva.pagoEstado === "Pagado" ? (
-                    <CheckCircle className="w-3 h-3" />
-                  ) : (
-                    <AlertCircle className="w-3 h-3" />
-                  )}
-                  Estado: {reserva.pagoEstado}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 4. Notas */}
-          {reserva.notas && (
-            <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">
-                Notas Internas
-              </h4>
-              <p className="text-sm text-gray-600 bg-yellow-50 p-3 rounded-lg border border-yellow-100 italic">
-                "{reserva.notas}"
-              </p>
-            </div>
-          )}
+          ) : null}
         </div>
 
         {/* Footer Actions */}
         <div className="p-6 border-t border-gray-100 bg-white space-y-3">
-          <button className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-all">
-            <CreditCard className="w-4 h-4" /> Registrar Pago / Seña
-          </button>
-
-          <div className="grid grid-cols-2 gap-3">
-            <button className="flex items-center justify-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-2.5 rounded-xl transition-all">
-              <Edit className="w-4 h-4" /> Editar
+          {isCreating ? (
+            <button className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-blue-200">
+              <Save className="w-4 h-4" /> Crear Reserva
             </button>
-            <button className="flex items-center justify-center gap-2 bg-white border border-red-100 hover:bg-red-50 text-red-600 font-medium py-2.5 rounded-xl transition-all">
-              <Trash2 className="w-4 h-4" /> Cancelar
-            </button>
-          </div>
+          ) : (
+            <>
+              <button className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition-all">
+                <CreditCard className="w-4 h-4" /> Registrar Pago / Seña
+              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button className="flex items-center justify-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-2.5 rounded-xl transition-all">
+                  <Edit className="w-4 h-4" /> Editar
+                </button>
+                <button className="flex items-center justify-center gap-2 bg-white border border-red-100 hover:bg-red-50 text-red-600 font-medium py-2.5 rounded-xl transition-all">
+                  <Trash2 className="w-4 h-4" /> Cancelar
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </>
@@ -346,7 +465,6 @@ const CanchaCard = ({
           fill
           className="object-cover group-hover:scale-105 transition-transform duration-700"
         />
-        {/* Overlay gradiente para texto legible */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
       </div>
       <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md px-2.5 py-1 rounded-lg text-xs font-bold text-gray-800 shadow-sm flex items-center gap-1">
@@ -369,7 +487,7 @@ const CanchaCard = ({
   </div>
 );
 
-// --- COMPONENTE: CRONOGRAMA ---
+// --- COMPONENTE: CRONOGRAMA DETALLADO ---
 const CronogramaCancha = ({
   cancha,
   onBack,
@@ -378,16 +496,42 @@ const CronogramaCancha = ({
   onBack: () => void;
 }) => {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  // Estado para controlar qué reserva se muestra en el sidebar
+
+  // Estados para el Sidebar
+  const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState<"view" | "create">("view");
   const [selectedReserva, setSelectedReserva] = useState<Reserva | null>(null);
 
-  // Constantes de diseño
+  // Configuración Grilla
   const START_HOUR = 8;
-  const END_HOUR = 23;
-  const HOURS_COUNT = END_HOUR - START_HOUR + 1;
-  const PIXELS_PER_HOUR = 130;
+  const END_HOUR = 24;
+  const PIXELS_PER_HOUR = 160;
+  const timeSlots = [];
+  for (let i = START_HOUR; i < END_HOUR; i += 0.5) {
+    timeSlots.push(i);
+  }
 
-  const hours = Array.from({ length: HOURS_COUNT }, (_, i) => START_HOUR + i);
+  // Handlers
+  const handleOpenCreate = () => {
+    setSelectedReserva(null);
+    setSidebarMode("create");
+    setSidebarOpen(true);
+  };
+
+  const handleOpenView = (reserva: Reserva) => {
+    setSelectedReserva(reserva);
+    setSidebarMode("view");
+    setSidebarOpen(true);
+  };
+
+  const handleCloseSidebar = () => {
+    setSidebarOpen(false);
+    // Timeout pequeño para limpiar el estado después de la animación de cierre
+    setTimeout(() => {
+      setSelectedReserva(null);
+      setSidebarMode("view");
+    }, 300);
+  };
 
   const changeDate = (days: number) => {
     const newDate = new Date(selectedDate);
@@ -408,6 +552,7 @@ const CronogramaCancha = ({
   const getCurrentTimePosition = () => {
     const now = new Date();
     const currentHour = now.getHours() + now.getMinutes() / 60;
+    if (currentHour < START_HOUR) return -10;
     return (currentHour - START_HOUR) * PIXELS_PER_HOUR;
   };
 
@@ -415,20 +560,21 @@ const CronogramaCancha = ({
 
   return (
     <div className="relative h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-500">
-      {/* 1. SIDEBAR (Se renderiza condicionalmente o siempre visible controlando CSS) */}
+      {/* SIDEBAR UNIFICADO */}
       <ReservaSidebar
+        isOpen={isSidebarOpen}
+        onClose={handleCloseSidebar}
+        isCreating={sidebarMode === "create"}
         reserva={selectedReserva}
-        isOpen={!!selectedReserva}
-        onClose={() => setSelectedReserva(null)}
+        selectedDate={selectedDate}
       />
 
-      {/* 2. HEADER CRONOGRAMA */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+      {/* HEADER */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6 sticky top-0 z-30 bg-slate-50 py-2">
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
             className="p-2 hover:bg-white bg-gray-100 rounded-full transition-all border border-transparent hover:border-gray-300 shadow-sm active:scale-95"
-            title="Volver"
           >
             <ArrowLeft className="w-5 h-5 text-gray-700" />
           </button>
@@ -446,7 +592,6 @@ const CronogramaCancha = ({
           </div>
         </div>
 
-        {/* Date Navigator */}
         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl p-1.5 shadow-sm">
           <button
             onClick={() => changeDate(-1)}
@@ -475,92 +620,102 @@ const CronogramaCancha = ({
           </button>
         </div>
 
-        <button className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-slate-900/20 transition-all active:scale-95">
+        <button
+          onClick={handleOpenCreate}
+          className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-3 rounded-xl font-bold shadow-lg shadow-slate-900/20 transition-all active:scale-95"
+        >
           <Plus className="w-5 h-5" /> Nueva Reserva
         </button>
       </div>
 
-      {/* 3. CALENDARIO GRID */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col h-[650px] overflow-hidden relative">
-        <div className="overflow-y-auto flex-1 relative custom-scrollbar bg-dots-pattern">
+      {/* GRILLA CALENDARIO */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col flex-1 overflow-hidden relative min-h-[600px]">
+        <div className="overflow-y-auto flex-1 relative custom-scrollbar">
           <div
-            className="relative min-h-full"
-            style={{ height: HOURS_COUNT * PIXELS_PER_HOUR }}
+            className="relative w-full"
+            style={{ height: (END_HOUR - START_HOUR) * PIXELS_PER_HOUR }}
           >
-            {/* Grid Lines */}
-            {hours.map((hour) => (
-              <div
-                key={hour}
-                className="absolute w-full border-b border-gray-100 flex items-start group hover:bg-gray-50/50 transition-colors"
-                style={{
-                  top: (hour - START_HOUR) * PIXELS_PER_HOUR,
-                  height: PIXELS_PER_HOUR,
-                }}
-              >
-                <div className="w-16 text-right pr-3 text-xs font-semibold text-gray-400 -mt-2.5 sticky left-0 z-10 select-none">
-                  {hour}:00
+            {/* Líneas de Tiempo */}
+            {timeSlots.map((time) => {
+              const isFullHour = Number.isInteger(time);
+              const topPos = (time - START_HOUR) * PIXELS_PER_HOUR;
+              return (
+                <div
+                  key={time}
+                  className={`absolute w-full flex items-start group hover:bg-blue-50/30 transition-colors z-0 ${
+                    isFullHour
+                      ? "border-b border-gray-200"
+                      : "border-b border-gray-100 border-dashed"
+                  }`}
+                  style={{ top: topPos, height: PIXELS_PER_HOUR / 2 }}
+                >
+                  <div
+                    className={`w-20 text-right pr-4 -mt-2.5 sticky left-0 z-10 select-none bg-white/0 ${
+                      isFullHour
+                        ? "text-xs font-bold text-gray-800"
+                        : "text-[10px] font-medium text-gray-400"
+                    }`}
+                  >
+                    {isFullHour ? `${time}:00` : `${Math.floor(time)}:30`}
+                  </div>
                 </div>
-                {/* Media hora dash */}
-                <div className="absolute left-16 right-0 top-1/2 border-t border-gray-50 border-dashed" />
-              </div>
-            ))}
+              );
+            })}
 
-            {/* Current Time Indicator */}
-            {isToday && (
+            {/* Hora Actual */}
+            {isToday && getCurrentTimePosition() > 0 && (
               <div
-                className="absolute left-16 right-0 border-t-2 border-red-500 z-30 pointer-events-none flex items-center"
+                className="absolute left-0 right-0 border-t-2 border-red-500 z-20 pointer-events-none flex items-center"
                 style={{ top: getCurrentTimePosition() }}
               >
-                <div className="w-2.5 h-2.5 bg-red-500 rounded-full -ml-1.5 shadow-sm"></div>
+                <div className="absolute left-16 w-2.5 h-2.5 bg-red-500 rounded-full -ml-1.5 shadow-sm"></div>
+                <div className="absolute right-0 bg-red-500 text-white text-[10px] font-bold px-1.5 rounded-l-md">
+                  {new Date().toLocaleTimeString("es-AR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </div>
               </div>
             )}
 
-            {/* RESERVAS RENDER */}
+            {/* Reservas */}
             {MOCK_RESERVAS.map((reserva) => {
               const style = getEventStyle(
                 reserva.fechaInicio,
                 reserva.fechaFin
               );
-
               return (
                 <div
                   key={reserva.id}
                   onClick={(e) => {
-                    e.stopPropagation(); // Evitar triggers no deseados
-                    setSelectedReserva(reserva);
+                    e.stopPropagation();
+                    handleOpenView(reserva);
                   }}
-                  className={`absolute left-16 right-4 md:right-12 rounded-xl p-3 border-l-[6px] shadow-sm cursor-pointer 
-                    hover:shadow-md hover:brightness-95 transition-all z-20 flex flex-col justify-between group
-                    ${reserva.color} bg-opacity-90 backdrop-blur-sm`}
+                  className={`absolute left-20 right-4 md:right-12 rounded-lg border-l-[4px] shadow-sm cursor-pointer 
+                    hover:shadow-lg hover:z-30 hover:scale-[1.01] transition-all z-10 flex flex-col justify-center px-3 group
+                    ${reserva.color} bg-opacity-95 backdrop-blur-sm`}
                   style={style}
                 >
-                  {/* Header Reserva */}
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm md:text-base text-gray-800">
+                  <div className="flex justify-between items-center w-full">
+                    <div className="flex flex-col overflow-hidden">
+                      <span className="font-bold text-sm text-gray-900 truncate">
                         {reserva.cliente}
                       </span>
+                      <div className="flex items-center gap-2 text-xs font-medium opacity-80">
+                        <Clock className="w-3 h-3" />
+                        {formatTime(reserva.fechaInicio)} -{" "}
+                        {formatTime(reserva.fechaFin)}
+                      </div>
+                    </div>
+                    <div className="text-right flex flex-col items-end">
+                      <span className="text-xs font-bold bg-white/50 px-2 py-0.5 rounded text-gray-800">
+                        {formatMoney(reserva.montoTotal)}
+                      </span>
                       {reserva.pagoEstado !== "Pagado" && (
-                        <span
-                          className="w-2 h-2 rounded-full bg-red-500 animate-pulse"
-                          title="Pago pendiente"
-                        ></span>
+                        <span className="text-[10px] font-bold text-red-600 bg-red-100/80 px-1.5 rounded mt-1">
+                          Debe Seña
+                        </span>
                       )}
-                    </div>
-                    <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-black/10 rounded transition-opacity">
-                      <MoreVertical className="w-4 h-4 text-gray-600" />
-                    </button>
-                  </div>
-
-                  {/* Info Reserva */}
-                  <div className="flex items-center justify-between mt-1">
-                    <div className="flex items-center gap-1.5 text-xs font-medium opacity-80">
-                      <Clock className="w-3 h-3" />
-                      {formatTime(reserva.fechaInicio)} -{" "}
-                      {formatTime(reserva.fechaFin)}
-                    </div>
-                    <div className="text-xs font-bold bg-white/60 px-2 py-0.5 rounded text-gray-700">
-                      {formatMoney(reserva.montoTotal)}
                     </div>
                   </div>
                 </div>
@@ -574,10 +729,8 @@ const CronogramaCancha = ({
 };
 
 // --- PÁGINA PRINCIPAL ---
-
 export default function ReservasPage() {
   const [selectedCourt, setSelectedCourt] = useState<Cancha | null>(null);
-
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [selectedCourt]);
@@ -585,7 +738,6 @@ export default function ReservasPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        {/* Breadcrumb o Título simple */}
         <div className="mb-8 flex items-end justify-between">
           <div>
             <h1 className="text-3xl font-black text-slate-900 tracking-tight">
@@ -593,12 +745,11 @@ export default function ReservasPage() {
             </h1>
             <p className="text-slate-500 mt-1">
               {selectedCourt
-                ? "Gestiona los turnos en tiempo real."
+                ? "Visualizando disponibilidad y turnos."
                 : "Selecciona una cancha para comenzar."}
             </p>
           </div>
         </div>
-
         {selectedCourt ? (
           <CronogramaCancha
             cancha={selectedCourt}
