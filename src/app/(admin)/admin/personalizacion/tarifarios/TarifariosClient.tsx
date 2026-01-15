@@ -2,6 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Loader2,
+  Plus,
+  Search,
+  Settings,
+  ToggleLeft,
+  ToggleRight,
+  Save,
+  CheckCircle,
+  AlertCircle,
+  FileText,
+} from "lucide-react";
 
 type ApiError = { error: string };
 
@@ -29,10 +41,17 @@ function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
       className={[
-        "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold",
-        ok ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800",
+        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border",
+        ok
+          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+          : "bg-red-50 text-red-700 border-red-200",
       ].join(" ")}
     >
+      {ok ? (
+        <CheckCircle className="w-3 h-3" />
+      ) : (
+        <AlertCircle className="w-3 h-3" />
+      )}
       {label}
     </span>
   );
@@ -55,14 +74,17 @@ export default function TarifariosClient({
 
   // defaults
   const [tipos, setTipos] = useState<TipoCancha[]>([]);
-  const [defaults, setDefaults] = useState<Record<number, number | null>>({}); // id_tipo_cancha -> id_tarifario|null
+  const [defaults, setDefaults] = useState<Record<number, number | null>>({});
 
   // form crear
   const [newNombre, setNewNombre] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [creating, setCreating] = useState(false);
 
   async function loadTarifarios() {
-    const res = await fetch(`/api/admin/tarifarios?id_club=${clubId}`, { cache: "no-store" });
+    const res = await fetch(`/api/admin/tarifarios?id_club=${clubId}`, {
+      cache: "no-store",
+    });
     if (!res.ok) {
       const e = (await res.json().catch(() => null)) as ApiError | null;
       throw new Error(e?.error || "Error al cargar tarifarios");
@@ -72,7 +94,10 @@ export default function TarifariosClient({
   }
 
   async function loadDefaults() {
-    const res = await fetch(`/api/admin/tarifarios/defaults?id_club=${clubId}`, { cache: "no-store" });
+    const res = await fetch(
+      `/api/admin/tarifarios/defaults?id_club=${clubId}`,
+      { cache: "no-store" }
+    );
     if (!res.ok) {
       const e = (await res.json().catch(() => null)) as ApiError | null;
       throw new Error(e?.error || "Error al cargar defaults");
@@ -126,6 +151,7 @@ export default function TarifariosClient({
     const nombre = newNombre.trim();
     if (!nombre) return alert("Ingresá un nombre");
 
+    setCreating(true);
     try {
       const res = await fetch("/api/admin/tarifarios", {
         method: "POST",
@@ -148,6 +174,8 @@ export default function TarifariosClient({
       await loadTarifarios();
     } catch (err: any) {
       alert(err?.message || "Error al crear tarifario");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -165,7 +193,9 @@ export default function TarifariosClient({
       }
 
       setTarifarios((prev) =>
-        prev.map((t) => (t.id_tarifario === id_tarifario ? { ...t, activo } : t))
+        prev.map((t) =>
+          t.id_tarifario === id_tarifario ? { ...t, activo } : t
+        )
       );
     } catch (err: any) {
       alert(err?.message || "Error al actualizar");
@@ -175,10 +205,12 @@ export default function TarifariosClient({
   async function saveDefaults() {
     setSavingDefaults(true);
     try {
-      const items = Object.entries(defaults).map(([id_tipo_cancha, id_tarifario]) => ({
-        id_tipo_cancha: Number(id_tipo_cancha),
-        id_tarifario: id_tarifario === null ? null : Number(id_tarifario),
-      }));
+      const items = Object.entries(defaults).map(
+        ([id_tipo_cancha, id_tarifario]) => ({
+          id_tipo_cancha: Number(id_tipo_cancha),
+          id_tarifario: id_tarifario === null ? null : Number(id_tarifario),
+        })
+      );
 
       const res = await fetch("/api/admin/tarifarios/defaults", {
         method: "PUT",
@@ -202,218 +234,276 @@ export default function TarifariosClient({
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-        Cargando tarifarios…
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Tarifarios</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            {clubNombre} · Agrupación de reglas (tarifas) + defaults por tipo de cancha.
-          </p>
-        </div>
-
-        <div className="flex gap-2">
+    <div className="min-h-screen bg-slate-50 p-6 md:p-10 -m-6 md:-m-10">
+      <div className="max-w-7xl mx-auto space-y-8 pb-32">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-extrabold text-slate-900">
+              Gestión de Tarifarios
+            </h1>
+            <p className="text-slate-500 mt-2 text-lg">
+              Define los precios y reglas de cobro para {clubNombre}.
+            </p>
+          </div>
           <button
             onClick={load}
-            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50"
+            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors"
           >
-            Recargar
+            <Loader2 className="w-4 h-4" /> Recargar
           </button>
         </div>
-      </div>
 
-      {/* Error */}
-      {error && (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
-          {error}
-          <div className="mt-3">
+        {/* Error */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-center justify-between">
+            <span className="text-sm font-medium">{error}</span>
             <button
               onClick={load}
-              className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+              className="text-xs font-bold underline hover:text-red-900"
             >
               Reintentar
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Crear tarifario */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
-        <div className="text-sm font-extrabold text-gray-900">Crear tarifario</div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input
-            className="rounded-xl border border-gray-200 px-4 py-2 text-sm"
-            placeholder="Nombre (ej: Pádel estándar)"
-            value={newNombre}
-            onChange={(e) => setNewNombre(e.target.value)}
-          />
-          <input
-            className="rounded-xl border border-gray-200 px-4 py-2 text-sm md:col-span-2"
-            placeholder="Descripción (opcional)"
-            value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
-          />
-        </div>
-
-        <div className="flex justify-end">
-          <button
-            onClick={crearTarifario}
-            className="rounded-xl bg-[#003366] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00284f]"
-          >
-            Crear
-          </button>
-        </div>
-      </div>
-
-      {/* Defaults por tipo */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
-        <div>
-          <div className="text-sm font-extrabold text-gray-900">Defaults por tipo de cancha</div>
-          <div className="text-xs text-gray-500 mt-1">
-            Si una cancha no tiene tarifario asignado, usa el default del tipo.
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {tipos.map((t) => {
-            const deporte = t.deportes?.nombre ?? "deporte";
-            const label = `${deporte} · ${t.nombre}`;
-
-            return (
-              <div
-                key={t.id_tipo_cancha}
-                className="rounded-xl border border-gray-200 p-3 flex items-center justify-between gap-3"
-              >
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">{label}</div>
-                  <div className="text-xs text-gray-500">id_tipo_cancha: {t.id_tipo_cancha}</div>
-                </div>
-
-                <select
-                  className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
-                  value={defaults[t.id_tipo_cancha] ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setDefaults((prev) => ({
-                      ...prev,
-                      [t.id_tipo_cancha]: v === "" ? null : Number(v),
-                    }));
-                  }}
-                >
-                  <option value="">(sin default)</option>
-                  {tarifarios
-                    .filter((x) => x.activo)
-                    .map((x) => (
-                      <option key={x.id_tarifario} value={x.id_tarifario}>
-                        {x.nombre}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex justify-end">
-          <button
-            onClick={saveDefaults}
-            disabled={savingDefaults}
-            className="rounded-xl bg-[#003366] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00284f] disabled:opacity-60"
-          >
-            {savingDefaults ? "Guardando..." : "Guardar defaults"}
-          </button>
-        </div>
-      </div>
-
-      {/* Listado tarifarios */}
-      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-        {/* Toolbar */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 border-b border-gray-100">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar por nombre, descripción o id…"
-            className="w-full sm:max-w-lg rounded-xl border border-gray-200 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-[#003366]/20"
-          />
-
-          <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={(e) => setShowInactive(e.target.checked)}
-            />
-            Mostrar inactivos
-          </label>
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="p-6 text-sm text-gray-600">No hay tarifarios para mostrar.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-gray-600">
-                  <th className="px-5 py-3 font-semibold">Tarifario</th>
-                  <th className="px-5 py-3 font-semibold">Estado</th>
-                  <th className="px-5 py-3 font-semibold text-right">Acciones</th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-gray-100">
-                {filtered.map((t) => (
-                  <tr key={t.id_tarifario} className="hover:bg-gray-50/50">
-                    <td className="px-5 py-4">
-                      <div className="font-semibold text-gray-900">{t.nombre}</div>
-                      <div className="text-xs text-gray-500">
-                        ID: {t.id_tarifario}
-                        {t.descripcion ? ` · ${t.descripcion}` : ""}
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <Badge ok={t.activo} label={t.activo ? "Activo" : "Inactivo"} />
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <div className="flex justify-end gap-2">
-                        <Link
-                          href={`/admin/personalizacion/tarifarios/${t.id_tarifario}/tarifas`}
-                          className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-gray-50"
-                        >
-                          Administrar tarifas
-                        </Link>
-
-                        {t.activo ? (
-                          <button
-                            onClick={() => toggleActivo(t.id_tarifario, false)}
-                            className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700"
-                          >
-                            Desactivar
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => toggleActivo(t.id_tarifario, true)}
-                            className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                          >
-                            Activar
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          {/* COLUMNA IZQUIERDA: CREAR Y DEFAULTS */}
+          <div className="space-y-6 lg:col-span-1">
+            {/* Crear Tarifario */}
+            <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-3 mb-4 border-b border-slate-100 pb-3">
+                <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                  <Plus className="w-5 h-5" />
+                </div>
+                <h2 className="text-lg font-bold text-slate-800">
+                  Nuevo Tarifario
+                </h2>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Nombre
+                  </label>
+                  <input
+                    className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-sm"
+                    placeholder="Ej: Pádel Estándar"
+                    value={newNombre}
+                    onChange={(e) => setNewNombre(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Descripción
+                  </label>
+                  <textarea
+                    className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-sm resize-none"
+                    placeholder="Opcional..."
+                    rows={2}
+                    value={newDesc}
+                    onChange={(e) => setNewDesc(e.target.value)}
+                  />
+                </div>
+                <button
+                  onClick={crearTarifario}
+                  disabled={creating || !newNombre.trim()}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                >
+                  {creating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Crear Tarifario"
+                  )}
+                </button>
+              </div>
+            </section>
+
+            {/* Defaults */}
+            <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                  <Settings className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800">
+                    Asignación por Defecto
+                  </h2>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 mb-4 ml-1">
+                Tarifario automático si la cancha no tiene uno específico.
+              </p>
+
+              <div className="space-y-3">
+                {tipos.map((t) => {
+                  const deporte = t.deportes?.nombre ?? "Deporte";
+                  return (
+                    <div
+                      key={t.id_tipo_cancha}
+                      className="p-3 bg-slate-50 rounded-xl border border-slate-100"
+                    >
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                        {deporte} · {t.nombre}
+                      </div>
+                      <select
+                        className="w-full bg-white border border-slate-200 text-slate-700 text-sm rounded-lg px-3 py-2 outline-none focus:border-blue-400"
+                        value={defaults[t.id_tipo_cancha] ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDefaults((prev) => ({
+                            ...prev,
+                            [t.id_tipo_cancha]: v === "" ? null : Number(v),
+                          }));
+                        }}
+                      >
+                        <option value="">(Sin default)</option>
+                        {tarifarios
+                          .filter((x) => x.activo)
+                          .map((x) => (
+                            <option key={x.id_tarifario} value={x.id_tarifario}>
+                              {x.nombre}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={saveDefaults}
+                disabled={savingDefaults}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-50 disabled:opacity-50 transition-colors"
+              >
+                {savingDefaults ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                Guardar Asignaciones
+              </button>
+            </section>
+          </div>
+
+          {/* COLUMNA DERECHA: LISTADO */}
+          <div className="lg:col-span-2 space-y-4">
+            {/* Filtros */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 justify-between items-center">
+              <div className="relative w-full sm:max-w-xs">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Buscar..."
+                  className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-600 cursor-pointer select-none">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={showInactive}
+                    onChange={(e) => setShowInactive(e.target.checked)}
+                  />
+                  <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                </div>
+                Mostrar inactivos
+              </label>
+            </div>
+
+            {/* Tabla */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              {filtered.length === 0 ? (
+                <div className="p-12 text-center text-slate-500">
+                  <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p>No se encontraron tarifarios.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-100">
+                      <tr>
+                        <th className="px-6 py-4 font-bold text-slate-700">
+                          Nombre
+                        </th>
+                        <th className="px-6 py-4 font-bold text-slate-700">
+                          Descripción
+                        </th>
+                        <th className="px-6 py-4 font-bold text-slate-700 text-center">
+                          Estado
+                        </th>
+                        <th className="px-6 py-4 font-bold text-slate-700 text-right">
+                          Acciones
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filtered.map((t) => (
+                        <tr
+                          key={t.id_tarifario}
+                          className="hover:bg-slate-50/80 transition-colors"
+                        >
+                          <td className="px-6 py-4 font-medium text-slate-900">
+                            {t.nombre}
+                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                              ID: {t.id_tarifario}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-slate-500 max-w-xs truncate">
+                            {t.descripcion || "-"}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <Badge
+                              ok={t.activo}
+                              label={t.activo ? "Activo" : "Inactivo"}
+                            />
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Link
+                                href={`/admin/personalizacion/tarifarios/${t.id_tarifario}/tarifas`}
+                                className="inline-flex items-center gap-1 bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 hover:border-slate-300 transition-all"
+                              >
+                                <Settings className="w-3 h-3" /> Configurar
+                              </Link>
+
+                              <button
+                                onClick={() =>
+                                  toggleActivo(t.id_tarifario, !t.activo)
+                                }
+                                className={`p-1.5 rounded-lg transition-colors ${
+                                  t.activo
+                                    ? "text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                    : "text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                }`}
+                                title={t.activo ? "Desactivar" : "Activar"}
+                              >
+                                {t.activo ? (
+                                  <ToggleRight className="w-5 h-5 text-emerald-500" />
+                                ) : (
+                                  <ToggleLeft className="w-5 h-5" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
