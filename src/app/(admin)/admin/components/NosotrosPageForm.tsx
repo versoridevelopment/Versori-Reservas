@@ -65,10 +65,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
     recruitment_message: initialData?.recruitment_message || "",
   });
 
-  // ========================================================================
-  // LÓGICA DE REORDENAMIENTO
-  // ========================================================================
-
+  // --- LÓGICA DE REORDENAMIENTO ---
   const moveItem = <T,>(
     array: T[],
     index: number,
@@ -84,7 +81,6 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
     return newArray;
   };
 
-  // 1. Mover Home Guardadas
   const moveHomeSaved = (index: number, direction: "left" | "right") => {
     setData((prev) => ({
       ...prev,
@@ -92,22 +88,15 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
     }));
   };
 
-  // 2. Mover Home Nuevas (Sincronizado)
   const moveHomeNew = (index: number, direction: "left" | "right") => {
     const nextFiles = moveItem(newHomeSliderFiles, index, direction);
     const nextPreviews = moveItem(newHomeSliderPreviews, index, direction);
-
-    // Validamos que el movimiento sea posible antes de setear estado
-    if (
-      index >= 0 &&
-      (direction === "left" ? index > 0 : index < newHomeSliderFiles.length - 1)
-    ) {
+    if (nextFiles !== newHomeSliderFiles) {
       setNewHomeSliderFiles(nextFiles);
       setNewHomeSliderPreviews(nextPreviews);
     }
   };
 
-  // 3. Mover Galería Interna Guardadas
   const movePageSaved = (index: number, direction: "left" | "right") => {
     setData((prev) => ({
       ...prev,
@@ -115,24 +104,16 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
     }));
   };
 
-  // 4. Mover Galería Interna Nuevas (Sincronizado)
   const movePageNew = (index: number, direction: "left" | "right") => {
     const nextFiles = moveItem(newGalleryFiles, index, direction);
     const nextPreviews = moveItem(newGalleryPreviews, index, direction);
-
-    if (
-      index >= 0 &&
-      (direction === "left" ? index > 0 : index < newGalleryFiles.length - 1)
-    ) {
+    if (nextFiles !== newGalleryFiles) {
       setNewGalleryFiles(nextFiles);
       setNewGalleryPreviews(nextPreviews);
     }
   };
 
-  // ========================================================================
-  // HANDLERS
-  // ========================================================================
-
+  // --- HANDLERS ---
   const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArr = Array.from(e.target.files);
@@ -232,7 +213,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10 -m-6 md:-m-10">
-      {/* BOTÓN FLOTANTE MÓVIL */}
+      {/* BOTÓN FLOTANTE MÓVIL (Con Title/Aria-Label) */}
       <div className="md:hidden fixed bottom-6 right-6 z-[9999]">
         <button
           type="button"
@@ -240,6 +221,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
           disabled={saving}
           className="bg-green-600 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/20 active:scale-95 transition-all hover:bg-green-700"
           title="Guardar cambios"
+          aria-label="Guardar cambios"
         >
           {saving ? (
             <Loader2 className="animate-spin w-6 h-6" />
@@ -254,18 +236,20 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
         <div className="flex justify-between items-end">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-900">
-              Personalización "Nosotros"
+              Personalización `Nosotros`
             </h1>
             <p className="text-slate-500 mt-2 text-lg">
               Gestiona la historia, valores y equipo.
             </p>
           </div>
-          {/* Botón Desktop */}
+          {/* Botón Desktop (Con Title/Aria-Label) */}
           <button
             type="button"
             onClick={handleSave}
             disabled={saving}
             className="hidden md:flex bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold gap-2 items-center shadow-lg hover:-translate-y-1 disabled:opacity-70"
+            title="Guardar todos los cambios"
+            aria-label="Guardar todos los cambios"
           >
             {saving ? (
               <Loader2 className="animate-spin w-5 h-5" />
@@ -276,7 +260,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
           </button>
         </div>
 
-        {/* TABS (CON SCROLL) */}
+        {/* TABS (Con Title/Aria-Label) */}
         <div className="flex space-x-1 bg-white p-1 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
           {[
             { id: "home", label: "En Home", icon: LayoutTemplate },
@@ -294,6 +278,8 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                   ? "bg-slate-900 text-white shadow-md"
                   : "text-slate-500 hover:bg-slate-100"
               }`}
+              title={`Ir a pestaña ${tab.label}`}
+              aria-label={`Ir a pestaña ${tab.label}`}
             >
               <tab.icon className="w-4 h-4" /> {tab.label}
             </button>
@@ -303,7 +289,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
         {/* CONTENIDO PRINCIPAL */}
         <div className="grid grid-cols-1 gap-8 items-start">
           <div className="space-y-6">
-            {/* ACTIVAR/DESACTIVAR */}
+            {/* ACTIVAR/DESACTIVAR (Con Title/Aria-Label) */}
             <section className="bg-white p-4 md:p-6 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
               <div>
                 <h3 className="font-bold text-slate-800">
@@ -326,6 +312,14 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                     ? "bg-green-100 text-green-700"
                     : "bg-slate-100 text-slate-500"
                 }`}
+                title={
+                  data.activo_nosotros ? "Ocultar sección" : "Mostrar sección"
+                }
+                aria-label={
+                  data.activo_nosotros
+                    ? "Ocultar sección nosotros"
+                    : "Mostrar sección nosotros"
+                }
               >
                 {data.activo_nosotros ? (
                   <ToggleRight className="w-6 h-6" />
@@ -358,6 +352,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                             }
                             className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                             placeholder="Ej: El Club"
+                            title="Título corto para el home"
                           />
                         </div>
                         <div>
@@ -375,6 +370,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                             }
                             className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
                             placeholder="Breve descripción..."
+                            title="Resumen breve para el home"
                           />
                         </div>
                       </div>
@@ -384,7 +380,10 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                           <h3 className="font-bold text-slate-800 text-sm">
                             Slider del Home
                           </h3>
-                          <label className="cursor-pointer bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center">
+                          <label
+                            className="cursor-pointer bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center"
+                            title="Agregar imágenes al slider"
+                          >
                             <Plus className="w-4 h-4" /> Agregar
                             <input
                               type="file"
@@ -392,11 +391,12 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                               multiple
                               className="hidden"
                               onChange={handleHomeSliderSelect}
+                              title="Seleccionar archivos"
                             />
                           </label>
                         </div>
 
-                        {/* GRID DE IMÁGENES HOME */}
+                        {/* GRID HOME */}
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                           {/* EXISTENTES */}
                           {data.galeria_inicio.map((url, i) => (
@@ -410,29 +410,32 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                                 fill
                                 className="object-cover"
                               />
-
-                              {/* CONTROLES ORDEN (SIEMPRE VISIBLES EN MÓVIL) */}
                               <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm p-1.5 flex justify-between items-center z-10">
                                 <button
                                   type="button"
                                   onClick={() => moveHomeSaved(i, "left")}
-                                  className="text-white hover:text-blue-300 p-1 bg-white/10 rounded-md"
+                                  className="text-white hover:text-blue-300 p-2 bg-white/10 rounded-md"
+                                  aria-label="Mover a la izquierda"
+                                  title="Mover a la izquierda"
                                 >
                                   <ChevronLeft className="w-4 h-4" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => moveHomeSaved(i, "right")}
-                                  className="text-white hover:text-blue-300 p-1 bg-white/10 rounded-md"
+                                  className="text-white hover:text-blue-300 p-2 bg-white/10 rounded-md"
+                                  aria-label="Mover a la derecha"
+                                  title="Mover a la derecha"
                                 >
                                   <ChevronRight className="w-4 h-4" />
                                 </button>
                               </div>
-
                               <button
                                 type="button"
                                 onClick={() => removeExistingHomeSlider(i)}
                                 className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md z-20 hover:scale-110 transition-transform"
+                                aria-label="Eliminar imagen"
+                                title="Eliminar imagen"
                               >
                                 <X className="w-3 h-3" />
                               </button>
@@ -453,29 +456,32 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                               <div className="absolute top-0 left-0 bg-green-500 text-white text-[9px] px-2 py-0.5 font-bold z-10 rounded-br-lg">
                                 NUEVA
                               </div>
-
-                              {/* CONTROLES ORDEN (NUEVAS) */}
                               <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm p-1.5 flex justify-between items-center z-10">
                                 <button
                                   type="button"
                                   onClick={() => moveHomeNew(i, "left")}
-                                  className="text-white hover:text-green-300 p-1 bg-white/10 rounded-md"
+                                  className="text-white hover:text-green-300 p-2 bg-white/10 rounded-md"
+                                  aria-label="Mover a la izquierda"
+                                  title="Mover a la izquierda"
                                 >
                                   <ChevronLeft className="w-4 h-4" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => moveHomeNew(i, "right")}
-                                  className="text-white hover:text-green-300 p-1 bg-white/10 rounded-md"
+                                  className="text-white hover:text-green-300 p-2 bg-white/10 rounded-md"
+                                  aria-label="Mover a la derecha"
+                                  title="Mover a la derecha"
                                 >
                                   <ChevronRight className="w-4 h-4" />
                                 </button>
                               </div>
-
                               <button
                                 type="button"
                                 onClick={() => removeNewHomeSlider(i)}
                                 className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md z-20 hover:scale-110 transition-transform"
+                                aria-label="Cancelar subida"
+                                title="Cancelar subida"
                               >
                                 <X className="w-3 h-3" />
                               </button>
@@ -509,6 +515,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                               })
                             }
                             className="w-full px-4 py-2 border border-slate-300 rounded-xl"
+                            title="Título de la historia"
                           />
                         </div>
                         <div>
@@ -525,6 +532,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                               })
                             }
                             className="w-full px-4 py-2 border border-slate-300 rounded-xl"
+                            title="Introducción de la historia"
                           />
                         </div>
                         <div>
@@ -541,6 +549,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                               })
                             }
                             className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
+                            title="Contenido completo de la historia"
                           />
                         </div>
                         <div>
@@ -554,6 +563,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                               setData({ ...data, frase_cierre: e.target.value })
                             }
                             className="w-full px-4 py-2 border border-slate-300 rounded-xl italic"
+                            title="Frase de cierre"
                           />
                         </div>
                       </div>
@@ -561,7 +571,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                   </div>
                 )}
 
-                {/* --- TAB GALERÍA INTERNA --- */}
+                {/* --- TAB GALERÍA --- */}
                 {activeTab === "galeria" && (
                   <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                     <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -569,7 +579,10 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                         <h2 className="text-lg font-bold text-slate-800">
                           Galería Interna
                         </h2>
-                        <label className="cursor-pointer bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center">
+                        <label
+                          className="cursor-pointer bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center"
+                          title="Agregar imágenes a la galería"
+                        >
                           <Plus className="w-4 h-4" /> Agregar
                           <input
                             type="file"
@@ -577,11 +590,10 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                             multiple
                             className="hidden"
                             onChange={handleGallerySelect}
+                            title="Seleccionar archivos"
                           />
                         </label>
                       </div>
-
-                      {/* GRID DE IMÁGENES INTERNAS */}
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                         {/* EXISTENTES */}
                         {data.galeria_pagina.map((url, i) => (
@@ -595,28 +607,32 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                               fill
                               className="object-cover"
                             />
-
                             <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm p-1.5 flex justify-between items-center z-10">
                               <button
                                 type="button"
                                 onClick={() => movePageSaved(i, "left")}
-                                className="text-white hover:text-blue-300 p-1 bg-white/10 rounded-md"
+                                className="text-white hover:text-blue-300 p-2 bg-white/10 rounded-md"
+                                aria-label="Mover a la izquierda"
+                                title="Mover a la izquierda"
                               >
                                 <ChevronLeft className="w-4 h-4" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => movePageSaved(i, "right")}
-                                className="text-white hover:text-blue-300 p-1 bg-white/10 rounded-md"
+                                className="text-white hover:text-blue-300 p-2 bg-white/10 rounded-md"
+                                aria-label="Mover a la derecha"
+                                title="Mover a la derecha"
                               >
                                 <ChevronRight className="w-4 h-4" />
                               </button>
                             </div>
-
                             <button
                               type="button"
                               onClick={() => removeExistingImage(i)}
                               className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md z-20 hover:scale-110 transition-transform"
+                              aria-label="Eliminar imagen"
+                              title="Eliminar imagen"
                             >
                               <X className="w-3 h-3" />
                             </button>
@@ -637,28 +653,32 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                             <div className="absolute top-0 left-0 bg-green-500 text-white text-[9px] px-2 py-0.5 font-bold z-10 rounded-br-lg">
                               NUEVA
                             </div>
-
                             <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm p-1.5 flex justify-between items-center z-10">
                               <button
                                 type="button"
                                 onClick={() => movePageNew(i, "left")}
-                                className="text-white hover:text-green-300 p-1 bg-white/10 rounded-md"
+                                className="text-white hover:text-green-300 p-2 bg-white/10 rounded-md"
+                                aria-label="Mover a la izquierda"
+                                title="Mover a la izquierda"
                               >
                                 <ChevronLeft className="w-4 h-4" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => movePageNew(i, "right")}
-                                className="text-white hover:text-green-300 p-1 bg-white/10 rounded-md"
+                                className="text-white hover:text-green-300 p-2 bg-white/10 rounded-md"
+                                aria-label="Mover a la derecha"
+                                title="Mover a la derecha"
                               >
                                 <ChevronRight className="w-4 h-4" />
                               </button>
                             </div>
-
                             <button
                               type="button"
                               onClick={() => removeNewImage(i)}
                               className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md z-20 hover:scale-110 transition-transform"
+                              aria-label="Cancelar subida"
+                              title="Cancelar subida"
                             >
                               <X className="w-3 h-3" />
                             </button>
@@ -681,6 +701,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                           type="button"
                           onClick={addValor}
                           className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center"
+                          title="Agregar nuevo valor"
                         >
                           <Plus className="w-4 h-4" /> Nuevo Valor
                         </button>
@@ -703,6 +724,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                                 }
                                 className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-bold text-sm"
                                 placeholder="Título"
+                                title={`Título del valor ${i + 1}`}
                               />
                               <textarea
                                 rows={2}
@@ -712,12 +734,15 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                                 }
                                 className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm resize-none"
                                 placeholder="Descripción..."
+                                title={`Descripción del valor ${i + 1}`}
                               />
                             </div>
                             <button
                               type="button"
                               onClick={() => removeValor(i)}
                               className="text-slate-400 hover:text-red-500 p-1 shrink-0"
+                              aria-label="Eliminar valor"
+                              title="Eliminar valor"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -752,13 +777,17 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
                           </div>
                         )}
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <label className="cursor-pointer bg-white text-slate-800 px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 transition-transform">
+                          <label
+                            className="cursor-pointer bg-white text-slate-800 px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 transition-transform"
+                            title="Cambiar imagen de equipo"
+                          >
                             Cambiar Imagen{" "}
                             <input
                               type="file"
                               className="hidden"
                               accept="image/*"
                               onChange={handleTeamImageSelect}
+                              title="Seleccionar archivo"
                             />
                           </label>
                         </div>
