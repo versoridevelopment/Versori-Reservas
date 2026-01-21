@@ -2,37 +2,31 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, MessageCircle } from "lucide-react"; // Importamos el icono
+import { ArrowRight, MessageCircle } from "lucide-react";
 import Container from "../ui/Container";
 
 interface HeroProps {
   clubData: any;
   titulo: string;
   subtitulo: string;
-  whatsappNumber?: string | null; // Nuevo campo
-  showWhatsapp?: boolean; // Nuevo campo (toggle)
+  whatsappNumber?: string | null;
+  showWhatsapp?: boolean; // Se mantiene por compatibilidad, pero ya no oculta el botón si hay número
 }
 
-const Hero = ({
-  clubData,
-  titulo,
-  subtitulo,
-  whatsappNumber,
-  showWhatsapp,
-}: HeroProps) => {
+const Hero = ({ clubData, titulo, subtitulo, whatsappNumber }: HeroProps) => {
   const heroUrl = clubData?.imagen_hero_url;
   const primaryColor = clubData?.color_primario || "#3b82f6";
   const secondaryColor = clubData?.color_secundario || "#8b5cf6";
 
   const isVideo = heroUrl?.match(/\.(mp4|webm|mov)$/i);
 
-  // Lógica para el link de WhatsApp
-  const cleanNumber = whatsappNumber?.replace(/\D/g, ""); // Quitamos espacios/guiones
+  // Lógica Simplificada: Si hay número, hay botón.
+  const cleanNumber = whatsappNumber?.replace(/\D/g, "");
   const whatsappLink = cleanNumber
     ? `https://wa.me/${cleanNumber}?text=${encodeURIComponent(
         "Hola! Quisiera hacer una consulta.",
       )}`
-    : "#";
+    : null;
 
   return (
     <section className="relative h-[85vh] min-h-[600px] w-full overflow-hidden flex items-center">
@@ -101,14 +95,13 @@ const Hero = ({
               </button>
             </Link>
 
-            {/* 2. Botón WhatsApp (Nuevo) */}
-            {/* Se renderiza solo si está activo y existe un número */}
-            {showWhatsapp && cleanNumber && (
+            {/* 2. Botón WhatsApp (Visible si hay número válido) */}
+            {whatsappLink && (
               <a
                 href={whatsappLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-green-900/20 bg-green-600 hover:bg-green-700"
+                className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-green-900/20 bg-green-600 hover:bg-green-700 border border-green-500/30 backdrop-blur-sm"
               >
                 <MessageCircle className="w-5 h-5" />
                 WhatsApp

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin"; // Asegúrate de tener este cliente configurado con la Service Role Key
+import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export async function POST(request: Request) {
   try {
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     if (!clubId) {
       return NextResponse.json(
         { error: "Falta el ID del club" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -18,11 +18,12 @@ export async function POST(request: Request) {
     const nosotrosDataRaw = formData.get("nosotrosData");
 
     // ---------------------------------------------------------
-    // A. ACTUALIZAR CLUB (Usando supabaseAdmin)
+    // A. ACTUALIZAR CLUB
     // ---------------------------------------------------------
     if (clubDataRaw) {
       const clubData = JSON.parse(clubDataRaw as string);
 
+      // Mapeo explícito de campos para asegurar que el toggle pase
       const clubUpdates = {
         nombre: clubData.nombre,
         subdominio: clubData.subdominio,
@@ -32,8 +33,11 @@ export async function POST(request: Request) {
         texto_bienvenida_titulo: clubData.texto_bienvenida_titulo,
         texto_bienvenida_subtitulo: clubData.texto_bienvenida_subtitulo,
         marcas: clubData.marcas,
-        activo_profesores: clubData.activo_profesores,
-        activo_contacto_home: clubData.activo_contacto_home, // Toggle de WhatsApp
+
+        // Convertimos explícitamente a boolean por seguridad
+        activo_profesores: Boolean(clubData.activo_profesores),
+        activo_contacto_home: Boolean(clubData.activo_contacto_home),
+
         logo_url: clubData.logo_url,
         imagen_hero_url: clubData.imagen_hero_url,
         updated_at: new Date().toISOString(),
@@ -48,6 +52,7 @@ export async function POST(request: Request) {
         throw new Error(`Error actualizando club: ${clubError.message}`);
 
       // --- Contacto / Dirección / Teléfono ---
+      // (Esta lógica se mantiene igual que tu versión original)
       const { data: contactoData } = await supabaseAdmin
         .from("contacto")
         .select("id_contacto")
@@ -55,7 +60,7 @@ export async function POST(request: Request) {
         .single();
 
       if (contactoData) {
-        // Contacto
+        // Contacto Base
         await supabaseAdmin
           .from("contacto")
           .update({
@@ -84,12 +89,10 @@ export async function POST(request: Request) {
             .update(direccionUpdates)
             .eq("id_direccion", existingDir.id_direccion);
         } else {
-          await supabaseAdmin
-            .from("direccion")
-            .insert({
-              ...direccionUpdates,
-              id_contacto: contactoData.id_contacto,
-            });
+          await supabaseAdmin.from("direccion").insert({
+            ...direccionUpdates,
+            id_contacto: contactoData.id_contacto,
+          });
         }
 
         // Teléfono (Principal)
@@ -116,35 +119,29 @@ export async function POST(request: Request) {
     }
 
     // ---------------------------------------------------------
-    // B. ACTUALIZAR NOSOTROS (Usando supabaseAdmin)
+    // B. ACTUALIZAR NOSOTROS
     // ---------------------------------------------------------
     if (nosotrosDataRaw) {
       const nosotrosData = JSON.parse(nosotrosDataRaw as string);
 
       const nosotrosUpdates = {
-        activo_nosotros: nosotrosData.activo_nosotros,
-
-        // DATOS PÁGINA INTERNA
+        activo_nosotros: Boolean(nosotrosData.activo_nosotros),
         historia_titulo: nosotrosData.historia_titulo,
         hero_descripcion: nosotrosData.hero_descripcion,
         historia_contenido: nosotrosData.historia_contenido,
         frase_cierre: nosotrosData.frase_cierre,
-
-        // DATOS HOME (Nuevos campos separados)
         home_titulo: nosotrosData.home_titulo,
         home_descripcion: nosotrosData.home_descripcion,
         galeria_inicio: nosotrosData.galeria_inicio,
-
         valores: nosotrosData.valores,
         updated_at: new Date().toISOString(),
       };
 
-      // Upsert directo
       const { error } = await supabaseAdmin
         .from("nosotros")
         .upsert(
           { ...nosotrosUpdates, id_club: clubId },
-          { onConflict: "id_club" }
+          { onConflict: "id_club" },
         );
 
       if (error) throw error;
