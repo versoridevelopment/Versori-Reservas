@@ -6,19 +6,37 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
 import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
+import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
 const ForgotPasswordPage = () => {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // Estados para Multi-tenant
   const [subdomain, setSubdomain] = useState<string | null>(null);
+  const [clubLogo, setClubLogo] = useState<string | null>(null);
+  const [loadingClub, setLoadingClub] = useState(true);
 
   useEffect(() => {
-    const host = window.location.host; // ej: "greenpadel.localhost:3000"
-    const hostname = host.split(":")[0]; // "greenpadel.localhost"
-    const sub = getSubdomainFromHost(hostname);
-    setSubdomain(sub);
+    const fetchClub = async () => {
+      const host = window.location.host; // ej: "greenpadel.localhost:3000"
+      const hostname = host.split(":")[0]; // "greenpadel.localhost"
+
+      const sub = getSubdomainFromHost(hostname);
+      setSubdomain(sub);
+
+      if (sub) {
+        const club = await getClubBySubdomain(sub);
+        if (club) {
+          setClubLogo(club.logo_url);
+        }
+      }
+      setLoadingClub(false);
+    };
+
+    fetchClub();
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -27,8 +45,7 @@ const ForgotPasswordPage = () => {
     setMessage(null);
 
     // Dominio "central" sin subdominio
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
     // Vamos a un callback central que luego redirige al subdominio
     const redirectTo = `${siteUrl}/password-callback${
@@ -47,11 +64,19 @@ const ForgotPasswordPage = () => {
     }
 
     setMessage(
-      "Si el correo existe en el sistema, te enviamos un enlace para restablecer tu contraseña."
+      "Si el correo existe en el sistema, te enviamos un enlace para restablecer tu contraseña.",
     );
     setIsSubmitted(true);
     setIsLoading(false);
   };
+
+  if (loadingClub) {
+    return (
+      <section className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white">
+        <p>Cargando...</p>
+      </section>
+    );
+  }
 
   if (isSubmitted) {
     return (
@@ -85,13 +110,26 @@ const ForgotPasswordPage = () => {
         transition={{ duration: 0.8 }}
         className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
       >
-        <Image
-          src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
-          alt="Versori Logo"
-          width={90}
-          height={90}
-          className="mx-auto mb-6 opacity-90"
-        />
+        {/* LOGO DINÁMICO */}
+        {clubLogo ? (
+          <div className="relative w-24 h-24 mx-auto mb-6">
+            <Image
+              src={clubLogo}
+              alt="Logo del Club"
+              fill
+              className="object-contain"
+              priority
+            />
+          </div>
+        ) : (
+          <Image
+            src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
+            alt="Versori Logo"
+            width={90}
+            height={90}
+            className="mx-auto mb-6 opacity-90"
+          />
+        )}
 
         <h1 className="text-3xl font-bold mb-2">Recuperar contraseña</h1>
         <p className="text-neutral-400 text-sm mb-8">
@@ -101,11 +139,13 @@ const ForgotPasswordPage = () => {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
           <div>
-            <label className="block text-sm text-gray-300 mb-1">
+            <label htmlFor="email" className="block text-sm text-gray-300 mb-1">
               Correo electrónico
             </label>
             <input
+              id="email"
               type="email"
+              title="Correo electrónico"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required

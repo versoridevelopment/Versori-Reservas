@@ -23,6 +23,7 @@ const LoginPage: FC = () => {
 
   // Multi-tenant
   const [clubId, setClubId] = useState<number | null>(null);
+  const [clubLogo, setClubLogo] = useState<string | null>(null); // Estado para el logo dinámico
   const [subdomain, setSubdomain] = useState<string | null>(null);
   const [clubLoading, setClubLoading] = useState<boolean>(true);
 
@@ -30,13 +31,16 @@ const LoginPage: FC = () => {
   useEffect(() => {
     const fetchClub = async () => {
       try {
-        const host = window.location.host; // ej: "padelcentral.localhost:3000"
-        const hostname = host.split(":")[0]; // "padelcentral.localhost"
+        const host = window.location.host;
+        const hostname = host.split(":")[0];
         const sub = getSubdomainFromHost(hostname);
         setSubdomain(sub);
 
         if (!sub) {
-          console.error("[Login] No se pudo detectar subdominio desde host:", host);
+          console.error(
+            "[Login] No se pudo detectar subdominio desde host:",
+            host,
+          );
           setMessage("No se pudo detectar el club.");
           setMessageType("error");
           return;
@@ -45,6 +49,7 @@ const LoginPage: FC = () => {
         const club = await getClubBySubdomain(sub);
         if (club) {
           setClubId(club.id_club);
+          setClubLogo(club.logo_url); // Guardamos el logo del club
         } else {
           console.error("[Login] No se encontró club para subdominio:", sub);
           setMessage("Club no encontrado para este subdominio.");
@@ -105,7 +110,7 @@ const LoginPage: FC = () => {
     setIsLoading(true);
 
     try {
-      // 1) Login SSR (setea cookies de sesión)
+      // 1) Login SSR
       const signInRes = await fetch("/api/auth/sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -122,7 +127,7 @@ const LoginPage: FC = () => {
         return;
       }
 
-      // 2) Obtener userId desde el server (ya con cookies)
+      // 2) Obtener userId
       const meRes = await fetch("/api/auth/me", { cache: "no-store" });
       const meJson = await meRes.json().catch(() => null);
 
@@ -135,7 +140,7 @@ const LoginPage: FC = () => {
 
       const userId = String(meJson.user.id);
 
-      // 3) Crear / asegurar membresía en club_usuarios via API
+      // 3) Crear / asegurar membresía
       const response = await fetch("/api/memberships/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -146,7 +151,9 @@ const LoginPage: FC = () => {
       const result = await response.json().catch(() => null);
 
       if (!response.ok || !result?.success) {
-        setMessage("No se pudo asociar tu cuenta a este club. Intentá nuevamente.");
+        setMessage(
+          "No se pudo asociar tu cuenta a este club. Intentá nuevamente.",
+        );
         setMessageType("error");
         setIsLoading(false);
         return;
@@ -164,13 +171,8 @@ const LoginPage: FC = () => {
     }
   };
 
-  // Google OAuth lo dejás igual (tu callback luego hace membership)
   const handleGoogleLogin = async () => {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
-
-    // Si ya tenías supabase auth client para OAuth, mantenelo.
-    // Si tu `supabaseClient` está viejo, lo ideal es migrar OAuth también,
-    // pero no lo toco acá para no romper tu flujo actual.
     const { supabase } = await import("../../../lib/supabase/supabaseClient");
 
     const { error } = await supabase.auth.signInWithOAuth({
@@ -190,7 +192,7 @@ const LoginPage: FC = () => {
   if (clubLoading) {
     return (
       <section className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
-        <p>Cargando datos del club...</p>
+        <p>Cargando...</p>
       </section>
     );
   }
@@ -203,13 +205,23 @@ const LoginPage: FC = () => {
         transition={{ duration: 0.8 }}
         className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
       >
-        <Image
-          src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
-          alt="Versori Logo"
-          width={90}
-          height={90}
-          className="mx-auto mb-6 opacity-90"
-        />
+        {/* LOGO DINÁMICO */}
+        {clubLogo ? (
+          <div className="relative w-24 h-24 mx-auto mb-6">
+            <Image
+              src={clubLogo}
+              alt="Logo del Club"
+              fill
+              className="object-contain"
+              priority
+            />
+          </div>
+        ) : (
+          // Fallback por si no hay logo (o usas el de Versori por defecto)
+          <div className="w-20 h-20 mx-auto mb-6 bg-white/10 rounded-full flex items-center justify-center font-bold text-2xl">
+            C
+          </div>
+        )}
 
         <h1 className="text-3xl font-bold mb-2">Iniciar sesión</h1>
         <p className="text-neutral-400 text-sm mb-8">
@@ -222,19 +234,27 @@ const LoginPage: FC = () => {
               messageType === "error"
                 ? "bg-red-500/10 text-red-300 border-red-500/40"
                 : messageType === "success"
-                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
-                : "bg-blue-500/10 text-blue-200 border-blue-500/40"
+                  ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
+                  : "bg-blue-500/10 text-blue-200 border-blue-500/40"
             }`}
           >
             {message}
           </div>
         )}
 
-        <form noValidate onSubmit={handleLogin} className="flex flex-col gap-4 text-left">
+        <form
+          noValidate
+          onSubmit={handleLogin}
+          className="flex flex-col gap-4 text-left"
+        >
           <div>
-            <label className="block text-sm text-gray-300 mb-1">Correo electrónico</label>
+            <label htmlFor="email" className="block text-sm text-gray-300 mb-1">
+              Correo electrónico
+            </label>
             <input
+              id="email"
               type="email"
+              title="Correo electrónico"
               placeholder="ejemplo@gmail.com"
               value={email}
               onChange={(e) => {
@@ -245,13 +265,22 @@ const LoginPage: FC = () => {
                 errors.email ? "border-red-500" : "border-blue-900/40"
               } focus:outline-none focus:ring-2 focus:ring-blue-600`}
             />
-            {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email}</p>}
+            {errors.email && (
+              <p className="mt-1 text-xs text-red-400">{errors.email}</p>
+            )}
           </div>
 
           <div>
-            <label className="block text-sm text-gray-300 mb-1">Contraseña</label>
+            <label
+              htmlFor="password"
+              className="block text-sm text-gray-300 mb-1"
+            >
+              Contraseña
+            </label>
             <input
+              id="password"
               type="password"
+              title="Contraseña"
               placeholder="••••••••"
               value={password}
               onChange={(e) => {
@@ -262,7 +291,9 @@ const LoginPage: FC = () => {
                 errors.password ? "border-red-500" : "border-blue-900/40"
               } focus:outline-none focus:ring-2 focus:ring-blue-600`}
             />
-            {errors.password && <p className="mt-1 text-xs text-red-400">{errors.password}</p>}
+            {errors.password && (
+              <p className="mt-1 text-xs text-red-400">{errors.password}</p>
+            )}
           </div>
 
           <button
@@ -283,7 +314,10 @@ const LoginPage: FC = () => {
 
         <p className="text-gray-400 text-sm mt-4">
           ¿Olvidaste tu contraseña?{" "}
-          <Link href="/forgot-password" className="text-blue-400 hover:underline">
+          <Link
+            href="/forgot-password"
+            className="text-blue-400 hover:underline"
+          >
             Recuperarla
           </Link>
         </p>
@@ -298,7 +332,12 @@ const LoginPage: FC = () => {
             onClick={handleGoogleLogin}
             className="flex items-center justify-center gap-3 bg-white hover:bg-gray-100 text-gray-800 font-semibold px-6 py-3 rounded-xl shadow-md w-full transition-all"
           >
-            <Image src="/google-icon.svg" alt="Google Icon" width={20} height={20} />
+            <Image
+              src="/google-icon.svg"
+              alt="Google Icon"
+              width={20}
+              height={20}
+            />
             Iniciar sesión con Google
           </button>
         </div>
