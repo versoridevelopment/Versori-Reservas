@@ -15,7 +15,8 @@ interface CanchaCardProps {
   capacidad?: number | null;
   precioHora?: number;
   esExterior?: boolean;
-  index?: number; // Para animaciones
+  index?: number;
+  onClick?: () => void; // 👈 1. Agregamos esta prop opcional
 }
 
 export default function CanchaCard({
@@ -29,6 +30,7 @@ export default function CanchaCard({
   precioHora,
   esExterior,
   index = 0,
+  onClick, // 👈 2. La desestructuramos
 }: CanchaCardProps) {
   const isPadel = deporte?.toLowerCase() === "padel";
   const isFutbol = deporte?.toLowerCase() === "futbol";
@@ -44,14 +46,17 @@ export default function CanchaCard({
         }).format(precioHora)
       : null;
 
-  // Saneamiento de imagen
   const safeImage =
     typeof imagen === "string" && imagen.trim().length > 0
       ? imagen.trim()
       : "/reserva/cancha_interior.jpg";
 
   return (
-    <Link href={`/reserva/${slug}`} className="block group h-full">
+    <Link 
+      href={`/reserva/${slug}`} 
+      className="block group h-full"
+      onClick={onClick} // 👈 3. Conectamos el evento al Link
+    >
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

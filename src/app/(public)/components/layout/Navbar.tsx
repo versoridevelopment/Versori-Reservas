@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { usePathname, useSearchParams } from "next/navigation"; // 👈 IMPORTANTE
 import Container from "../ui/Container";
 import { supabase } from "../../../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
 import type { Club } from "@/lib/ObetenerClubUtils/getCurrentClub";
-import { Menu, X, LogOut, User } from "lucide-react";
+import { Menu, X, LogOut, User, Loader2 } from "lucide-react"; // 👈 Agregamos Loader2
 
 // 1. TIPOS
 interface NavbarProps {
@@ -35,20 +36,38 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
   const [hidden, setHidden] = useState<boolean>(false);
   const [lastScrollY, setLastScrollY] = useState<number>(0);
 
-  // ⬇️ seguimos usando Session para no tocar el render actual (pero la “fuente de verdad” será /api/auth/me)
+  // Auth States
   const [session, setSession] = useState<Session | null>(null);
-
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [meLoading, setMeLoading] = useState<boolean>(true);
 
-  // ESTADO PARA EL MENÚ MÓVIL
+  // Menu State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // 🚀 ESTADO DE CARGA DE NAVEGACIÓN
+  const [isNavigating, setIsNavigating] = useState(false);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // --- Logic 1: Detectar fin de navegación ---
+  // Cuando cambia la ruta o los parámetros, apagamos el loader
+  useEffect(() => {
+    setIsNavigating(false);
+    setIsMobileMenuOpen(false); // Aseguramos cerrar menú al cambiar de página
+  }, [pathname, searchParams]);
+
+  // --- Logic 2: Función para activar loader al hacer click ---
+  const handleNavClick = (href?: string) => {
+    // Si estamos yendo a la misma página actual, no activamos el loader para evitar que se quede pegado
+    if (href === pathname) return;
+    setIsNavigating(true);
+    setIsMobileMenuOpen(false);
+  };
 
   // --- Scroll Logic ---
   useEffect(() => {
     const handleScroll = () => {
       if (isMobileMenuOpen) return;
-
       if (window.scrollY > lastScrollY && window.scrollY > 100) {
         setHidden(true);
       } else {
@@ -61,14 +80,12 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY, isMobileMenuOpen]);
 
-  // --- Auth Logic (robusto): /api/auth/me ---
+  // --- Auth Logic ---
   useEffect(() => {
     let alive = true;
-
     async function loadMeAndProfile() {
       try {
         setMeLoading(true);
-
         const res = await fetch("/api/auth/me", { cache: "no-store" });
         const json = await res.json().catch(() => null);
 
@@ -80,7 +97,6 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
           return;
         }
 
-        // Creamos una “session mínima” solo para que el JSX no cambie
         setSession({
           access_token: "",
           refresh_token: "",
@@ -105,12 +121,8 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
         if (alive) setMeLoading(false);
       }
     }
-
     loadMeAndProfile();
-
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
   const fetchProfile = async (userId: string) => {
@@ -119,13 +131,13 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
       .select("nombre, apellido")
       .eq("id_usuario", userId)
       .single();
-
     setUserProfile(profile ?? null);
   };
 
   const handleLogout = async () => {
     const isConfirmed = window.confirm("¿Estás seguro de que querés cerrar sesión?");
     if (isConfirmed) {
+      setIsNavigating(true); // Activar loader durante el logout
       await supabase.auth.signOut();
       window.location.reload();
     }
@@ -135,21 +147,29 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
 
   // Bloquear scroll body
   useEffect(() => {
-    if (isMobileMenuOpen) {
+    if (isMobileMenuOpen || isNavigating) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "unset";
     }
-    return () => {
-      document.body.style.overflow = "unset";
-    };
-  }, [isMobileMenuOpen]);
+    return () => { document.body.style.overflow = "unset"; };
+  }, [isMobileMenuOpen, isNavigating]);
 
   const brandName = club?.nombre ?? "VERSORI";
   const brandDotColor = club?.color_primario ?? "#3b82f6";
 
   return (
     <>
+      {/* 🌟 OVERLAY DE CARGA GLOBAL 🌟 */}
+      {isNavigating && (
+        <div className="fixed inset-0 z-[100] bg-neutral-950/80 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
+            <p className="text-white font-medium text-lg animate-pulse">Cargando...</p>
+          </div>
+        </div>
+      )}
+
       <header
         className={`fixed top-0 left-0 w-full z-50 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800 transition-transform duration-300 ${
           hidden ? "-translate-y-full" : "translate-y-0"
@@ -160,7 +180,7 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
           <Link
             href="/"
             className="flex items-center gap-3 z-50 relative shrink-0 group"
-            onClick={closeMenu}
+            onClick={() => handleNavClick('/')}
             aria-label="Ir al inicio"
           >
             {club?.logo_url && (
@@ -178,9 +198,7 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
 
             <span className="text-xl font-bold text-white tracking-wide">
               {brandName}
-              <span className="ml-0.5" style={{ color: brandDotColor }}>
-                .
-              </span>
+              <span className="ml-0.5" style={{ color: brandDotColor }}>.</span>
             </span>
           </Link>
 
@@ -188,23 +206,36 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
           <div className="hidden md:flex items-center gap-6">
             <nav className="flex items-center gap-6 text-sm font-medium text-neutral-300">
               {showProfesores && (
-                <Link href="/profesores" className="hover:text-white transition">
+                <Link 
+                  href="/profesores" 
+                  onClick={() => handleNavClick('/profesores')}
+                  className="hover:text-white transition"
+                >
                   Profesores
                 </Link>
               )}
               {showNosotros && (
-                <Link href="/nosotros" className="hover:text-white transition">
+                <Link 
+                  href="/nosotros" 
+                  onClick={() => handleNavClick('/nosotros')}
+                  className="hover:text-white transition"
+                >
                   Nosotros
                 </Link>
               )}
               {tieneQuincho && (
-                <Link href="/quinchos" className="hover:text-white transition">
+                <Link 
+                  href="/quinchos" 
+                  onClick={() => handleNavClick('/quinchos')}
+                  className="hover:text-white transition"
+                >
                   Quincho
                 </Link>
               )}
 
               <Link
                 href="/reserva"
+                onClick={() => handleNavClick('/reserva')}
                 className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md transition shadow-lg shadow-blue-900/20 whitespace-nowrap"
               >
                 Hacé tu reserva
@@ -216,12 +247,14 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
               <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
                 <Link
                   href="/login"
+                  onClick={() => handleNavClick('/login')}
                   className="text-sm font-medium text-neutral-300 hover:text-white transition whitespace-nowrap"
                 >
                   Iniciar sesión
                 </Link>
                 <Link
                   href="/register"
+                  onClick={() => handleNavClick('/register')}
                   className="text-sm font-medium text-white hover:text-blue-400 transition whitespace-nowrap"
                 >
                   Registrarse
@@ -231,6 +264,7 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
               <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
                 <Link
                   href="/perfil"
+                  onClick={() => handleNavClick('/perfil')}
                   className="group flex flex-col items-end cursor-pointer"
                   title="Ir a mi perfil"
                 >
@@ -276,17 +310,17 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
           {/* Mobile Links */}
           <div className="flex flex-col items-center gap-8 text-2xl font-bold text-neutral-300">
             {showProfesores && (
-              <Link href="/profesores" onClick={closeMenu} className="hover:text-white transition">
+              <Link href="/profesores" onClick={() => handleNavClick('/profesores')} className="hover:text-white transition">
                 Profesores
               </Link>
             )}
             {showNosotros && (
-              <Link href="/nosotros" onClick={closeMenu} className="hover:text-white transition">
+              <Link href="/nosotros" onClick={() => handleNavClick('/nosotros')} className="hover:text-white transition">
                 Nosotros
               </Link>
             )}
             {tieneQuincho && (
-              <Link href="/quinchos" onClick={closeMenu} className="hover:text-white transition">
+              <Link href="/quinchos" onClick={() => handleNavClick('/quinchos')} className="hover:text-white transition">
                 Quincho
               </Link>
             )}
@@ -295,7 +329,7 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
 
             <Link
               href="/reserva"
-              onClick={closeMenu}
+              onClick={() => handleNavClick('/reserva')}
               className="text-lg font-bold text-white bg-blue-600 px-8 py-4 rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-transform"
             >
               Hacé tu reserva
@@ -306,12 +340,12 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
           <div className="w-full px-10 mt-12">
             {!session ? (
               <div className="flex flex-col gap-6 text-center border-t border-neutral-800 pt-8">
-                <Link href="/login" onClick={closeMenu} className="text-xl text-neutral-300 hover:text-white">
+                <Link href="/login" onClick={() => handleNavClick('/login')} className="text-xl text-neutral-300 hover:text-white">
                   Iniciar sesión
                 </Link>
                 <Link
                   href="/register"
-                  onClick={closeMenu}
+                  onClick={() => handleNavClick('/register')}
                   className="text-xl text-blue-400 hover:text-blue-300 font-bold"
                 >
                   Crear cuenta
@@ -321,7 +355,7 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
               <div className="flex flex-col gap-6 items-center border-t border-neutral-800 pt-8">
                 <Link
                   href="/perfil"
-                  onClick={closeMenu}
+                  onClick={() => handleNavClick('/perfil')}
                   className="flex items-center gap-3 text-neutral-300 text-lg hover:text-white transition-colors"
                 >
                   <User size={24} />
