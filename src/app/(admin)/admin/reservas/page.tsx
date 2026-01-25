@@ -1,29 +1,67 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import { MOCK_CANCHAS, MOCK_RESERVAS, Reserva } from "./_components/types";
+
 import CompactView from "./_components/CompactView";
 import DateSelector from "./_components/DateSelector";
 import ReservaSidebar from "./_components/ReservaSidebar";
+import type { AgendaApiResponse, ReservaUI } from "./_components/types";
+
+function toISODateAR(d: Date) {
+  // formatea YYYY-MM-DD en hora local (para evitar corrimientos)
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 export default function ReservasPage() {
+  // TODO: si obtenés id_club por subdominio/club actual, reemplazá esto
+  const id_club = 1;
+
   const [selectedDate, setSelectedDate] = useState(new Date());
+  
+  const [agenda, setAgenda] = useState<AgendaApiResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [sidebarState, setSidebarState] = useState<{
     isOpen: boolean;
     mode: "view" | "create";
-    data: Reserva | null;
+    data: ReservaUI | null;
     preSelectedCanchaId?: number | null;
-    // Nuevo campo
-    preSelectedTime?: number | null;
+    preSelectedTime?: number | null; // decimal (ej: 17.5)
   }>({ isOpen: false, mode: "view", data: null });
 
-  const handleReservaClick = (r: Reserva) => {
+  const fechaISO = useMemo(() => toISODateAR(selectedDate), [selectedDate]);
+
+  async function loadAgenda() {
+    setLoading(true);
+    setError(null);
+    try {
+      const url = `/api/admin/agenda?id_club=${id_club}&fecha=${fechaISO}`;
+      const res = await fetch(url, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Error cargando agenda");
+      setAgenda(json);
+    } catch (e: any) {
+      setAgenda(null);
+      setError(e?.message || "Error interno");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadAgenda();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fechaISO, id_club]);
+
+  const handleReservaClick = (r: ReservaUI) => {
     setSidebarState({ isOpen: true, mode: "view", data: r });
   };
 
-  // Callback actualizado con hora
   const handleEmptySlotClick = (canchaId: number, time: number) => {
     setSidebarState({
       isOpen: true,
@@ -38,13 +76,10 @@ export default function ReservasPage() {
     <div className="h-screen bg-slate-100 flex flex-col overflow-hidden">
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex flex-col md:flex-row justify-between items-center gap-3 shrink-0 z-40 relative shadow-sm">
         <div className="flex items-center justify-between w-full md:w-auto">
-          <h1 className="text-xl font-black text-slate-800 tracking-tight">
-            Agenda
-          </h1>
+          <h1 className="text-xl font-black text-slate-800 tracking-tight">Agenda</h1>
+
           <button
-            onClick={() =>
-              setSidebarState({ isOpen: true, mode: "create", data: null })
-            }
+            onClick={() => setSidebarState({ isOpen: true, mode: "create", data: null })}
             className="md:hidden bg-slate-900 text-white p-2 rounded-lg"
             aria-label="Nuevo Turno"
           >
@@ -56,9 +91,7 @@ export default function ReservasPage() {
 
         <div className="hidden md:flex items-center gap-2">
           <button
-            onClick={() =>
-              setSidebarState({ isOpen: true, mode: "create", data: null })
-            }
+            onClick={() => setSidebarState({ isOpen: true, mode: "create", data: null })}
             className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-slate-900/10 transition-all flex items-center gap-2"
           >
             <Plus className="w-4 h-4" /> Nuevo Turno
@@ -67,12 +100,35 @@ export default function ReservasPage() {
       </header>
 
       <main className="flex-1 relative overflow-hidden">
-        <CompactView
-          canchas={MOCK_CANCHAS}
-          reservas={MOCK_RESERVAS}
-          onReservaClick={handleReservaClick}
-          onEmptySlotClick={handleEmptySlotClick}
-        />
+        {loading && (
+          <div className="h-full grid place-items-center text-sm text-slate-600">Cargando agenda…</div>
+        )}
+
+        {!loading && error && (
+          <div className="h-full grid place-items-center">
+            <div className="bg-white border border-red-200 rounded-xl p-4 shadow-sm max-w-md w-full">
+              <div className="font-bold text-red-700 mb-1">No se pudo cargar</div>
+              <div className="text-sm text-slate-600">{error}</div>
+              <button
+                onClick={loadAgenda}
+                className="mt-3 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold"
+              >
+                Reintentar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!loading && !error && agenda && (
+          <CompactView
+            canchas={agenda.canchas}
+            reservas={agenda.reservas}
+            startHour={agenda.startHour}
+            endHour={agenda.endHour}
+            onReservaClick={handleReservaClick}
+            onEmptySlotClick={handleEmptySlotClick}
+          />
+        )}
       </main>
 
       <ReservaSidebar
@@ -83,6 +139,13 @@ export default function ReservasPage() {
         selectedDate={selectedDate}
         preSelectedCanchaId={sidebarState.preSelectedCanchaId}
         preSelectedTime={sidebarState.preSelectedTime}
+        // datos agenda necesarios para crear/calcular precio
+        idClub={id_club}
+        canchas={agenda?.canchas || []}
+        onCreated={() => {
+          setSidebarState((prev) => ({ ...prev, isOpen: false }));
+          loadAgenda();
+        }}
       />
     </div>
   );

@@ -1,149 +1,58 @@
-// _components/types.ts
-
 export type CourtTheme = "blue" | "green" | "purple" | "orange" | "rose";
 
-export type Cancha = {
-  id: number;
+export type CanchaUI = {
+  id_cancha: number;
   nombre: string;
-  tipo: string;
-  superficie: string;
-  imagenUrl: string;
-  esExterior: boolean;
+  descripcion: string | null;
+  imagen_url: string | null;
+  es_exterior: boolean;
   theme: CourtTheme;
+  id_tarifario: number | null;
 };
 
-export type Pago = {
-  id: number;
-  monto: number;
-  metodo: "mercadopago" | "efectivo" | "transferencia";
-  estado: "approved" | "pending" | "rejected";
-  fecha: string;
-};
-
-// Historial del jugador (Calculado en backend normalmente)
-export type PlayerHistory = {
-  deudas: number; // Cantidad de deudas
-  ausencias: number; // Cantidad de "No shows"
-  partidosJugados: number;
-};
-
-export type Reserva = {
-  id: number;
-  canchaId: number;
-  nombreCancha?: string;
+export type ReservaUI = {
+  id_reserva: number;
+  id_cancha: number;
   fecha: string; // YYYY-MM-DD
-  horaInicio: string; // HH:mm
-  horaFin: string; // HH:mm
+  horaInicio: string; // HH:MM
+  horaFin: string; // HH:MM
+  fin_dia_offset: number;
 
-  // Datos Cliente (Tabla profiles)
-  clienteId: string;
-  clienteNombre: string;
-  clienteTelefono: string;
-  clienteEmail?: string;
+  estado: "confirmada" | "pendiente_pago" | "cancelada" | "expirada" | "finalizada" | string;
 
-  // Datos UI Historial (Simulados o traídos de una vista SQL)
-  clienteHistory?: PlayerHistory;
+  precio_total: number;
+  monto_anticipo: number;
 
-  precioTotal: number;
-  montoSenia: number;
-  saldoPendiente: number;
+  segmento: string | null;
+  tipo_turno: string;
 
-  estado:
-    | "confirmada"
-    | "pendiente_pago"
-    | "cancelada"
-    | "expirada"
-    | "finalizada";
-  tipoTurno: "normal" | "profesor" | "torneo" | "escuela" | "cumpleanos"; // Mapea a 'segmento' en DB
+  notas: string | null;
 
-  createdAt: string;
-  pagos: Pago[];
-  notas?: string;
-  color: string;
+  cliente_nombre: string;
+  cliente_telefono: string;
+  cliente_email: string;
+
+  pagos_aprobados_total: number;
+  saldo_pendiente: number;
+
+  inicio_ts: string;
+  fin_ts: string;
 };
 
-// ... MOCK_CANCHAS ... (Mismo de antes)
-export const MOCK_CANCHAS: Cancha[] = [
-  {
-    id: 1,
-    nombre: "Central",
-    tipo: "Pádel",
-    superficie: "Sintético",
-    imagenUrl: "/cancha1.jpg",
-    esExterior: false,
-    theme: "blue",
-  },
-  {
-    id: 2,
-    nombre: "Panorámica",
-    tipo: "Pádel",
-    superficie: "Sintético",
-    imagenUrl: "/cancha2.jpg",
-    esExterior: true,
-    theme: "purple",
-  },
-  {
-    id: 3,
-    nombre: "Cancha 3",
-    tipo: "Pádel",
-    superficie: "Cemento",
-    imagenUrl: "/cancha3.jpg",
-    esExterior: true,
-    theme: "green",
-  },
-];
+export type AgendaApiResponse = {
+  ok: true;
+  id_club: number;
+  fecha: string;
+  startHour: number; // decimal (ej 8, 8.5, 26)
+  endHour: number;
+  canchas: CanchaUI[];
+  reservas: ReservaUI[];
+};
 
-export const MOCK_RESERVAS: Reserva[] = [
-  {
-    id: 5999696,
-    canchaId: 1,
-    nombreCancha: "Cancha 2",
-    fecha: new Date().toISOString(),
-    horaInicio: "17:00",
-    horaFin: "18:30",
-    clienteId: "u1",
-    clienteNombre: "Ignacio",
-    clienteTelefono: "+543795588687",
-    clienteEmail: "ignacio@test.com",
-    clienteHistory: { deudas: 0, ausencias: 0, partidosJugados: 12 }, // Mock historial
-    precioTotal: 36000,
-    montoSenia: 18000,
-    saldoPendiente: 18000,
-    estado: "confirmada",
-    tipoTurno: "normal",
-    createdAt: new Date().toISOString(),
-    pagos: [],
-    color: "border-l-blue-600 text-blue-900 bg-blue-50",
-  },
-];
-
-export const THEME_COLORS: Record<
-  CourtTheme,
-  { header: string; bg: string; border: string }
-> = {
-  blue: {
-    header: "bg-blue-600 text-white",
-    bg: "bg-blue-50",
-    border: "border-blue-200",
-  },
-  green: {
-    header: "bg-emerald-600 text-white",
-    bg: "bg-emerald-50",
-    border: "border-emerald-200",
-  },
-  purple: {
-    header: "bg-purple-600 text-white",
-    bg: "bg-purple-50",
-    border: "border-purple-200",
-  },
-  orange: {
-    header: "bg-orange-600 text-white",
-    bg: "bg-orange-50",
-    border: "border-orange-200",
-  },
-  rose: {
-    header: "bg-rose-600 text-white",
-    bg: "bg-rose-50",
-    border: "border-rose-200",
-  },
+export const THEME_COLORS: Record<CourtTheme, { header: string; bg: string; border: string }> = {
+  blue: { header: "bg-blue-600 text-white", bg: "bg-blue-50", border: "border-blue-200" },
+  green: { header: "bg-emerald-600 text-white", bg: "bg-emerald-50", border: "border-emerald-200" },
+  purple: { header: "bg-purple-600 text-white", bg: "bg-purple-50", border: "border-purple-200" },
+  orange: { header: "bg-orange-600 text-white", bg: "bg-orange-50", border: "border-orange-200" },
+  rose: { header: "bg-rose-600 text-white", bg: "bg-rose-50", border: "border-rose-200" },
 };

@@ -4,15 +4,16 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+type Segmento = "publico" | "profe";
+
 type Body = {
   id_club: number;
   id_cancha: number;
   fecha: string; // YYYY-MM-DD (fecha REAL del inicio)
   inicio: string; // HH:MM
   fin: string; // HH:MM
+  segmento_override?: Segmento; // ✅ NUEVO (para admin)
 };
-
-type Segmento = "publico" | "profe";
 
 type Regla = {
   id_regla: number;
@@ -88,7 +89,8 @@ function pickBestRuleForStart(params: {
   if (matches.length === 0) return null;
 
   matches.sort((a, b) => {
-    if (Number(b.prioridad) !== Number(a.prioridad)) return Number(b.prioridad) - Number(a.prioridad);
+    if (Number(b.prioridad) !== Number(a.prioridad))
+      return Number(b.prioridad) - Number(a.prioridad);
     const aSpec = a.dow === null ? 0 : 1;
     const bSpec = b.dow === null ? 0 : 1;
     return bSpec - aSpec;
@@ -132,7 +134,10 @@ async function resolveTarifarioId(id_club: number, id_cancha: number) {
   if (!cancha) return { error: "Cancha no encontrada para este club" as const };
 
   if (cancha.id_tarifario) {
-    return { id_tarifario: Number(cancha.id_tarifario), id_tipo_cancha: Number(cancha.id_tipo_cancha) };
+    return {
+      id_tarifario: Number(cancha.id_tarifario),
+      id_tipo_cancha: Number(cancha.id_tipo_cancha),
+    };
   }
 
   const { data: def, error: dErr } = await supabaseAdmin
@@ -145,7 +150,10 @@ async function resolveTarifarioId(id_club: number, id_cancha: number) {
   if (dErr) throw dErr;
 
   if (def?.id_tarifario) {
-    return { id_tarifario: Number(def.id_tarifario), id_tipo_cancha: Number(cancha.id_tipo_cancha) };
+    return {
+      id_tarifario: Number(def.id_tarifario),
+      id_tipo_cancha: Number(cancha.id_tipo_cancha),
+    };
   }
 
   return { error: "No hay tarifario asignado (cancha ni default por tipo)" as const };
@@ -200,10 +208,11 @@ function minCostForGroup(params: {
 
   const INF = 1e18;
   const dp = new Array<number>(steps + 1).fill(INF);
-  const prev = new Array<{ from: number; take: number; cost: number } | null>(steps + 1).fill(null);
+  const prev = new Array<{ from: number; take: number; cost: number } | null>(
+    steps + 1
+  ).fill(null);
   dp[0] = 0;
 
-  // costos por pieza (en steps)
   const pieceCosts: Array<{ take: number; cost: number; label: "30" | "60" | "90" | "120" }> = [
     { take: 1, cost: price60 / 2, label: "30" },
     { take: 2, cost: price60, label: "60" },
@@ -227,7 +236,6 @@ function minCostForGroup(params: {
 
   if (dp[steps] >= INF) return { ok: false as const, cost: 0, pieces: [] as any[] };
 
-  // reconstrucción de piezas (solo para debug/breakdown)
   const pieces: Array<{ takeSteps: number; cost: number }> = [];
   let cur = steps;
   while (cur > 0) {
@@ -252,16 +260,28 @@ export async function POST(req: Request) {
     const fin = String(body?.fin || "");
 
     if (!id_club || Number.isNaN(id_club)) {
-      return NextResponse.json({ error: "id_club es requerido y numérico" }, { status: 400 });
+      return NextResponse.json(
+        { error: "id_club es requerido y numérico" },
+        { status: 400 }
+      );
     }
     if (!id_cancha || Number.isNaN(id_cancha)) {
-      return NextResponse.json({ error: "id_cancha es requerido y numérico" }, { status: 400 });
+      return NextResponse.json(
+        { error: "id_cancha es requerido y numérico" },
+        { status: 400 }
+      );
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-      return NextResponse.json({ error: "fecha debe ser YYYY-MM-DD" }, { status: 400 });
+      return NextResponse.json(
+        { error: "fecha debe ser YYYY-MM-DD" },
+        { status: 400 }
+      );
     }
     if (!/^\d{2}:\d{2}$/.test(inicio) || !/^\d{2}:\d{2}$/.test(fin)) {
-      return NextResponse.json({ error: "inicio/fin deben ser HH:MM" }, { status: 400 });
+      return NextResponse.json(
+        { error: "inicio/fin deben ser HH:MM" },
+        { status: 400 }
+      );
     }
 
     const startMin = toMin(inicio);
@@ -270,18 +290,27 @@ export async function POST(req: Request) {
 
     const duracion_min = endMin - startMin;
     if (![60, 90, 120].includes(duracion_min)) {
-      return NextResponse.json({ error: "Duración no soportada (60/90/120)", duracion_min }, { status: 400 });
+      return NextResponse.json(
+        { error: "Duración no soportada (60/90/120)", duracion_min },
+        { status: 400 }
+      );
     }
 
-    // auth + segmento
+    // ✅ auth + segmento (con override)
     const sb = await getSupabaseServerClient();
     const { data: auth } = await sb.auth.getUser();
     const userId = auth?.user?.id ?? null;
-    const segmento = await resolveSegmentoForUser({ userId, id_club });
+
+    const segOverride = body?.segmento_override;
+    const segmento: Segmento =
+      segOverride === "publico" || segOverride === "profe"
+        ? segOverride
+        : await resolveSegmentoForUser({ userId, id_club });
 
     // tarifario
     const resolved = await resolveTarifarioId(id_club, id_cancha);
-    if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 409 });
+    if ("error" in resolved)
+      return NextResponse.json({ error: resolved.error }, { status: 409 });
     const id_tarifario = resolved.id_tarifario;
 
     const STEP_MIN = 30;
@@ -293,18 +322,66 @@ export async function POST(req: Request) {
     const dow1 = needsNextDay ? (dow0 + 1) % 7 : null;
 
     // Traemos reglas por duración (60/90/120) para ambos días (si aplica)
-    const reglas60_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 60, fechaISO: fecha0 });
-    const reglas90_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 90, fechaISO: fecha0 });
-    const reglas120_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 120, fechaISO: fecha0 });
+    const reglas60_0 = await fetchReglas({
+      id_tarifario,
+      segmento,
+      duracion_min: 60,
+      fechaISO: fecha0,
+    });
+    const reglas90_0 = await fetchReglas({
+      id_tarifario,
+      segmento,
+      duracion_min: 90,
+      fechaISO: fecha0,
+    });
+    const reglas120_0 = await fetchReglas({
+      id_tarifario,
+      segmento,
+      duracion_min: 120,
+      fechaISO: fecha0,
+    });
 
-    const reglas60_1 = needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 60, fechaISO: fecha1 }) : [];
-    const reglas90_1 = needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 90, fechaISO: fecha1 }) : [];
-    const reglas120_1 = needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 120, fechaISO: fecha1 }) : [];
+    const reglas60_1 =
+      needsNextDay && fecha1
+        ? await fetchReglas({
+            id_tarifario,
+            segmento,
+            duracion_min: 60,
+            fechaISO: fecha1,
+          })
+        : [];
+    const reglas90_1 =
+      needsNextDay && fecha1
+        ? await fetchReglas({
+            id_tarifario,
+            segmento,
+            duracion_min: 90,
+            fechaISO: fecha1,
+          })
+        : [];
+    const reglas120_1 =
+      needsNextDay && fecha1
+        ? await fetchReglas({
+            id_tarifario,
+            segmento,
+            duracion_min: 120,
+            fechaISO: fecha1,
+          })
+        : [];
 
     const getRuleAt = (tAbs: number, reglas0: Regla[], reglas1: Regla[]) => {
-      if (tAbs < 1440) return pickBestRuleForStart({ reglas: reglas0, startMinInDay: tAbs, dow: dow0 });
+      if (tAbs < 1440)
+        return pickBestRuleForStart({
+          reglas: reglas0,
+          startMinInDay: tAbs,
+          dow: dow0,
+        });
       if (!needsNextDay || dow1 === null) return null;
-      return pickBestRuleForStart({ reglas: reglas1, startMinInDay: tAbs - 1440, dow: dow1 });
+      return pickBestRuleForStart({
+        reglas: reglas1,
+        startMinInDay: tAbs - 1440,
+        dow: dow1,
+      });
     };
 
     const rule60At = (tAbs: number) => getRuleAt(tAbs, reglas60_0, reglas60_1);
@@ -318,14 +395,23 @@ export async function POST(req: Request) {
     let t = startMin;
     let curRule60 = rule60At(t);
     if (!curRule60) {
-      return NextResponse.json({ error: "Faltan reglas de 60 min para cubrir el inicio" }, { status: 409 });
+      return NextResponse.json(
+        { error: "Faltan reglas de 60 min para cubrir el inicio" },
+        { status: 409 }
+      );
     }
     let curStart = t;
 
     for (; t < endMin; t += STEP_MIN) {
       const r = rule60At(t);
       if (!r) {
-        return NextResponse.json({ error: "Faltan reglas de 60 min para cubrir un tramo del turno", tramo_abs: t }, { status: 409 });
+        return NextResponse.json(
+          {
+            error: "Faltan reglas de 60 min para cubrir un tramo del turno",
+            tramo_abs: t,
+          },
+          { status: 409 }
+        );
       }
       if (r.id_regla !== curRule60.id_regla) {
         groups.push({ startAbs: curStart, endAbs: t, rule60: curRule60 });
@@ -338,10 +424,17 @@ export async function POST(req: Request) {
     // Si solo hay 1 grupo (no cruza), devolvemos precio directo por duración como antes
     if (groups.length === 1) {
       const direct =
-        duracion_min === 60 ? rule60At(startMin) : duracion_min === 90 ? rule90At(startMin) : rule120At(startMin);
+        duracion_min === 60
+          ? rule60At(startMin)
+          : duracion_min === 90
+          ? rule90At(startMin)
+          : rule120At(startMin);
 
       if (!direct) {
-        return NextResponse.json({ error: "No hay regla directa para esa duración que cubra el inicio" }, { status: 409 });
+        return NextResponse.json(
+          { error: "No hay regla directa para esa duración que cubra el inicio" },
+          { status: 409 }
+        );
       }
 
       return NextResponse.json({
@@ -381,7 +474,6 @@ export async function POST(req: Request) {
       const minutes = g.endAbs - g.startAbs;
       const steps = Math.round(minutes / STEP_MIN); // debería ser entero
 
-      // precios de paquetes para ESTE grupo (por su inicio)
       const r60 = g.rule60;
       const r90 = rule90At(g.startAbs);
       const r120 = rule120At(g.startAbs);
@@ -394,7 +486,8 @@ export async function POST(req: Request) {
       if (!dp.ok) {
         return NextResponse.json(
           {
-            error: "No se pudo componer el precio del grupo con paquetes 30/60/90/120",
+            error:
+              "No se pudo componer el precio del grupo con paquetes 30/60/90/120",
             grupo: { startAbs: g.startAbs, endAbs: g.endAbs, minutes, steps },
           },
           { status: 409 }
@@ -441,6 +534,9 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     console.error("[calcular-precio] ex:", err);
-    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }
