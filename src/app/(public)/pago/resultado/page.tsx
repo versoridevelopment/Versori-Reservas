@@ -36,19 +36,28 @@ export default function PagoResultadoPage() {
     if (!club) return null;
     if (typeof window === "undefined") return null;
 
+    const protocolEnv = process.env.NEXT_PUBLIC_SITE_PROTOCOL || "https";
+    const rootDomainEnv = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "";
+
     const { protocol, hostname, port } = window.location;
 
-    // ✅ CORRECCIÓN AQUÍ: Usamos la función auxiliar isLocalHostName
+    // Local dev: ferpadel.localhost:3000
     if (isLocalHostName(hostname)) {
       const targetHost = `${club}.localhost`;
-      const target = `${protocol}//${targetHost}${port ? `:${port}` : ""}/`;
-      return target;
+      return `${protocol}//${targetHost}${port ? `:${port}` : ""}/`;
     }
 
+    // Ngrok dev
     if (hostname.includes("ngrok-free.dev")) {
       return `${protocol}//${hostname}/?club=${encodeURIComponent(club)}`;
     }
 
+    // Producción: forzar SIEMPRE el dominio raíz oficial
+    if (rootDomainEnv) {
+      return `${protocolEnv}://${club}.${rootDomainEnv}/`;
+    }
+
+    // Fallback (si olvidaste envs): usa hostname actual (menos robusto)
     const targetHost = buildHostWithSubdomain(hostname, club);
     return `${protocol}//${targetHost}${port ? `:${port}` : ""}/`;
   }, [club]);
