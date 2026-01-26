@@ -4,18 +4,18 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-type Provider = "efectivo" | "transferencia" | "mercadopago";
 type Body = {
   amount: number;
-  currency?: string; // default ARS
-  provider: Provider;
-  status?: string; // default approved
+  currency?: string; // default "ARS"
+  provider: "efectivo" | "transferencia" | "mercadopago";
+  status?: "approved" | "pending" | "rejected";
   note?: string | null;
-
-  // opcional si querés registrar MP manualmente
-  mp_payment_id?: number | null;
+  // campos opcionales por si querés guardar data MP
+  mp_payment_id?: string | number | null;
+  mp_preference_id?: string | null;
   mp_status?: string | null;
   mp_status_detail?: string | null;
+  external_reference?: string | null;
   raw?: any;
 };
 
@@ -31,92 +31,111 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
     .limit(1);
 
   if (error) return { ok: false as const, status: 500, error: `Error validando rol: ${error.message}` };
-  if (!data || data.length === 0) return { ok: false as const, status: 403, error: "No tenés permisos admin/staff" };
+  if (!data || data.length === 0) return { ok: false as const, status: 403, error: "No tenés permisos en este club" };
   return { ok: true as const };
 }
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const id_reserva = Number(ctx.params.id);
+    const { id } = await ctx.params;
+    const id_reserva = Number(id);
     if (!id_reserva || Number.isNaN(id_reserva)) {
-      return NextResponse.json({ error: "id inválido" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "id_reserva inválido" }, { status: 400 });
     }
 
-    const body = (await req.json().catch(() => null)) as Body | null;
+    const body = (await req.json()) as Body;
 
-    const amount = Number(body?.amount || 0);
-    const currency = String(body?.currency || "ARS");
-    const provider = String(body?.provider || "") as Provider;
-    const status = String(body?.status || "approved");
-    const note = (body?.note ?? null) as string | null;
+    const amount = Number(body.amount);
+    const currency = (body.currency || "ARS").toUpperCase();
+    const provider = body.provider;
+    const status = body.status || "approved";
 
-    if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: "amount inválido" }, { status: 400 });
-    if (!["ARS"].includes(currency)) return NextResponse.json({ error: "currency inválida" }, { status: 400 });
-    if (!["efectivo", "transferencia", "mercadopago"].includes(provider)) {
-      return NextResponse.json({ error: "provider inválido" }, { status: 400 });
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return NextResponse.json({ ok: false, error: "amount inválido" }, { status: 400 });
+    }
+    if (!provider) {
+      return NextResponse.json({ ok: false, error: "provider requerido" }, { status: 400 });
+    }
+    if (!["approved", "pending", "rejected"].includes(status)) {
+      return NextResponse.json({ ok: false, error: "status inválido" }, { status: 400 });
     }
 
     // Auth
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
-    if (aErr) return NextResponse.json({ error: "No se pudo validar sesión" }, { status: 401 });
+    if (aErr) return NextResponse.json({ ok: false, error: "No se pudo validar la sesión" }, { status: 401 });
     const userId = authRes?.user?.id ?? null;
-    if (!userId) return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
+    if (!userId) return NextResponse.json({ ok: false, error: "LOGIN_REQUERIDO" }, { status: 401 });
 
-    // Leer reserva
+    // Buscar reserva (y el club)
     const { data: reserva, error: rErr } = await supabaseAdmin
       .from("reservas")
-      .select("id_reserva, id_club, estado, precio_total, confirmed_at")
+      .select("id_reserva,id_club,precio_total,estado")
       .eq("id_reserva", id_reserva)
       .maybeSingle();
 
-    if (rErr) return NextResponse.json({ error: `Error leyendo reserva: ${rErr.message}` }, { status: 500 });
-    if (!reserva) return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 });
+    if (rErr) return NextResponse.json({ ok: false, error: `Error leyendo reserva: ${rErr.message}` }, { status: 500 });
+    if (!reserva) return NextResponse.json({ ok: false, error: "Reserva no encontrada" }, { status: 404 });
 
     const id_club = Number((reserva as any).id_club);
 
     // Permisos
     const perm = await assertAdminOrStaff({ id_club, userId });
-    if (!perm.ok) return NextResponse.json({ error: perm.error }, { status: perm.status });
+    if (!perm.ok) return NextResponse.json({ ok: false, error: perm.error }, { status: perm.status });
 
-    // Insert pago (tabla reservas_pagos)
-    const payloadPago: any = {
+    // Insertar pago
+    const insertPayload: any = {
       id_reserva,
       id_club,
       provider,
-      status, // "approved" recomendado para caja/transferencia
+      status,
       amount,
       currency,
-      raw: body?.raw ?? (note ? { note } : null),
+      // campos opcionales:
+      mp_payment_id: body.mp_payment_id ?? null,
+      mp_preference_id: body.mp_preference_id ?? null,
+      mp_status: body.mp_status ?? null,
+      mp_status_detail: body.mp_status_detail ?? null,
+      external_reference: body.external_reference ?? null,
+      raw: body.raw ?? null,
       last_event_at: new Date().toISOString(),
-      mp_payment_id: body?.mp_payment_id ?? null,
-      mp_status: body?.mp_status ?? null,
-      mp_status_detail: body?.mp_status_detail ?? null,
     };
 
-    const { data: pago, error: pErr } = await supabaseAdmin
+    // si tu tabla tiene columna "note" y querés guardarlo:
+    // insertPayload.note = body.note ?? null;
+
+    const { error: insErr } = await supabaseAdmin.from("reservas_pagos").insert(insertPayload);
+    if (insErr) return NextResponse.json({ ok: false, error: `Error insertando pago: ${insErr.message}` }, { status: 500 });
+
+    // (Opcional recomendado) Si con este pago ya cubre todo, setear reserva confirmada
+    // Calculamos total approved actual (incluyendo este pago recién insertado)
+    const { data: pagosRaw, error: payErr } = await supabaseAdmin
       .from("reservas_pagos")
-      .insert(payloadPago)
-      .select("id_pago")
-      .single();
+      .select("amount,status")
+      .eq("id_reserva", id_reserva)
+      .eq("status", "approved");
 
-    if (pErr) return NextResponse.json({ error: `Error insertando pago: ${pErr.message}`, detail: pErr }, { status: 500 });
+    if (payErr) {
+      // no es fatal, pero informamos
+      return NextResponse.json({ ok: true, warning: `Pago registrado, pero no pude recalcular saldo: ${payErr.message}` });
+    }
 
-    // Si pagó algo, y la reserva estaba pendiente, la dejamos confirmada (opcional)
-    // (si preferís "finalizada" cuando saldo==0, eso lo hacemos después con un cálculo real)
-    if ((reserva as any).estado !== "cancelada") {
+    const pagado = (pagosRaw || []).reduce((acc, row: any) => acc + Number(row.amount || 0), 0);
+    const precio_total = Number((reserva as any).precio_total || 0);
+
+    if (precio_total > 0 && pagado >= precio_total) {
       await supabaseAdmin
         .from("reservas")
         .update({
           estado: "confirmada",
-          confirmed_at: (reserva as any).confirmed_at ?? new Date().toISOString(),
+          confirmed_at: new Date().toISOString(),
         })
         .eq("id_reserva", id_reserva);
     }
 
-    return NextResponse.json({ ok: true, id_reserva, id_pago: (pago as any)?.id_pago });
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("[POST /api/admin/reservas/[id]/cobrar] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "Error interno" }, { status: 500 });
   }
 }
