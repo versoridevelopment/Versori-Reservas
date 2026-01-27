@@ -34,8 +34,8 @@ type Slot = {
   absMin: number;
   time: string;
   dayOffset: 0 | 1;
-  available?: boolean;
-  reason?: "reservado" | "bloqueado";
+  available: boolean;
+  reason: null | "reservado" | "bloqueado";
 };
 
 type DaySlots = {

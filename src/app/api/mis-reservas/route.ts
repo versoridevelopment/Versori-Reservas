@@ -46,7 +46,7 @@ export async function GET(req: Request) {
     const estado = sp.get("estado"); // confirmada|pendiente_pago|rechazada|expirada|null
     const desde = sp.get("desde"); // YYYY-MM-DD
     const hasta = sp.get("hasta"); // YYYY-MM-DD
-    const limit = Math.min(100, Math.max(1, num(sp.get("limit")) ?? 50));
+    const limit = Math.min(200, Math.max(1, num(sp.get("limit")) ?? 50));
 
     // 4) Query
     let q = supabaseAdmin
@@ -56,6 +56,7 @@ export async function GET(req: Request) {
         id_reserva,
         id_club,
         id_cancha,
+        id_usuario,
         fecha,
         inicio,
         fin,
@@ -81,6 +82,7 @@ export async function GET(req: Request) {
     const { data, error } = await q;
 
     if (error) {
+      console.error("[mis-reservas] query error:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -98,10 +100,25 @@ export async function GET(req: Request) {
       cancha_nombre: r.canchas?.nombre ?? null,
     }));
 
+    // Log útil (server)
+    console.log("[mis-reservas] resolved", {
+      host,
+      sub,
+      id_club,
+      userId,
+      estado,
+      desde,
+      hasta,
+      limit,
+      count: rows.length,
+    });
+
     return NextResponse.json({
       ok: true,
       id_club,
       subdominio: sub,
+      userId,        // 👈 clave para verificar
+      count: rows.length,
       reservas: rows,
     });
   } catch (e: any) {

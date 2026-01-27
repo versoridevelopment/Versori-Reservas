@@ -45,6 +45,8 @@ type ReservaDb = {
   fin_ts: string; // timestamptz
 };
 
+// ---------- Helpers fechas/horas (AR) ----------
+
 function todayISOAR() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Argentina/Buenos_Aires",
@@ -54,21 +56,9 @@ function todayISOAR() {
   }).format(new Date());
 }
 
-function toMin(hhmmss: string) {
-  const s = (hhmmss || "").slice(0, 5);
-  const [h, m] = s.split(":").map((x) => Number(x));
-  return h * 60 + (m || 0);
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-function minToHHMM(absMin: number) {
-  const m = ((absMin % 1440) + 1440) % 1440;
-  const hh = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${pad2(hh)}:${pad2(mm)}`;
+function arMidnightISO(dateISO: string) {
+  // Argentina UTC-03:00
+  return `${dateISO}T00:00:00-03:00`;
 }
 
 function addDaysISO(dateISO: string, addDays: number) {
@@ -91,20 +81,30 @@ function dowFromISO(dateISO: string) {
   return d.getDay(); // 0=Dom..6=Sáb
 }
 
+function toMin(hhmmss: string) {
+  const s = (hhmmss || "").slice(0, 5);
+  const [h, m] = s.split(":").map((x) => Number(x));
+  return h * 60 + (m || 0);
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function minToHHMM(absMin: number) {
+  const m = ((absMin % 1440) + 1440) % 1440;
+  const hh = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${pad2(hh)}:${pad2(mm)}`;
+}
+
 function uniqSortAbs(slots: Slot[]) {
   const map = new Map<number, Slot>();
   for (const s of slots) map.set(s.absMin, s);
   return Array.from(map.values()).sort((a, b) => a.absMin - b.absMin);
 }
 
-/**
- * Construye un ISO string representando 00:00 de Argentina (UTC-03:00) para una fecha YYYY-MM-DD.
- * Así evitamos corrimientos por UTC.
- */
-function arMidnightISO(dateISO: string) {
-  // Argentina no tiene DST actualmente; usamos -03:00
-  return `${dateISO}T00:00:00-03:00`;
-}
+// ---------- Resoluciones DB ----------
 
 async function resolveTarifarioId(params: { id_club: number; id_cancha: number }) {
   const { data: cancha, error: cErr } = await supabaseAdmin
@@ -156,10 +156,7 @@ async function resolveSegmento(id_club: number): Promise<Segmento> {
   return data && data.length > 0 ? "profe" : "publico";
 }
 
-function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number) {
-  // intervalos semiabiertos [start, end)
-  return aStart < bEnd && bStart < aEnd;
-}
+// ---------- API ----------
 
 export async function GET(req: Request) {
   try {
@@ -167,7 +164,6 @@ export async function GET(req: Request) {
 
     const id_club = Number(searchParams.get("id_club"));
     const id_cancha = Number(searchParams.get("id_cancha"));
-
     const fecha_desde = searchParams.get("fecha_desde") || todayISOAR();
     const dias = Number(searchParams.get("dias") || 7);
 
@@ -190,13 +186,10 @@ export async function GET(req: Request) {
 
     const segmento = await resolveSegmento(id_club);
 
-    /**
-     * 1) Traer reservas del rango (incluyendo holds vigentes)
-     * Ventana: desde fecha_desde 00:00 AR hasta (fecha_desde + dias + 1) 00:00 AR
-     * +1 día para cubrir cruces de medianoche del último día
-     */
-    const windowStart = new Date(arMidnightISO(fecha_desde)).getTime();
-    const windowEnd = new Date(arMidnightISO(addDaysISO(fecha_desde, dias + 1))).getTime();
+    // 1) Traer reservas del rango (incluye confirmadas + holds vigentes)
+    // Ventana: desde fecha_desde 00:00 AR hasta (fecha_desde + dias + 1) 00:00 AR
+    const windowStartMs = new Date(arMidnightISO(fecha_desde)).getTime();
+    const windowEndMs = new Date(arMidnightISO(addDaysISO(fecha_desde, dias + 1))).getTime();
     const nowMs = Date.now();
 
     const { data: reservasRaw, error: resErr } = await supabaseAdmin
@@ -205,20 +198,15 @@ export async function GET(req: Request) {
       .eq("id_club", id_club)
       .eq("id_cancha", id_cancha)
       .in("estado", ["confirmada", "pendiente_pago"])
-      // rango temporal: inicio < windowEnd && fin > windowStart
-      .lt("inicio_ts", new Date(windowEnd).toISOString())
-      .gt("fin_ts", new Date(windowStart).toISOString());
+      .lt("inicio_ts", new Date(windowEndMs).toISOString())
+      .gt("fin_ts", new Date(windowStartMs).toISOString());
 
     if (resErr) {
-      return NextResponse.json(
-        { error: `Error leyendo reservas: ${resErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Error leyendo reservas: ${resErr.message}` }, { status: 500 });
     }
 
     const reservas = (reservasRaw || []) as ReservaDb[];
 
-    // Normalizamos a intervalos ocupados en ms y su reason
     const busyIntervals = reservas
       .map((r) => {
         const startMs = new Date(r.inicio_ts).getTime();
@@ -229,7 +217,7 @@ export async function GET(req: Request) {
           return { startMs, endMs, reason: "reservado" as const };
         }
 
-        // pendiente_pago: solo bloquea si NO expiró
+        // pendiente_pago: bloquea solo si expires_at es futura
         const expMs = r.expires_at ? new Date(r.expires_at).getTime() : NaN;
         const vigente = Number.isFinite(expMs) ? expMs > nowMs : false;
         if (!vigente) return null;
@@ -267,7 +255,6 @@ export async function GET(req: Request) {
         .sort((a, b) => a - b);
 
       const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
-
       const slotsRaw: Slot[] = [];
 
       for (const r of rules) {
@@ -277,19 +264,18 @@ export async function GET(req: Request) {
         const crosses = !!r.cruza_medianoche || endBase <= start;
         const end = crosses ? endBase + 1440 : endBase;
 
-        // slots cada 30', incluyendo el final (para click de fin)
         for (let m = start; m <= end; m += 30) {
           const dayOffset = (m >= 1440 ? 1 : 0) as 0 | 1;
 
-          // timestamp real del boundary
           const slotMs = dayStartMs + m * 60_000;
+          const slotEndMs = slotMs + 30 * 60_000;
 
-          // un boundary (slot) lo consideramos NO disponible si cae dentro de un intervalo ocupado [start,end)
           let available = true;
           let reason: Slot["reason"] = null;
 
+          // Bloqueo robusto por overlap de intervalos (mejor que “punto dentro”)
           for (const bi of busyIntervals) {
-            if (slotMs >= bi.startMs && slotMs < bi.endMs) {
+            if (slotMs < bi.endMs && bi.startMs < slotEndMs) {
               available = false;
               reason = bi.reason;
               break;
@@ -306,11 +292,20 @@ export async function GET(req: Request) {
         }
       }
 
+      // Hardening: asegurar que SIEMPRE salgan los campos
+      const slots = uniqSortAbs(slotsRaw).map((s) => ({
+        absMin: s.absMin,
+        time: s.time,
+        dayOffset: s.dayOffset,
+        available: s.available ?? true,
+        reason: s.reason ?? null,
+      }));
+
       outDays.push({
         label: dayLabel(fecha, i),
         dateISO: fecha,
         id_tarifario,
-        slots: uniqSortAbs(slotsRaw),
+        slots,
         durations_allowed: durations_allowed.length ? durations_allowed : [60, 90, 120],
         segmento,
       });
