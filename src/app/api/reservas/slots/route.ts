@@ -43,9 +43,11 @@ type ReservaDb = {
   id_reserva: number;
   estado: string;
   expires_at: string | null;
-  inicio_ts: string; // timestamptz
-  fin_ts: string; // timestamptz
+  inicio_ts: string; // puede venir sin TZ
+  fin_ts: string; // puede venir sin TZ
 };
+
+// ---------------- Helpers AR ----------------
 
 function todayISOAR() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -77,7 +79,7 @@ function dayLabel(dateISO: string, idx: number) {
 
 function dowFromISO(dateISO: string) {
   const d = new Date(`${dateISO}T00:00:00`);
-  return d.getDay();
+  return d.getDay(); // 0=Dom..6=Sáb
 }
 
 function toMin(hhmmss: string) {
@@ -102,6 +104,20 @@ function uniqSortAbs(slots: Slot[]) {
   for (const s of slots) map.set(s.absMin, s);
   return Array.from(map.values()).sort((a, b) => a.absMin - b.absMin);
 }
+
+/**
+ * ✅ PARSEO ROBUSTO:
+ * Si Supabase devuelve "YYYY-MM-DDTHH:MM:SS" (sin Z / sin offset),
+ * en PROD (Node/Vercel) puede interpretarse distinto que en local.
+ * Acá asumimos Argentina (-03:00) si viene "pelado".
+ */
+function parseTsAR(ts: string) {
+  const s = String(ts || "");
+  if (/[zZ]$/.test(s) || /[+\-]\d{2}:\d{2}$/.test(s)) return new Date(s).getTime();
+  return new Date(`${s}-03:00`).getTime();
+}
+
+// ---------------- Resoluciones DB ----------------
 
 async function resolveTarifarioId(params: { id_club: number; id_cancha: number }) {
   const { data: cancha, error: cErr } = await supabaseAdmin
@@ -153,6 +169,8 @@ async function resolveSegmento(id_club: number): Promise<Segmento> {
   return data && data.length > 0 ? "profe" : "publico";
 }
 
+// ---------------- API ----------------
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -182,7 +200,7 @@ export async function GET(req: Request) {
 
     const segmento = await resolveSegmento(id_club);
 
-    // Ventana de búsqueda de reservas
+    // Ventana de búsqueda de reservas (en AR)
     const windowStartMs = new Date(arMidnightISO(fecha_desde)).getTime();
     const windowEndMs = new Date(arMidnightISO(addDaysISO(fecha_desde, dias + 1))).getTime();
     const nowMs = Date.now();
@@ -204,21 +222,27 @@ export async function GET(req: Request) {
 
     const busyIntervals = reservas
       .map((r) => {
-        const startMs = new Date(r.inicio_ts).getTime();
-        const endMs = new Date(r.fin_ts).getTime();
+        const startMs = parseTsAR(r.inicio_ts);
+        const endMs = parseTsAR(r.fin_ts);
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
 
         if (r.estado === "confirmada") {
           return { startMs, endMs, reason: "reservado" as const, id_reserva: r.id_reserva };
         }
 
+        // pendiente_pago: bloquea solo si expires_at es futura
         const expMs = r.expires_at ? new Date(r.expires_at).getTime() : NaN;
         const vigente = Number.isFinite(expMs) ? expMs > nowMs : false;
         if (!vigente) return null;
 
         return { startMs, endMs, reason: "bloqueado" as const, id_reserva: r.id_reserva };
       })
-      .filter(Boolean) as { startMs: number; endMs: number; reason: "reservado" | "bloqueado"; id_reserva: number }[];
+      .filter(Boolean) as {
+      startMs: number;
+      endMs: number;
+      reason: "reservado" | "bloqueado";
+      id_reserva: number;
+    }[];
 
     const outDays: DaySlots[] = [];
 
@@ -267,7 +291,6 @@ export async function GET(req: Request) {
           let available = true;
           let reason: Slot["reason"] = null;
 
-          // Overlap robusto
           for (const bi of busyIntervals) {
             if (slotMs < bi.endMs && bi.startMs < slotEndMs) {
               available = false;
@@ -315,7 +338,6 @@ export async function GET(req: Request) {
       days: outDays,
     };
 
-    // Debug para comparar PROD vs LOCAL (mirá inicio_ts/fin_ts reales)
     if (debug) {
       body.debug = {
         windowStartISO: new Date(windowStartMs).toISOString(),
@@ -323,13 +345,23 @@ export async function GET(req: Request) {
         reservasRaw: reservas,
         busyIntervals,
         nowISO: new Date(nowMs).toISOString(),
+        parseExample: reservas.slice(0, 3).map((r) => ({
+          id_reserva: r.id_reserva,
+          inicio_ts_raw: r.inicio_ts,
+          fin_ts_raw: r.fin_ts,
+          inicio_ts_parsedISO: new Date(parseTsAR(r.inicio_ts)).toISOString(),
+          fin_ts_parsedISO: new Date(parseTsAR(r.fin_ts)).toISOString(),
+        })),
       };
     }
 
     const res = NextResponse.json(body);
 
-    // Anti-cache fuerte
-    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    // Anti-cache fuerte (y explícito)
+    res.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+    );
     res.headers.set("Pragma", "no-cache");
     res.headers.set("Expires", "0");
 
@@ -337,7 +369,12 @@ export async function GET(req: Request) {
   } catch (e: any) {
     console.error("[GET /api/reservas/slots] ex:", e);
     const res = NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
-    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    res.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+    );
+    res.headers.set("Pragma", "no-cache");
+    res.headers.set("Expires", "0");
     return res;
   }
 }
