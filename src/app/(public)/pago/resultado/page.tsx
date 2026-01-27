@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircle2, XCircle, Clock, RotateCw, Download } from "lucide-react";
+import jsPDF from "jspdf";
 
 type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
 
@@ -64,6 +65,59 @@ function fmtMoney(n: any) {
   return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(v);
 }
 
+function downloadPdfFromReserva(r: ReservaApi) {
+  const doc = new jsPDF();
+  let y = 18;
+
+  doc.setFontSize(16);
+  doc.text("Comprobante de Reserva", 105, y, { align: "center" });
+  y += 10;
+
+  doc.setFontSize(11);
+
+  const line = (label: string, value: string) => {
+    doc.text(`${label}:`, 14, y);
+    doc.text(value || "-", 60, y);
+    y += 7;
+  };
+
+  line("Reserva", `#${String(r.id_reserva)}`);
+  line("Club", r.club_nombre ?? "-");
+  line("Cancha", r.cancha_nombre ?? "-");
+  line("Fecha", r.fecha ?? "-");
+  line(
+    "Horario",
+    `${r.inicio ?? "-"} - ${r.fin ?? "-"}${r.fin_dia_offset === 1 ? " (+1)" : ""}`
+  );
+  line("Estado", r.estado ?? "-");
+  y += 3;
+
+  line("Total", fmtMoney(r.precio_total));
+  line("Anticipo", fmtMoney(r.monto_anticipo));
+
+  y += 5;
+  doc.setFontSize(10);
+  doc.text("Datos del cliente", 14, y);
+  y += 7;
+  doc.setFontSize(11);
+  line("Nombre", r.cliente_nombre ?? "-");
+  line("Teléfono", r.cliente_telefono ?? "-");
+  line("Email", r.cliente_email ?? "-");
+
+  if (r.ultimo_pago) {
+    y += 5;
+    doc.setFontSize(10);
+    doc.text("Pago", 14, y);
+    y += 7;
+    doc.setFontSize(11);
+    line("MP status", r.ultimo_pago.mp_status ?? "-");
+    line("Monto", fmtMoney(r.ultimo_pago.amount));
+    line("Payment ID", String(r.ultimo_pago.mp_payment_id ?? "-"));
+  }
+
+  doc.save(`comprobante-reserva-${r.id_reserva}.pdf`);
+}
+
 export default function PagoResultadoPage() {
   const params = useSearchParams();
   const router = useRouter();
@@ -106,6 +160,36 @@ export default function PagoResultadoPage() {
     return `${protocol}//${targetHost}${port ? `:${port}` : ""}/`;
   }, [club]);
 
+  /**
+   * ✅ 1) Redirect automático al subdominio del club
+   * Así el resultado se ve con el tenant/layout del club y no el navbar genérico.
+   */
+  useEffect(() => {
+    if (!club) return;
+    if (typeof window === "undefined") return;
+
+    const protocolEnv = process.env.NEXT_PUBLIC_SITE_PROTOCOL || "https";
+    const rootDomainEnv = process.env.NEXT_PUBLIC_ROOT_DOMAIN || "";
+    if (!rootDomainEnv) return;
+
+    const { hostname, search } = window.location;
+
+    // No forzar en local/ngrok
+    if (isLocalHostName(hostname) || hostname.includes("ngrok-free.dev")) return;
+
+    const expectedHost = `${club}.${rootDomainEnv}`;
+    const alreadyOnClubHost = hostname === expectedHost;
+
+    if (!alreadyOnClubHost) {
+      const targetUrl = `${protocolEnv}://${expectedHost}/pago/resultado${search}`;
+      window.location.replace(targetUrl);
+    }
+  }, [club]);
+
+  /**
+   * ✅ 2) Polling de estado
+   * Nota: si te redirige al subdominio, el polling ocurre ya en el host del club.
+   */
   useEffect(() => {
     if (!id_reserva) return;
 
@@ -134,7 +218,6 @@ export default function PagoResultadoPage() {
         setEstado(nextEstado);
         setLoading(false);
 
-        // Si sigue pendiente, seguimos consultando
         if (nextEstado === "pendiente_pago") {
           timer = setTimeout(poll, 2500);
         }
@@ -243,7 +326,9 @@ export default function PagoResultadoPage() {
 
                 <div className="flex justify-between gap-4">
                   <span className="text-neutral-400">Confirmada</span>
-                  <span className="text-right">{reserva?.confirmed_at ? String(reserva.confirmed_at) : "-"}</span>
+                  <span className="text-right">
+                    {reserva?.confirmed_at ? String(reserva.confirmed_at) : "-"}
+                  </span>
                 </div>
 
                 {(reserva?.cliente_nombre ||
@@ -286,14 +371,14 @@ export default function PagoResultadoPage() {
             </div>
 
             <div className="flex flex-col gap-3">
-              {/* Descargar PDF */}
-              <a
-                href={`/api/reservas/${id_reserva}/comprobante`}
+              {/* ✅ Descargar PDF (cliente) */}
+              <button
+                onClick={() => reserva && downloadPdfFromReserva(reserva)}
                 className="bg-white/10 hover:bg-white/15 px-6 py-3 rounded-xl font-semibold flex items-center justify-center gap-2"
               >
                 <Download className="w-5 h-5" />
                 Descargar comprobante (PDF)
-              </a>
+              </button>
 
               <button
                 onClick={() => router.push("/mis-reservas")}
