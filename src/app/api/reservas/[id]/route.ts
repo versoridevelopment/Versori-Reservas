@@ -17,43 +17,27 @@ export async function GET(
       return NextResponse.json({ error: "id inválido" }, { status: 400 });
     }
 
-    // Traemos todo lo necesario para el comprobante
     const { data, error } = await supabaseAdmin
       .from("reservas")
       .select(
         `
         id_reserva,
-        id_club,
-        id_cancha,
+        estado,
+        expires_at,
+        confirmed_at,
         id_usuario,
         fecha,
         inicio,
         fin,
         fin_dia_offset,
-        estado,
         precio_total,
         anticipo_porcentaje,
         monto_anticipo,
-        segmento,
-        id_tarifario,
-        id_regla,
-        expires_at,
-        created_at,
-        confirmed_at,
         cliente_nombre,
         cliente_telefono,
         cliente_email,
-        notas,
-        tipo_turno,
-        clubes:clubes (
-          id_club,
-          nombre,
-          subdominio
-        ),
-        canchas:canchas (
-          id_cancha,
-          nombre
-        ),
+        clubes:clubes ( id_club, nombre, subdominio ),
+        canchas:canchas ( id_cancha, nombre ),
         reservas_pagos (
           id_pago,
           status,
@@ -75,34 +59,51 @@ export async function GET(
       return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 });
     }
 
+    // Estado “derivado” (expirada / rechazada por último pago)
     const now = new Date();
-
-    // Si está pendiente y ya expiró, reportar como expirada al frontend
     let estado: Estado = data.estado as Estado;
 
     if (estado === "pendiente_pago" && data.expires_at) {
       const exp = new Date(data.expires_at);
-      if (!Number.isFinite(exp.getTime()) || exp <= now) {
-        estado = "expirada";
-      }
+      if (!Number.isFinite(exp.getTime()) || exp <= now) estado = "expirada";
     }
 
-    // Si el último pago real fue rejected/cancelled, reportar rechazada
     const ultimoPago = (data as any).reservas_pagos?.[0];
     if (ultimoPago && ["rejected", "cancelled"].includes(String(ultimoPago.mp_status))) {
       estado = "rechazada";
     }
 
-    // Respuesta “comprobante-friendly”
+    // ✅ Fallback de cliente desde profiles si la reserva no tiene cliente_*
+    let cliente_nombre: string | null = data.cliente_nombre ?? null;
+    let cliente_telefono: string | null = data.cliente_telefono ?? null;
+    let cliente_email: string | null = data.cliente_email ?? null;
+
+    const userId = data.id_usuario ?? null;
+
+    if (
+      userId &&
+      (!cliente_nombre || !cliente_telefono || !cliente_email)
+    ) {
+      const { data: prof, error: pErr } = await supabaseAdmin
+        .from("profiles")
+        .select("nombre, apellido, telefono, email")
+        .eq("id_usuario", userId)
+        .maybeSingle();
+
+      if (!pErr && prof) {
+        const fullName = [prof.nombre, prof.apellido].filter(Boolean).join(" ").trim();
+        if (!cliente_nombre && fullName) cliente_nombre = fullName;
+        if (!cliente_telefono && prof.telefono) cliente_telefono = prof.telefono;
+        if (!cliente_email && prof.email) cliente_email = prof.email;
+      }
+    }
+
     return NextResponse.json({
       id_reserva: data.id_reserva,
       estado,
       expires_at: data.expires_at,
       confirmed_at: data.confirmed_at,
 
-      // Comprobante
-      id_club: data.id_club,
-      id_cancha: data.id_cancha,
       fecha: data.fecha,
       inicio: data.inicio,
       fin: data.fin,
@@ -112,9 +113,9 @@ export async function GET(
       anticipo_porcentaje: data.anticipo_porcentaje,
       monto_anticipo: data.monto_anticipo,
 
-      cliente_nombre: data.cliente_nombre,
-      cliente_telefono: data.cliente_telefono,
-      cliente_email: data.cliente_email,
+      cliente_nombre,
+      cliente_telefono,
+      cliente_email,
 
       club_nombre: (data as any).clubes?.nombre ?? null,
       club_subdominio: (data as any).clubes?.subdominio ?? null,
@@ -135,6 +136,9 @@ export async function GET(
     });
   } catch (e: any) {
     console.error("[GET /api/reservas/:id] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }

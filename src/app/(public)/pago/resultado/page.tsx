@@ -67,56 +67,145 @@ function fmtMoney(n: any) {
 
 function downloadPdfFromReserva(r: ReservaApi) {
   const doc = new jsPDF();
+  const pageW = doc.internal.pageSize.getWidth();
+
+  const margin = 14;
   let y = 18;
 
-  doc.setFontSize(16);
-  doc.text("Comprobante de Reserva", 105, y, { align: "center" });
+  // Header
+  doc.setFontSize(18);
+  doc.text("Comprobante de Reserva", pageW / 2, y, { align: "center" });
   y += 10;
 
-  doc.setFontSize(11);
+  doc.setDrawColor(180);
+  doc.line(margin, y, pageW - margin, y);
+  y += 10;
 
-  const line = (label: string, value: string) => {
-    doc.text(`${label}:`, 14, y);
-    doc.text(value || "-", 60, y);
-    y += 7;
+  // Helper
+  const labelValue = (xL: number, xV: number, yy: number, label: string, value: string) => {
+    doc.setFontSize(11);
+    doc.setTextColor(90);
+    doc.text(label, xL, yy);
+    doc.setTextColor(20);
+    doc.text(value || "-", xV, yy);
   };
 
-  line("Reserva", `#${String(r.id_reserva)}`);
-  line("Club", r.club_nombre ?? "-");
-  line("Cancha", r.cancha_nombre ?? "-");
-  line("Fecha", r.fecha ?? "-");
-  line(
+  // Box 1: Datos de reserva (2 columnas)
+  const boxX = margin;
+  const boxW = pageW - margin * 2;
+  const boxH = 74;
+
+  doc.setDrawColor(200);
+  doc.roundedRect(boxX, y, boxW, boxH, 3, 3);
+
+  const leftXLabel = boxX + 6;
+  const leftXValue = boxX + 42;
+  const rightXLabel = boxX + boxW / 2 + 6;
+  const rightXValue = boxX + boxW / 2 + 42;
+
+  let rowY = y + 10;
+
+  labelValue(leftXLabel, leftXValue, rowY, "Reserva", `#${String(r.id_reserva)}`);
+  labelValue(rightXLabel, rightXValue, rowY, "Estado", (r.estado ?? "-").toUpperCase());
+  rowY += 10;
+
+  labelValue(leftXLabel, leftXValue, rowY, "Club", r.club_nombre ?? "-");
+  labelValue(rightXLabel, rightXValue, rowY, "Cancha", r.cancha_nombre ?? "-");
+  rowY += 10;
+
+  labelValue(leftXLabel, leftXValue, rowY, "Fecha", r.fecha ?? "-");
+  labelValue(
+    rightXLabel,
+    rightXValue,
+    rowY,
     "Horario",
     `${r.inicio ?? "-"} - ${r.fin ?? "-"}${r.fin_dia_offset === 1 ? " (+1)" : ""}`
   );
-  line("Estado", r.estado ?? "-");
-  y += 3;
+  rowY += 10;
 
-  line("Total", fmtMoney(r.precio_total));
-  line("Anticipo", fmtMoney(r.monto_anticipo));
+  labelValue(leftXLabel, leftXValue, rowY, "Total", fmtMoney(r.precio_total));
+  labelValue(rightXLabel, rightXValue, rowY, "Anticipo", fmtMoney(r.monto_anticipo));
+  rowY += 10;
 
-  y += 5;
-  doc.setFontSize(10);
-  doc.text("Datos del cliente", 14, y);
-  y += 7;
+  labelValue(leftXLabel, leftXValue, rowY, "Confirmada", r.confirmed_at ? String(r.confirmed_at) : "-");
+
+  y += boxH + 10;
+
+  // Box 2: Cliente
+  doc.setFontSize(12);
+  doc.setTextColor(20);
+  doc.text("Datos del cliente", margin, y);
+  y += 6;
+
+  const cBoxH = 28;
+  doc.setDrawColor(200);
+  doc.roundedRect(boxX, y, boxW, cBoxH, 3, 3);
+
+  const c1 = r.cliente_nombre ?? "-";
+  const c2 = r.cliente_telefono ?? "-";
+  const c3 = r.cliente_email ?? "-";
+
   doc.setFontSize(11);
-  line("Nombre", r.cliente_nombre ?? "-");
-  line("Teléfono", r.cliente_telefono ?? "-");
-  line("Email", r.cliente_email ?? "-");
+  doc.setTextColor(90);
+  doc.text("Nombre", leftXLabel, y + 10);
+  doc.setTextColor(20);
+  doc.text(c1, leftXValue, y + 10);
 
+  doc.setTextColor(90);
+  doc.text("Teléfono", rightXLabel, y + 10);
+  doc.setTextColor(20);
+  doc.text(c2, rightXValue, y + 10);
+
+  doc.setTextColor(90);
+  doc.text("Email", leftXLabel, y + 20);
+  doc.setTextColor(20);
+  doc.text(c3, leftXValue, y + 20);
+
+  y += cBoxH + 12;
+
+  // Box 3: Pago
   if (r.ultimo_pago) {
-    y += 5;
-    doc.setFontSize(10);
-    doc.text("Pago", 14, y);
-    y += 7;
+    doc.setFontSize(12);
+    doc.setTextColor(20);
+    doc.text("Pago", margin, y);
+    y += 6;
+
+    const pBoxH = 28;
+    doc.setDrawColor(200);
+    doc.roundedRect(boxX, y, boxW, pBoxH, 3, 3);
+
     doc.setFontSize(11);
-    line("MP status", r.ultimo_pago.mp_status ?? "-");
-    line("Monto", fmtMoney(r.ultimo_pago.amount));
-    line("Payment ID", String(r.ultimo_pago.mp_payment_id ?? "-"));
+    doc.setTextColor(90);
+    doc.text("MP status", leftXLabel, y + 10);
+    doc.setTextColor(20);
+    doc.text(r.ultimo_pago.mp_status ?? "-", leftXValue, y + 10);
+
+    doc.setTextColor(90);
+    doc.text("Monto", rightXLabel, y + 10);
+    doc.setTextColor(20);
+    doc.text(fmtMoney(r.ultimo_pago.amount), rightXValue, y + 10);
+
+    doc.setTextColor(90);
+    doc.text("Payment ID", leftXLabel, y + 20);
+    doc.setTextColor(20);
+    doc.text(String(r.ultimo_pago.mp_payment_id ?? "-"), leftXValue, y + 20);
+
+    y += pBoxH + 12;
   }
+
+  // Footer
+  doc.setFontSize(9);
+  doc.setTextColor(120);
+  doc.text(
+    "Este comprobante es una constancia de la reserva registrada en el sistema.",
+    pageW / 2,
+    285,
+    { align: "center" }
+  );
 
   doc.save(`comprobante-reserva-${r.id_reserva}.pdf`);
 }
+
 
 export default function PagoResultadoPage() {
   const params = useSearchParams();
