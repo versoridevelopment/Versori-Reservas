@@ -21,7 +21,7 @@ export default function ProfesoresUI({ profesores, teamPhotoUrl }: Props) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
         >
-          » PROFESORES «
+          PROFESORES
         </motion.h1>
         <motion.p
           className="text-gray-400 text-lg max-w-3xl mx-auto px-4"
