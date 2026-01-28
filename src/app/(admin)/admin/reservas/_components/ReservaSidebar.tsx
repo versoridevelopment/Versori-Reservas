@@ -1,6 +1,6 @@
+// components/ReservaSidebar.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import {
   X,
   Calendar,
@@ -16,482 +16,67 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
-import type { CanchaUI, ReservaUI } from "./types";
 
-interface Props {
-  isOpen: boolean;
-  onClose: () => void;
-  reserva: ReservaUI | null;
-  isCreating: boolean;
-  selectedDate: Date;
-  preSelectedCanchaId?: number | null;
-  preSelectedTime?: number | null; // decimal (ej: 17.5)
-
-  idClub: number;
-  canchas: CanchaUI[];
-  reservas?: ReservaUI[];
-
-  startHour?: number; // ej 10
-  endHour?: number; // ej 26
-
-  onCreated: () => void;
-}
-
-// Helpers
-const formatMoney = (val: number) =>
-  new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    maximumFractionDigits: 0,
-  }).format(Number(val || 0));
-
-function toISODateLocal(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-// "HH:MM" -> decimal, respetando ventana startHour..endHour (posible +24)
-function hhmmToDecimal(hhmm: string, startHour: number) {
-  const [h, m] = (hhmm || "").slice(0, 5).split(":").map(Number);
-  let dec = (h || 0) + (m || 0) / 60;
-  if (dec < startHour) dec += 24; // pertenece al día+1 dentro de la ventana
-  return dec;
-}
-
-function addMinutesHHMM(hhmm: string, addMin: number) {
-  const [h, m] = hhmm.split(":").map(Number);
-  let total = (h || 0) * 60 + (m || 0) + addMin;
-  total = ((total % 1440) + 1440) % 1440;
-  const hh = String(Math.floor(total / 60)).padStart(2, "0");
-  const mm = String(total % 60).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
-
-/** ===== Regla anti “30 colgados” robusta (en unidades de 30’) =====
- * 1 unit = 30 minutos
- */
-type IntervalU = { startU: number; endU: number }; // [startU, endU)
-type FreeBlockU = { startU: number; endU: number }; // bloque libre máximo
-
-function toUnits30(hours: number) {
-  return Math.round(hours * 2);
-}
-
-function unitsToHHMM(u: number) {
-  const mins = u * 30;
-  const total = ((mins % 1440) + 1440) % 1440;
-  const hh = Math.floor(total / 60);
-  const mm = total % 60;
-  return `${pad2(hh)}:${pad2(mm)}`;
-}
-
-// bloques libres máximos dentro de [dayStartU, dayEndU)
-function buildFreeBlocks(dayStartU: number, dayEndU: number, occupiedU: IntervalU[]): FreeBlockU[] {
-  if (dayEndU <= dayStartU) return [];
-
-  const occ = occupiedU
-    .map((x) => ({
-      startU: Math.max(dayStartU, x.startU),
-      endU: Math.min(dayEndU, x.endU),
-    }))
-    .filter((x) => x.endU > x.startU)
-    .sort((a, b) => a.startU - b.startU);
-
-  const merged: IntervalU[] = [];
-  for (const it of occ) {
-    const last = merged[merged.length - 1];
-    if (!last || it.startU > last.endU) merged.push({ ...it });
-    else last.endU = Math.max(last.endU, it.endU);
-  }
-
-  const free: FreeBlockU[] = [];
-  let cursor = dayStartU;
-
-  for (const it of merged) {
-    if (it.startU > cursor) free.push({ startU: cursor, endU: it.startU });
-    cursor = Math.max(cursor, it.endU);
-  }
-  if (cursor < dayEndU) free.push({ startU: cursor, endU: dayEndU });
-
-  return free;
-}
-
-/**
- * ✅ regla correcta:
- * bloqueamos SOLO si deja exactamente 1 unit (30') libre
- * al inicio o al final del bloque libre máximo donde cae.
- */
-function noDangling30(block: FreeBlockU, startU: number, endU: number) {
-  const leftU = startU - block.startU;
-  const rightU = block.endU - endU;
-
-  if (leftU === 1) return false;
-  if (rightU === 1) return false;
-
-  return true;
-}
-
-export default function ReservaSidebar({
-  isOpen,
-  onClose,
-  reserva,
-  isCreating,
-  selectedDate,
-  preSelectedCanchaId,
-  preSelectedTime,
-  idClub,
-  canchas,
-  reservas = [],
-  startHour = 8,
-  endHour = 26,
-  onCreated,
-}: Props) {
-  const fechaISO = useMemo(() => toISODateLocal(selectedDate), [selectedDate]);
-
-  // ✅ estado modal cobro
-  const [showCobro, setShowCobro] = useState(false);
-  const [cobroMonto, setCobroMonto] = useState<number>(0);
-  const [cobroMetodo, setCobroMetodo] = useState<"efectivo" | "transferencia">("efectivo");
-  const [cobroNota, setCobroNota] = useState<string>("Pagó en caja");
-  const [cobroLoading, setCobroLoading] = useState(false);
-  const [cobroError, setCobroError] = useState<string | null>(null);
-
-  // --- ESTADOS CREAR ---
-  const [formData, setFormData] = useState({
-    nombre: "",
-    telefono: "",
-    email: "",
-    esTurnoFijo: false,
-    tipoTurno: "normal",
-    duracion: 90 as 60 | 90 | 120,
-    precio: 0,
-    notas: "",
-    canchaId: "",
-    horaInicio: "",
-  });
-
-  const [priceLoading, setPriceLoading] = useState(false);
-  const [priceError, setPriceError] = useState<string | null>(null);
-
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
-  // --------- 1) Intervalos ocupados (en decimal) ----------
-  const occupiedIntervals = useMemo(() => {
-    if (!isCreating) return [];
-
-    const id_cancha = Number(formData.canchaId);
-    if (!id_cancha) return [];
-
-    const relevant = reservas.filter((r) => Number(r.id_cancha) === id_cancha);
-
-    return relevant
-      .map((r) => {
-        const s = hhmmToDecimal(r.horaInicio, startHour);
-        let e = hhmmToDecimal(r.horaFin, startHour);
-
-        const offset = Number((r as any).fin_dia_offset || 0);
-        if (offset === 1 || e <= s) e += 24;
-
-        return { start: s, end: e, id: r.id_reserva };
-      })
-      .filter((x) => Number.isFinite(x.start) && Number.isFinite(x.end));
-  }, [isCreating, reservas, formData.canchaId, startHour]);
-
-  // --------- 2) Horarios disponibles (cada 30’) + anti-30-colgados ----------
-  const availableTimes = useMemo(() => {
-    if (!isOpen || !isCreating) return [];
-
-    const durMin = Number(formData.duracion);
-    if (![60, 90, 120].includes(durMin)) return [];
-
-    const dayStartU = toUnits30(startHour);
-    const dayEndU = toUnits30(endHour);
-    const durU = Math.round(durMin / 30); // 60=2, 90=3, 120=4
-
-    const occupiedU: IntervalU[] = occupiedIntervals.map((o) => ({
-      startU: toUnits30(o.start),
-      endU: toUnits30(o.end),
-    }));
-
-    const freeBlocks = buildFreeBlocks(dayStartU, dayEndU, occupiedU);
-
-    const out: { value: string; label: string; decimal: number; finLabel: string }[] = [];
-
-    for (let startU = dayStartU; startU + durU <= dayEndU; startU += 1) {
-      const endU = startU + durU;
-
-      const block = freeBlocks.find((b) => startU >= b.startU && endU <= b.endU);
-      if (!block) continue;
-
-      if (!noDangling30(block, startU, endU)) continue;
-
-      const inicioHHMM = unitsToHHMM(startU);
-      const finHHMM = unitsToHHMM(endU);
-
-      out.push({
-        value: inicioHHMM,
-        label: inicioHHMM,
-        decimal: startU / 2,
-        finLabel: finHHMM,
-      });
-    }
-
-    return out;
-  }, [isOpen, isCreating, formData.duracion, startHour, endHour, occupiedIntervals]);
-
-  // --------- 3) Preselect al abrir create ----------
-  useEffect(() => {
-    if (!isOpen || !isCreating) return;
-
-    const defaultCancha = preSelectedCanchaId?.toString() || (canchas[0]?.id_cancha?.toString() ?? "");
-
-    setFormData((prev) => ({
-      ...prev,
-      canchaId: defaultCancha,
-      duracion: prev.duracion || 90,
-    }));
-
-    setPriceError(null);
-    setCreateError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, isCreating, preSelectedCanchaId]);
-
-  // asegurar hora válida cuando cambia availableTimes
-  useEffect(() => {
-    if (!isOpen || !isCreating) return;
-
-    if (availableTimes.length === 0) {
-      setFormData((prev) => ({ ...prev, horaInicio: "" }));
-      return;
-    }
-
-    const stillValid = formData.horaInicio && availableTimes.some((t) => t.value === formData.horaInicio);
-    if (stillValid) return;
-
-    if (preSelectedTime != null) {
-      const desired = preSelectedTime;
-      const found = availableTimes.find((t) => t.decimal >= desired) || availableTimes[0];
-      setFormData((prev) => ({ ...prev, horaInicio: found.value }));
-      return;
-    }
-
-    setFormData((prev) => ({ ...prev, horaInicio: availableTimes[0].value }));
-  }, [isOpen, isCreating, availableTimes, preSelectedTime, formData.horaInicio]);
-
-  // ESC
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
-
-  const canchaDisplay = useMemo(() => {
-    if (isCreating) {
-      const c = canchas.find((x) => x.id_cancha === Number(formData.canchaId));
-      return c?.nombre || "Sin Cancha";
-    }
-    return canchas.find((x) => x.id_cancha === reserva?.id_cancha)?.nombre || "Cancha";
-  }, [isCreating, canchas, formData.canchaId, reserva?.id_cancha]);
-
-  const fechaDisplay = selectedDate.toLocaleDateString("es-AR", {
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
-  });
-
-  const horaFin = useMemo(() => {
-    if (!formData.horaInicio) return "";
-    return addMinutesHHMM(formData.horaInicio, Number(formData.duracion || 0));
-  }, [formData.horaInicio, formData.duracion]);
-
-  // --- PRECIO AUTOMÁTICO ---
-  useEffect(() => {
-    async function calc() {
-      if (!isOpen || !isCreating) return;
-      setPriceError(null);
-
-      const id_cancha = Number(formData.canchaId);
-      const inicio = formData.horaInicio;
-      const dur = Number(formData.duracion);
-
-      if (!id_cancha || !inicio || ![60, 90, 120].includes(dur)) return;
-
-      const fin = addMinutesHHMM(inicio, dur);
-
-      setPriceLoading(true);
-      try {
-        const res = await fetch("/api/reservas/calcular-precio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id_club: idClub,
-            id_cancha,
-            fecha: fechaISO,
-            inicio,
-            fin,
-          }),
-          cache: "no-store",
-        });
-
-        const json = await res.json();
-        if (!res.ok || !json?.ok) throw new Error(json?.error || "No se pudo calcular el precio");
-
-        setFormData((prev) => ({
-          ...prev,
-          precio: Number(json.precio_total || 0),
-        }));
-      } catch (e: any) {
-        setFormData((prev) => ({ ...prev, precio: 0 }));
-        setPriceError(e?.message || "Error calculando precio");
-      } finally {
-        setPriceLoading(false);
-      }
-    }
-
-    calc();
-  }, [isOpen, isCreating, idClub, fechaISO, formData.canchaId, formData.horaInicio, formData.duracion]);
-
-  const getWhatsappLink = (phone: string) => `https://wa.me/${String(phone || "").replace(/\D/g, "")}`;
-
-  async function handleCreate() {
-    setCreateError(null);
-
-    const id_cancha = Number(formData.canchaId);
-    const inicio = formData.horaInicio;
-    const dur = Number(formData.duracion);
-    const fin = addMinutesHHMM(inicio, dur);
-
-    if (!formData.nombre.trim()) return setCreateError("Nombre es requerido");
-    if (!formData.telefono.trim()) return setCreateError("Teléfono es requerido");
-    if (!id_cancha) return setCreateError("Seleccioná una cancha");
-    if (!inicio) return setCreateError("Seleccioná un horario disponible");
-    if (![60, 90, 120].includes(dur)) return setCreateError("Duración inválida");
-    if (!Number.isFinite(Number(formData.precio)) || Number(formData.precio) <= 0) {
-      return setCreateError("No hay precio válido para ese horario");
-    }
-
-    const stillAvailable = availableTimes.some((t) => t.value === inicio);
-    if (!stillAvailable) return setCreateError("Ese horario ya no está disponible. Elegí otro.");
-
-    setCreateLoading(true);
-    try {
-      const res = await fetch("/api/admin/reservas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id_club: idClub,
-          id_cancha,
-          fecha: fechaISO,
-          inicio,
-          duracion_min: dur,
-          fin,
-          cliente_nombre: formData.nombre.trim(),
-          cliente_telefono: formData.telefono.trim(),
-          cliente_email: formData.email.trim() || null,
-          tipo_turno: formData.tipoTurno,
-          notas: formData.notas.trim() || null,
-        }),
-      });
-
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "No se pudo crear la reserva");
-
-      onCreated();
-    } catch (e: any) {
-      setCreateError(e?.message || "Error creando reserva");
-    } finally {
-      setCreateLoading(false);
-    }
-  }
-
-  // ✅ Cancelar (sin error TS)
-  async function handleCancelar() {
-    if (!reserva) return;
-    if (!confirm("¿Cancelar esta reserva?")) return;
-
-    try {
-      const res = await fetch(`/api/admin/reservas/${reserva.id_reserva}/cancelar`, { method: "POST" });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "No se pudo cancelar");
-      onCreated();
-    } catch (e: any) {
-      alert(e?.message || "Error cancelando");
-    }
-  }
-
-  // ✅ Abrir modal cobro con defaults
-  function openCobro() {
-    if (!reserva) return;
-    setCobroError(null);
-    setCobroMetodo("efectivo");
-    setCobroNota("Pagó en caja");
-
-    const sugerido =
-      Number(reserva.saldo_pendiente ?? 0) > 0
-        ? Number(reserva.saldo_pendiente)
-        : 0;
-
-    setCobroMonto(sugerido);
-    setShowCobro(true);
-  }
-
-  // ✅ Cobrar (sin error TS)
-  async function handleCobrar() {
-    if (!reserva) return;
-
-    const amount = Number(cobroMonto || 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setCobroError("Monto inválido");
-      return;
-    }
-
-    setCobroLoading(true);
-    setCobroError(null);
-    try {
-      const res = await fetch(`/api/admin/reservas/${reserva.id_reserva}/cobrar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount,
-          currency: "ARS",
-          provider: cobroMetodo, // "efectivo" | "transferencia"
-          status: "approved",
-          note: cobroNota?.trim() || null,
-        }),
-      });
-
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "No se pudo cobrar");
-
-      setShowCobro(false);
-      onCreated();
-    } catch (e: any) {
-      setCobroError(e?.message || "Error cobrando");
-    } finally {
-      setCobroLoading(false);
-    }
-  }
+// Ajustá esta importación a la ruta donde guardaste el hook
+import { 
+  useReservaSidebar, 
+  formatMoney, 
+  type ReservaSidebarProps 
+} from "../_components/hooks/useReservaSidebar"; 
+
+export default function ReservaSidebar(props: ReservaSidebarProps) {
+  // 1. Extraemos TODO el estado y la lógica del hook
+  const {
+    // State
+    formData,
+    setFormData,
+    showCobro,
+    setShowCobro,
+    cobroMonto,
+    setCobroMonto,
+    cobroMetodo,
+    setCobroMetodo,
+    cobroNota,
+    setCobroNota,
+    
+    // Loading/Errors
+    priceLoading,
+    priceError,
+    createLoading,
+    createError,
+    cobroLoading,
+    cobroError,
+
+    // Computed
+    availableTimes,
+    canchaDisplay,
+    fechaDisplay,
+    horaFinCalculada,
+
+    // Actions
+    handleCreate,
+    handleCancelar,
+    openCobro,
+    handleCobrar,
+    getWhatsappLink,
+  } = useReservaSidebar(props);
+
+  const { isOpen, onClose, isCreating, reserva, canchas } = props;
 
   if (!isOpen) return null;
 
   return (
     <>
+      {/* OVERLAY */}
       <div
         className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity duration-300"
         onClick={onClose}
       />
 
+      {/* SIDEBAR CONTAINER */}
       <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col">
-        {/* HEADER */}
+        
+        {/* === HEADER === */}
         <div className="px-6 py-4 bg-white border-b border-gray-100 flex justify-between items-start sticky top-0 z-10">
           <div>
             {isCreating ? (
@@ -541,14 +126,16 @@ export default function ReservaSidebar({
           </button>
         </div>
 
-        {/* CONTENIDO */}
+        {/* === CONTENIDO SCROLLABLE === */}
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-white">
           {isCreating ? (
             <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-              {/* JUGADOR */}
+              
+              {/* SECCIÓN JUGADOR */}
               <div className="space-y-3">
                 <h3 className="text-base font-semibold text-gray-800">Jugador</h3>
 
+                {/* Nombre */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">
                     Nombre <span className="text-red-500">*</span>
@@ -564,13 +151,13 @@ export default function ReservaSidebar({
                     <button
                       type="button"
                       className="absolute right-0 top-0 bottom-0 px-3 bg-green-600 rounded-r-lg text-white hover:bg-green-700"
-                      aria-label="Buscar jugador"
                     >
                       <User className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
+                {/* Teléfono */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">
                     Teléfono <span className="text-red-500">*</span>
@@ -589,13 +176,13 @@ export default function ReservaSidebar({
                     <button
                       type="button"
                       className="absolute right-0 top-0 bottom-0 px-3 bg-green-600 rounded-r-lg text-white hover:bg-green-700"
-                      aria-label="Llamar"
                     >
                       <Phone className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
+                {/* Email */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">Email (opcional)</label>
                   <div className="relative">
@@ -615,10 +202,11 @@ export default function ReservaSidebar({
 
               <hr className="border-gray-200" />
 
-              {/* TURNO */}
+              {/* SECCIÓN DATOS DEL TURNO */}
               <div className="space-y-4">
                 <h3 className="text-base font-semibold text-gray-800">Características del Turno</h3>
 
+                {/* Cancha */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">Cancha</label>
                   <select
@@ -635,10 +223,9 @@ export default function ReservaSidebar({
                   </select>
                 </div>
 
-                {/* Horarios disponibles */}
+                {/* Horarios */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">Hora inicio</label>
-
                   <select
                     className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none disabled:opacity-60"
                     value={formData.horaInicio}
@@ -646,8 +233,9 @@ export default function ReservaSidebar({
                     disabled={!formData.canchaId || availableTimes.length === 0}
                   >
                     {!formData.canchaId && <option value="">Elegí una cancha</option>}
-                    {formData.canchaId && availableTimes.length === 0 && <option value="">No hay horarios disponibles</option>}
-
+                    {formData.canchaId && availableTimes.length === 0 && (
+                      <option value="">No hay horarios disponibles</option>
+                    )}
                     {availableTimes.map((t) => (
                       <option key={t.value} value={t.value}>
                         {t.label} (fin {t.finLabel})
@@ -655,17 +243,17 @@ export default function ReservaSidebar({
                     ))}
                   </select>
 
-                  {horaFin && (
+                  {horaFinCalculada && (
                     <p className="text-xs text-slate-500 mt-1">
-                      Fin estimado: <span className="font-bold">{horaFin}</span>
+                      Fin estimado: <span className="font-bold">{horaFinCalculada}</span>
                     </p>
                   )}
-
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Solo horarios libres. Además, se evita dejar 30’ sueltos en los bordes del bloque libre.
+                    Solo horarios libres. Además, se evita dejar 30’ sueltos en los bordes.
                   </p>
                 </div>
 
+                {/* Fijo Checkbox */}
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -679,6 +267,7 @@ export default function ReservaSidebar({
                   </label>
                 </div>
 
+                {/* Tipo de Turno */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-2">Tipo de turno</label>
                   <div className="grid grid-cols-3 gap-2">
@@ -703,6 +292,7 @@ export default function ReservaSidebar({
                   </div>
                 </div>
 
+                {/* Duración */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">Duración</label>
                   <select
@@ -716,6 +306,7 @@ export default function ReservaSidebar({
                   </select>
                 </div>
 
+                {/* Precio */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">Precio</label>
                   <div className="flex items-center gap-2">
@@ -727,9 +318,12 @@ export default function ReservaSidebar({
                       <AlertCircle className="w-4 h-4" /> {priceError}
                     </div>
                   )}
-                  <p className="mt-1 text-[11px] text-slate-500">El precio se calcula automáticamente según el tarifario y reglas.</p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    El precio se calcula automáticamente según el tarifario y reglas.
+                  </p>
                 </div>
 
+                {/* Notas */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">Notas</label>
                   <textarea
@@ -740,6 +334,7 @@ export default function ReservaSidebar({
                   />
                 </div>
 
+                {/* Error Global */}
                 {createError && (
                   <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700">
                     {createError}
@@ -748,6 +343,7 @@ export default function ReservaSidebar({
               </div>
             </form>
           ) : reserva ? (
+            /* === VISTA DETALLE RESERVA === */
             <div className="space-y-6">
               <div className="relative">
                 <div className="flex justify-between items-center mb-3">
@@ -789,7 +385,9 @@ export default function ReservaSidebar({
                   <div className="flex items-center gap-2 text-sm text-green-700">
                     <CheckCircle2 className="w-4 h-4" /> No se presentó veces: 0
                   </div>
-                  <p className="text-xs text-green-600 mt-2 hover:underline cursor-pointer">Ver historial completo</p>
+                  <p className="text-xs text-green-600 mt-2 hover:underline cursor-pointer">
+                    Ver historial completo
+                  </p>
                 </div>
               </div>
 
@@ -823,7 +421,7 @@ export default function ReservaSidebar({
           ) : null}
         </div>
 
-        {/* FOOTER */}
+        {/* === FOOTER DE ACCIONES === */}
         <div className="p-4 bg-white border-t border-gray-200">
           {isCreating ? (
             <div className="flex gap-3">
@@ -837,7 +435,13 @@ export default function ReservaSidebar({
               <button
                 onClick={handleCreate}
                 className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
-                disabled={createLoading || priceLoading || !formData.precio || !formData.horaInicio || availableTimes.length === 0}
+                disabled={
+                  createLoading ||
+                  priceLoading ||
+                  !formData.precio ||
+                  !formData.horaInicio ||
+                  availableTimes.length === 0
+                }
               >
                 {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                 Crear
@@ -869,7 +473,7 @@ export default function ReservaSidebar({
         </div>
       </div>
 
-      {/* MODAL COBRO */}
+      {/* === MODAL DE COBRO === */}
       {showCobro && (
         <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-gray-100">
@@ -956,6 +560,7 @@ export default function ReservaSidebar({
   );
 }
 
+// Helper UI Component
 const LinkAction = ({ text }: { text: string }) => (
   <span className="text-green-600 hover:underline cursor-pointer text-xs font-medium">{text}</span>
 );
