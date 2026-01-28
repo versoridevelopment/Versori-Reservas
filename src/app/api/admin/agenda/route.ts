@@ -39,8 +39,8 @@ type ReservaRow = {
   cliente_telefono: string | null;
   cliente_email: string | null;
 
-  inicio_ts: string;
-  fin_ts: string;
+  inicio_ts: string; // timestamptz (debe estar bien generado)
+  fin_ts: string; // timestamptz
   created_at: string;
 };
 
@@ -71,15 +71,6 @@ function arDateISO(date: Date) {
 
 function arMidnightISO(dateISO: string) {
   return `${dateISO}T00:00:00-03:00`;
-}
-
-function addDaysISO(dateISO: string, add: number) {
-  const [y, m, d] = dateISO.split("-").map(Number);
-  const dt = new Date(y, m - 1, d + add);
-  const yy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
 }
 
 function toMin(hhmmss: string) {
@@ -114,31 +105,21 @@ function parseHost(req: Request) {
   return hostNoPort;
 }
 
-/**
- * Resuelve subdominio en:
- * - ferpadel.localhost
- * - ferpadel.127.0.0.1.nip.io (si usás)
- * - ferpadel.tudominio.com
- */
 function getSubdomain(hostNoPort: string) {
   const parts = hostNoPort.split(".").filter(Boolean);
   if (parts.length < 2) return null;
 
-  // localhost: ferpadel.localhost
   if (parts[parts.length - 1] === "localhost") {
     return parts.length >= 2 ? parts[0] : null;
   }
 
-  // dominio normal: ferpadel.versori.com
   if (parts.length >= 3) return parts[0];
-
   return null;
 }
 
 async function resolveClubIdBySubdomain(sub: string): Promise<number | null> {
   if (!sub || sub === "www") return null;
 
-  // ⚠️ Ajustá si tu columna no se llama "subdominio"
   const { data, error } = await supabaseAdmin
     .from("clubes")
     .select("id_club")
@@ -182,7 +163,7 @@ export async function GET(req: Request) {
     const sub = getSubdomain(hostNoPort);
     const clubFromSub = sub ? await resolveClubIdBySubdomain(sub) : null;
 
-    // 2) fallback a query param (dev / casos especiales)
+    // 2) fallback a query param
     const idClubFromQuery = Number(searchParams.get("id_club"));
     const id_club =
       clubFromSub ??
@@ -206,7 +187,7 @@ export async function GET(req: Request) {
     const perm = await assertAdminOrStaff({ id_club, userId });
     if (!perm.ok) return NextResponse.json({ error: perm.error }, { status: perm.status });
 
-    // Canchas (filtrado OK)
+    // Canchas
     const { data: canchasRaw, error: cErr } = await supabaseAdmin
       .from("canchas")
       .select("id_cancha,id_club,id_tipo_cancha,id_tarifario,nombre,descripcion,imagen_url,es_exterior,activa")
@@ -249,7 +230,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // Rango horario dinámico
+    // Rango horario dinámico (DIA OPERATIVO)
     const dow = weekday0Sun(fecha);
     let minStart = 8 * 60;
     let maxEnd = 26 * 60;
@@ -300,9 +281,13 @@ export async function GET(req: Request) {
     const startHour = minToHourDecimal(minStart);
     const endHour = minToHourDecimal(maxEnd);
 
-    // Reservas
-    const windowStart = new Date(arMidnightISO(fecha)).toISOString();
-    const windowEnd = new Date(arMidnightISO(addDaysISO(fecha, 2))).toISOString();
+    // ✅ Ventana CORRECTA: día operativo [fecha+minStart, fecha+maxEnd]
+    const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
+    const windowStartMs = dayStartMs + minStart * 60_000;
+    const windowEndMs = dayStartMs + maxEnd * 60_000;
+
+    const windowStartISO = new Date(windowStartMs).toISOString();
+    const windowEndISO = new Date(windowEndMs).toISOString();
 
     const { data: reservasRaw, error: resErr } = await supabaseAdmin
       .from("reservas")
@@ -332,14 +317,21 @@ export async function GET(req: Request) {
       )
       .eq("id_club", id_club)
       .in("estado", ["confirmada", "pendiente_pago"])
-      .lt("inicio_ts", windowEnd)
-      .gt("fin_ts", windowStart)
+      // overlap robusto
+      .lt("inicio_ts", windowEndISO)
+      .gt("fin_ts", windowStartISO)
       .order("inicio_ts", { ascending: true })
       .returns<ReservaRow[]>();
 
     if (resErr) return NextResponse.json({ error: `Error leyendo reservas: ${resErr.message}` }, { status: 500 });
 
-    const reservas = reservasRaw || [];
+    // ✅ HARDENING: filtrar por la MISMA ventana (por si hay datos raros)
+    const reservas = (reservasRaw || []).filter((r) => {
+      const s = new Date(r.inicio_ts).getTime();
+      const e = new Date(r.fin_ts).getTime();
+      if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return false;
+      return s < windowEndMs && windowStartMs < e;
+    });
 
     // Profiles
     const userIds = Array.from(new Set(reservas.map((r) => r.id_usuario).filter(Boolean) as string[]));
@@ -424,7 +416,7 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       ok: true,
       id_club,
       fecha,
@@ -433,8 +425,17 @@ export async function GET(req: Request) {
       canchas: canchasOut,
       reservas: reservasOut,
     });
+
+    // (Opcional) anti-cache para evitar resultados “pegados”
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    res.headers.set("Pragma", "no-cache");
+    res.headers.set("Expires", "0");
+
+    return res;
   } catch (e: any) {
     console.error("[GET /api/admin/agenda] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    const res = NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    return res;
   }
 }
