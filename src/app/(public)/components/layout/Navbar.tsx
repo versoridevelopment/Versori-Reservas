@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useSearchParams } from "next/navigation"; // 👈 IMPORTANTE
+import { usePathname, useSearchParams } from "next/navigation";
 import Container from "../ui/Container";
-import { supabase } from "../../../../lib/supabase/supabaseClient";
-import type { Session } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
+import type { User } from "@supabase/supabase-js";
 import type { Club } from "@/lib/ObetenerClubUtils/getCurrentClub";
-import { Menu, X, LogOut, User, Loader2 } from "lucide-react"; // 👈 Agregamos Loader2
+import {
+  Menu,
+  X,
+  LogOut,
+  User as UserIcon,
+  Loader2,
+  LayoutDashboard,
+} from "lucide-react";
 
 // 1. TIPOS
 interface NavbarProps {
@@ -16,49 +23,58 @@ interface NavbarProps {
   tieneQuincho: boolean;
   showNosotros: boolean;
   showProfesores: boolean;
+  initialUser: User | null;
 }
 
 type UserProfile = {
   nombre: string | null;
   apellido: string | null;
+  isAdmin?: boolean;
 };
-
-type MeOk = {
-  user: { id: string; email: string | null };
-};
-
-function isMeOk(x: any): x is MeOk {
-  return !!x?.user?.id;
-}
 
 // 2. COMPONENTE
-const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProps) => {
+const Navbar = ({
+  club,
+  tieneQuincho,
+  showNosotros,
+  showProfesores,
+  initialUser,
+}: NavbarProps) => {
+  // Cliente Supabase (Singleton para evitar warnings de múltiples instancias)
+  const [supabase] = useState(() =>
+    createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    ),
+  );
+
   const [hidden, setHidden] = useState<boolean>(false);
   const [lastScrollY, setLastScrollY] = useState<number>(0);
 
-  // Auth States
-  const [session, setSession] = useState<Session | null>(null);
+  // Estados
+  const [isMounted, setIsMounted] = useState(false); // 👈 CRÍTICO PARA HIDRATACIÓN
+  const [user, setUser] = useState<User | null>(initialUser);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [meLoading, setMeLoading] = useState<boolean>(true);
 
-  // Menu State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  // 🚀 ESTADO DE CARGA DE NAVEGACIÓN
   const [isNavigating, setIsNavigating] = useState(false);
+
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // --- Logic 1: Detectar fin de navegación ---
-  // Cuando cambia la ruta o los parámetros, apagamos el loader
+  // --- 1. Evitar Hidratación Incorrecta ---
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // --- Reset UI al navegar ---
   useEffect(() => {
     setIsNavigating(false);
-    setIsMobileMenuOpen(false); // Aseguramos cerrar menú al cambiar de página
+    setIsMobileMenuOpen(false);
   }, [pathname, searchParams]);
 
-  // --- Logic 2: Función para activar loader al hacer click ---
   const handleNavClick = (href?: string) => {
-    // Si estamos yendo a la misma página actual, no activamos el loader para evitar que se quede pegado
     if (href === pathname) return;
     setIsNavigating(true);
     setIsMobileMenuOpen(false);
@@ -75,113 +91,133 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
       }
       setLastScrollY(window.scrollY);
     };
-
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY, isMobileMenuOpen]);
 
-  // --- Auth Logic ---
-  useEffect(() => {
-    let alive = true;
-    async function loadMeAndProfile() {
+  // --- Fetch Profile Memoizado ---
+  const fetchProfile = useCallback(
+    async (userId: string) => {
       try {
-        setMeLoading(true);
-        const res = await fetch("/api/auth/me", { cache: "no-store" });
-        const json = await res.json().catch(() => null);
+        // 1. Perfil Básico
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("nombre, apellido")
+          .eq("id_usuario", userId)
+          .single();
 
-        if (!alive) return;
+        // 2. Rol Admin (id_club fijo en 1 o dinámico según tu lógica)
+        const { data: rolesData } = await supabase
+          .from("club_usuarios")
+          .select("roles(nombre)")
+          .eq("id_usuario", userId)
+          .eq("id_club", 1);
 
-        if (!res.ok || !isMeOk(json)) {
-          setSession(null);
-          setUserProfile(null);
-          return;
-        }
+        const isAdmin = rolesData?.some(
+          (r: any) => r.roles?.nombre === "admin",
+        );
 
-        setSession({
-          access_token: "",
-          refresh_token: "",
-          expires_in: 0,
-          expires_at: 0,
-          token_type: "bearer",
-          user: {
-            id: json.user.id,
-            email: json.user.email ?? undefined,
-            app_metadata: {},
-            user_metadata: {},
-            aud: "authenticated",
-            created_at: new Date().toISOString(),
-          } as any,
+        setUserProfile({
+          nombre: profile?.nombre ?? null,
+          apellido: profile?.apellido ?? null,
+          isAdmin,
         });
-
-        await fetchProfile(json.user.id);
-      } catch {
-        setSession(null);
-        setUserProfile(null);
+      } catch (err) {
+        console.error("Error fetching profile:", err);
       } finally {
-        if (alive) setMeLoading(false);
+        setMeLoading(false);
       }
+    },
+    [supabase],
+  );
+
+  // --- Auth Logic Robusta ---
+  useEffect(() => {
+    // A. Si el server ya nos dio usuario, cargar perfil
+    if (initialUser) {
+      setUser(initialUser);
+      fetchProfile(initialUser.id);
+    } else {
+      // B. Si no, verificar en cliente por si acaso (recuperación)
+      supabase.auth.getUser().then(({ data }) => {
+        if (data.user) {
+          setUser(data.user);
+          fetchProfile(data.user.id);
+        } else {
+          setMeLoading(false);
+        }
+      });
     }
-    loadMeAndProfile();
-    return () => { alive = false; };
-  }, []);
 
-  const fetchProfile = async (userId: string) => {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("nombre, apellido")
-      .eq("id_usuario", userId)
-      .single();
-    setUserProfile(profile ?? null);
-  };
+    // C. Escuchar cambios en tiempo real
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
 
+      if (currentUser) {
+        fetchProfile(currentUser.id);
+      } else {
+        setUserProfile(null);
+        setMeLoading(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [initialUser, supabase, fetchProfile]);
+
+  // --- Logout ---
   const handleLogout = async () => {
-    const isConfirmed = window.confirm("¿Estás seguro de que querés cerrar sesión?");
+    const isConfirmed = window.confirm(
+      "¿Estás seguro de que querés cerrar sesión?",
+    );
     if (isConfirmed) {
-      setIsNavigating(true); // Activar loader durante el logout
-      await supabase.auth.signOut();
-      window.location.reload();
+      setIsNavigating(true);
+      try {
+        await supabase.auth.signOut(); // Limpia localStorage
+        await fetch("/api/auth/signout", { method: "POST", cache: "no-store" }); // Limpia Cookies Server
+        window.location.href = "/"; // Hard Refresh
+      } catch (_) {
+        window.location.href = "/";
+      }
     }
   };
 
   const closeMenu = () => setIsMobileMenuOpen(false);
 
-  // Bloquear scroll body
-  useEffect(() => {
-    if (isMobileMenuOpen || isNavigating) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "unset";
-    }
-    return () => { document.body.style.overflow = "unset"; };
-  }, [isMobileMenuOpen, isNavigating]);
-
   const brandName = club?.nombre ?? "VERSORI";
   const brandDotColor = club?.color_primario ?? "#3b82f6";
 
+  // Si no está montado, renderizamos un header esqueleto o vacío para evitar error de hidratación
+  // Sin embargo, para SEO es mejor renderizar lo estático.
+  // La clave aquí es usar 'user' que ahora está sincronizado.
+
   return (
     <>
-      {/* 🌟 OVERLAY DE CARGA GLOBAL 🌟 */}
+      {/* OVERLAY DE CARGA */}
       {isNavigating && (
         <div className="fixed inset-0 z-[100] bg-neutral-950/80 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
-            <p className="text-white font-medium text-lg animate-pulse">Cargando...</p>
+            <p className="text-white font-medium text-lg animate-pulse">
+              Cargando...
+            </p>
           </div>
         </div>
       )}
 
       <header
-        className={`fixed top-0 left-0 w-full z-50 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800 transition-transform duration-300 ${
-          hidden ? "-translate-y-full" : "translate-y-0"
-        }`}
+        className={`fixed top-0 left-0 w-full z-50 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800 transition-transform duration-300 ${hidden ? "-translate-y-full" : "translate-y-0"}`}
       >
         <Container className="flex items-center justify-between py-4 h-20">
-          {/* --- 1. LOGO + NOMBRE --- */}
+          {/* LOGO */}
           <Link
             href="/"
             className="flex items-center gap-3 z-50 relative shrink-0 group"
-            onClick={() => handleNavClick('/')}
-            aria-label="Ir al inicio"
+            onClick={() => handleNavClick("/")}
           >
             {club?.logo_url && (
               <div className="relative w-8 h-8 md:w-10 md:h-10 transition-transform group-hover:scale-105">
@@ -195,190 +231,228 @@ const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProp
                 />
               </div>
             )}
-
             <span className="text-xl font-bold text-white tracking-wide">
               {brandName}
-              <span className="ml-0.5" style={{ color: brandDotColor }}>.</span>
+              <span className="ml-0.5" style={{ color: brandDotColor }}>
+                .
+              </span>
             </span>
           </Link>
 
-          {/* --- 2. DESKTOP NAV --- */}
+          {/* DESKTOP NAV */}
           <div className="hidden md:flex items-center gap-6">
             <nav className="flex items-center gap-6 text-sm font-medium text-neutral-300">
               {showProfesores && (
-                <Link 
-                  href="/profesores" 
-                  onClick={() => handleNavClick('/profesores')}
+                <Link
+                  href="/profesores"
+                  onClick={() => handleNavClick("/profesores")}
                   className="hover:text-white transition"
                 >
                   Profesores
                 </Link>
               )}
               {showNosotros && (
-                <Link 
-                  href="/nosotros" 
-                  onClick={() => handleNavClick('/nosotros')}
+                <Link
+                  href="/nosotros"
+                  onClick={() => handleNavClick("/nosotros")}
                   className="hover:text-white transition"
                 >
                   Nosotros
                 </Link>
               )}
               {tieneQuincho && (
-                <Link 
-                  href="/quinchos" 
-                  onClick={() => handleNavClick('/quinchos')}
+                <Link
+                  href="/quinchos"
+                  onClick={() => handleNavClick("/quinchos")}
                   className="hover:text-white transition"
                 >
                   Quincho
                 </Link>
               )}
-
               <Link
                 href="/reserva"
-                onClick={() => handleNavClick('/reserva')}
+                onClick={() => handleNavClick("/reserva")}
                 className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md transition shadow-lg shadow-blue-900/20 whitespace-nowrap"
               >
                 Hacé tu reserva
               </Link>
             </nav>
 
-            {/* User Section Desktop */}
-            {!session ? (
-              <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
-                <Link
-                  href="/login"
-                  onClick={() => handleNavClick('/login')}
-                  className="text-sm font-medium text-neutral-300 hover:text-white transition whitespace-nowrap"
-                >
-                  Iniciar sesión
-                </Link>
-                <Link
-                  href="/register"
-                  onClick={() => handleNavClick('/register')}
-                  className="text-sm font-medium text-white hover:text-blue-400 transition whitespace-nowrap"
-                >
-                  Registrarse
-                </Link>
-              </div>
-            ) : (
-              <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
-                <Link
-                  href="/perfil"
-                  onClick={() => handleNavClick('/perfil')}
-                  className="group flex flex-col items-end cursor-pointer"
-                  title="Ir a mi perfil"
-                >
-                  <span className="text-neutral-400 text-xs text-right whitespace-nowrap group-hover:text-white transition-colors font-medium">
-                    {meLoading
-                      ? "Cargando…"
-                      : userProfile
-                      ? `${userProfile.nombre ?? ""} ${userProfile.apellido ?? ""}`.trim() || "Mi Cuenta"
-                      : "Mi Cuenta"}
-                  </span>
-                </Link>
+            {/* SECCIÓN USUARIO (Protegida contra Hidratación) */}
+            {/* Solo mostramos estado de auth cuando el cliente está montado para asegurar coincidencia */}
+            {isMounted ? (
+              !user ? (
+                <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
+                  <Link
+                    href="/login"
+                    onClick={() => handleNavClick("/login")}
+                    className="text-sm font-medium text-neutral-300 hover:text-white transition whitespace-nowrap"
+                  >
+                    Iniciar sesión
+                  </Link>
+                  <Link
+                    href="/register"
+                    onClick={() => handleNavClick("/register")}
+                    className="text-sm font-medium text-white hover:text-blue-400 transition whitespace-nowrap"
+                  >
+                    Registrarse
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
+                  {/* BOTÓN ADMIN AMARILLO */}
+                  {userProfile?.isAdmin && (
+                    <Link
+                      href="/admin/"
+                      onClick={() => handleNavClick("/admin/")}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-black font-bold rounded-lg transition-colors shadow-[0_0_10px_rgba(250,204,21,0.3)] animate-in fade-in zoom-in duration-300"
+                      title="Ir al Panel de Administración"
+                    >
+                      <LayoutDashboard size={16} strokeWidth={2.5} />
+                      <span className="text-xs uppercase tracking-wide">
+                        Panel
+                      </span>
+                    </Link>
+                  )}
 
-                <button
-                  onClick={handleLogout}
-                  className="text-red-400 hover:text-red-300 transition p-1 hover:bg-white/5 rounded-full"
-                  title="Cerrar Sesión"
-                >
-                  <LogOut size={18} />
-                </button>
-              </div>
+                  <Link
+                    href="/perfil"
+                    onClick={() => handleNavClick("/perfil")}
+                    className="group flex flex-col items-end cursor-pointer"
+                    title="Ir a mi perfil"
+                  >
+                    <span className="text-neutral-200 text-sm font-semibold whitespace-nowrap group-hover:text-white transition-colors">
+                      {userProfile?.nombre
+                        ? `Hola, ${userProfile.nombre}`
+                        : meLoading
+                          ? "..."
+                          : "Mi Cuenta"}
+                    </span>
+                    <span className="text-[10px] text-neutral-500 uppercase tracking-wider font-bold">
+                      Mi Cuenta
+                    </span>
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="text-red-400 hover:text-red-300 transition p-1.5 hover:bg-white/5 rounded-full"
+                    title="Cerrar Sesión"
+                  >
+                    <LogOut size={18} />
+                  </button>
+                </div>
+              )
+            ) : (
+              // Placeholder invisible durante hidratación para mantener estructura
+              <div className="w-[120px] h-8"></div>
             )}
           </div>
 
-          {/* --- 3. MOBILE HAMBURGER --- */}
           <button
             className="md:hidden text-white z-50 relative p-2 focus:outline-none"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-label="Toggle menu"
           >
             {isMobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
           </button>
         </Container>
       </header>
 
-      {/* --- 4. MOBILE MENU OVERLAY --- */}
+      {/* MOBILE MENU */}
       <div
-        className={`fixed inset-0 bg-[#0b0d12] z-40 flex flex-col justify-center items-center gap-8 transition-opacity duration-300 ease-in-out md:hidden ${
-          isMobileMenuOpen ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
-        }`}
-        onClick={closeMenu}
+        className={`fixed inset-0 bg-[#0b0d12] z-40 flex flex-col justify-center items-center gap-8 transition-opacity duration-300 ease-in-out md:hidden ${isMobileMenuOpen ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"}`}
       >
-        <div className="flex flex-col items-center gap-8 w-full" onClick={(e) => e.stopPropagation()}>
-          {/* Mobile Links */}
+        <div className="flex flex-col items-center gap-8 w-full">
           <div className="flex flex-col items-center gap-8 text-2xl font-bold text-neutral-300">
             {showProfesores && (
-              <Link href="/profesores" onClick={() => handleNavClick('/profesores')} className="hover:text-white transition">
+              <Link
+                href="/profesores"
+                onClick={() => handleNavClick("/profesores")}
+                className="hover:text-white transition"
+              >
                 Profesores
               </Link>
             )}
             {showNosotros && (
-              <Link href="/nosotros" onClick={() => handleNavClick('/nosotros')} className="hover:text-white transition">
+              <Link
+                href="/nosotros"
+                onClick={() => handleNavClick("/nosotros")}
+                className="hover:text-white transition"
+              >
                 Nosotros
               </Link>
             )}
             {tieneQuincho && (
-              <Link href="/quinchos" onClick={() => handleNavClick('/quinchos')} className="hover:text-white transition">
+              <Link
+                href="/quinchos"
+                onClick={() => handleNavClick("/quinchos")}
+                className="hover:text-white transition"
+              >
                 Quincho
               </Link>
             )}
-
-            <div className="h-px w-20 bg-neutral-800 my-2"></div>
-
             <Link
               href="/reserva"
-              onClick={() => handleNavClick('/reserva')}
+              onClick={() => handleNavClick("/reserva")}
               className="text-lg font-bold text-white bg-blue-600 px-8 py-4 rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-transform"
             >
               Hacé tu reserva
             </Link>
           </div>
 
-          {/* Mobile Auth */}
           <div className="w-full px-10 mt-12">
-            {!session ? (
-              <div className="flex flex-col gap-6 text-center border-t border-neutral-800 pt-8">
-                <Link href="/login" onClick={() => handleNavClick('/login')} className="text-xl text-neutral-300 hover:text-white">
-                  Iniciar sesión
-                </Link>
-                <Link
-                  href="/register"
-                  onClick={() => handleNavClick('/register')}
-                  className="text-xl text-blue-400 hover:text-blue-300 font-bold"
-                >
-                  Crear cuenta
-                </Link>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-6 items-center border-t border-neutral-800 pt-8">
-                <Link
-                  href="/perfil"
-                  onClick={() => handleNavClick('/perfil')}
-                  className="flex items-center gap-3 text-neutral-300 text-lg hover:text-white transition-colors"
-                >
-                  <User size={24} />
-                  <span>
-                    {meLoading
-                      ? "Cargando…"
-                      : userProfile
-                      ? `${userProfile.nombre ?? ""} ${userProfile.apellido ?? ""}`.trim() || "Mi Cuenta"
-                      : "Mi Cuenta"}
-                  </span>
-                </Link>
+            {isMounted &&
+              (!user ? (
+                <div className="flex flex-col gap-6 text-center border-t border-neutral-800 pt-8">
+                  <Link
+                    href="/login"
+                    onClick={() => handleNavClick("/login")}
+                    className="text-xl text-neutral-300 hover:text-white"
+                  >
+                    Iniciar sesión
+                  </Link>
+                  <Link
+                    href="/register"
+                    onClick={() => handleNavClick("/register")}
+                    className="text-xl text-blue-400 hover:text-blue-300 font-bold"
+                  >
+                    Crear cuenta
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-6 items-center border-t border-neutral-800 pt-8">
+                  <p className="text-white text-xl font-bold">
+                    {userProfile?.nombre
+                      ? `Hola, ${userProfile.nombre}`
+                      : "Bienvenido"}
+                  </p>
 
-                <button
-                  onClick={() => {
-                    handleLogout();
-                    closeMenu();
-                  }}
-                  className="text-red-400 flex items-center gap-2 font-medium text-lg bg-red-950/30 px-6 py-2 rounded-full"
-                >
-                  <LogOut size={20} /> Cerrar Sesión
-                </button>
-              </div>
-            )}
+                  {userProfile?.isAdmin && (
+                    <Link
+                      href="/admin/"
+                      onClick={() => handleNavClick("/admin/")}
+                      className="flex items-center gap-2 px-6 py-3 bg-yellow-400 text-black font-bold rounded-xl shadow-lg"
+                    >
+                      <LayoutDashboard size={20} /> <span>PANEL ADMIN</span>
+                    </Link>
+                  )}
+
+                  <Link
+                    href="/perfil"
+                    onClick={() => handleNavClick("/perfil")}
+                    className="flex items-center gap-3 text-neutral-300 text-lg hover:text-white"
+                  >
+                    <UserIcon size={24} /> <span>Mi Perfil</span>
+                  </Link>
+                  <button
+                    onClick={() => {
+                      handleLogout();
+                      closeMenu();
+                    }}
+                    className="text-red-400 flex items-center gap-2 font-medium text-lg bg-red-950/30 px-6 py-2 rounded-full mt-4"
+                  >
+                    <LogOut size={20} /> Cerrar Sesión
+                  </button>
+                </div>
+              ))}
           </div>
         </div>
       </div>

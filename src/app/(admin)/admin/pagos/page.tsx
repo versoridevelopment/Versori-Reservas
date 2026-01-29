@@ -379,7 +379,7 @@ export default function PagosPage() {
     .reduce((acc, curr) => acc + curr.monto, 0);
   const countApproved = pagos.filter((p) => p.estado === "approved").length;
   const countPending = pagos.filter(
-    (p) => p.estado === "pending" || p.estado === "in_process"
+    (p) => p.estado === "pending" || p.estado === "in_process",
   ).length;
 
   const handleCopyId = (id: string) => navigator.clipboard.writeText(id);
