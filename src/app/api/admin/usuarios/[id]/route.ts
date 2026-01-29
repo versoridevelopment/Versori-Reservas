@@ -7,10 +7,10 @@ type RouteParams = { id: string };
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<RouteParams> }
+  { params }: { params: Promise<RouteParams> },
 ) {
   try {
-    const { id } = await params; // ✅ Next 15: params es Promise
+    const { id } = await params;
 
     const searchParams = req.nextUrl.searchParams;
     const clubIdStr = searchParams.get("clubId");
@@ -20,12 +20,6 @@ export async function GET(
     }
 
     const clubId = Number(clubIdStr);
-    if (Number.isNaN(clubId)) {
-      return NextResponse.json(
-        { error: "clubId debe ser numérico" },
-        { status: 400 }
-      );
-    }
 
     // 1) Obtener Perfil Base
     const { data: profile, error: profileError } = await supabaseAdmin
@@ -37,29 +31,21 @@ export async function GET(
     if (profileError || !profile) {
       return NextResponse.json(
         { error: "Usuario no encontrado" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     // 2) Obtener Roles en este Club
-    const { data: rolesData, error: rolesError } = await supabaseAdmin
+    const { data: rolesData } = await supabaseAdmin
       .from("club_usuarios")
-      .select(
-        `
-        id_rol,
-        roles ( nombre )
-      `
-      )
+      .select(`roles ( nombre )`)
       .eq("id_usuario", id)
       .eq("id_club", clubId);
 
-    if (rolesError) {
-      console.error("Error fetching roles:", rolesError);
-    }
+    const roles =
+      rolesData?.map((r: any) => r.roles?.nombre).filter(Boolean) || [];
 
-    const roles = rolesData?.map((r: any) => r.roles?.nombre).filter(Boolean) || [];
-
-    // 3) Obtener Historial de Reservas
+    // 3) Obtener Historial de Reservas COMPLETO (Incluso canceladas)
     const { data: reservas, error: reservasError } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -70,6 +56,7 @@ export async function GET(
         fin,
         precio_total,
         estado,
+        created_at,
         canchas (
           nombre,
           tipos_cancha (
@@ -77,15 +64,11 @@ export async function GET(
             deportes ( nombre )
           )
         )
-      `
+      `,
       )
       .eq("id_usuario", id)
       .eq("id_club", clubId)
       .order("fecha", { ascending: false });
-
-    if (reservasError) {
-      console.error("Error fetching reservas:", reservasError);
-    }
 
     return NextResponse.json({
       ...profile,
@@ -96,7 +79,7 @@ export async function GET(
     console.error("Error en GET usuario:", error);
     return NextResponse.json(
       { error: error?.message || "Error interno" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
