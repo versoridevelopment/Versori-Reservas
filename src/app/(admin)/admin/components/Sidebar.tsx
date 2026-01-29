@@ -27,10 +27,10 @@ import {
   User as UserIcon,
 } from "lucide-react";
 
-// Tipos permitidos en la UI
+// Tipos
 type UserRole = "admin" | "cajero" | "staff" | "profe" | "cliente";
 
-// MAPA DE ROLES (Basado en tu base de datos)
+// MAPA DE ROLES (ID -> Texto)
 const ROLE_MAP: Record<number, UserRole> = {
   1: "admin",
   2: "staff",
@@ -67,8 +67,6 @@ export function Sidebar() {
   });
 
   const pathname = usePathname();
-
-  // Estados UI
   const [isCanchasOpen, setIsCanchasOpen] = useState(true);
   const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -83,23 +81,18 @@ export function Sidebar() {
       .toUpperCase();
   };
 
-  // --- CARGAR DATOS ---
   useEffect(() => {
     const loadUserAndRole = async () => {
-      // 1. Obtener Usuario
       const {
         data: { user },
       } = await supabase.auth.getUser();
-
       if (!user) return;
 
-      // 2. Determinar Club ID
+      // 1. Determinar ID Club (Default FerPadel=9 en dev)
       let currentClubId = 9;
-
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
         const subdomain = hostname.split(".")[0];
-
         if (subdomain && subdomain !== "localhost" && subdomain !== "www") {
           const { data: clubData } = await supabase
             .from("clubes")
@@ -110,53 +103,32 @@ export function Sidebar() {
         }
       }
 
-      // 3. Obtener Perfil
+      // 2. Obtener Perfil
       const { data: profile } = await supabase
         .from("profiles")
         .select("nombre, apellido")
         .eq("id_usuario", user.id)
         .single();
 
-      // 4. Obtener Roles (CORRECCIÓN: Traemos TODOS los registros, no solo uno)
-      // Esto soluciona el error PGRST116 (3 rows returned)
-      const { data: memberships, error: memError } = await supabase
+      // 3. Obtener Roles (Traemos ARRAY para evitar error PGRST116)
+      const { data: memberships } = await supabase
         .from("club_usuarios")
         .select("id_rol")
         .eq("id_usuario", user.id)
         .eq("id_club", currentClubId);
 
-      if (memError) console.error("Error membresía:", memError);
-
-      // 5. Lógica de Prioridad de Roles
-      // Si el usuario tiene multiples roles (ej: Cliente + Admin), priorizamos Admin.
-      let roleKey: UserRole = "cajero"; // Fallback seguro
+      // 4. Lógica de Prioridad de Roles
+      let roleKey: UserRole = "cajero";
 
       if (memberships && memberships.length > 0) {
-        // Extraemos todos los IDs de rol que tenga el usuario
         const roleIds = memberships.map((m) => m.id_rol);
-
-        if (roleIds.includes(1)) {
-          roleKey = "admin";
-        } else if (roleIds.includes(5)) {
-          roleKey = "cajero";
-        } else if (roleIds.includes(2)) {
-          roleKey = "staff";
-        } else {
-          // Cualquier otro rol (cliente, profe)
-          const firstId = roleIds[0];
-          roleKey = ROLE_MAP[firstId] || "cliente";
-        }
-
-        console.log(
-          `✅ Roles encontrados: [${roleIds.join(", ")}] -> Rol seleccionado: ${roleKey}`,
-        );
-      } else {
-        console.warn(
-          "⚠️ No se encontraron roles para este usuario en este club.",
-        );
+        // Prioridad: Admin > Staff/Cajero > Otros
+        if (roleIds.includes(1)) roleKey = "admin";
+        else if (roleIds.includes(2)) roleKey = "staff";
+        else if (roleIds.includes(5)) roleKey = "cajero";
+        else roleKey = ROLE_MAP[roleIds[0]] || "cliente";
       }
 
-      // 6. Actualizar Estado
       setUserData({
         nombreCompleto: profile
           ? `${profile.nombre} ${profile.apellido}`
@@ -171,34 +143,19 @@ export function Sidebar() {
     loadUserAndRole();
   }, [supabase]);
 
-  // --- LOGOUT ---
   const handleLogout = async () => {
-    const isConfirmed = window.confirm("¿Cerrar sesión del panel?");
-    if (isConfirmed) {
-      try {
-        await supabase.auth.signOut();
-        await fetch("/api/auth/signout", { method: "POST", cache: "no-store" });
-        window.location.href = "/";
-      } catch (_) {
-        window.location.href = "/";
-      }
+    if (window.confirm("¿Cerrar sesión del panel?")) {
+      await supabase.auth.signOut();
+      await fetch("/api/auth/signout", { method: "POST", cache: "no-store" });
+      window.location.href = "/";
     }
   };
 
   const closeMobileMenu = () => setIsMobileOpen(false);
-
-  useEffect(() => {
-    if (isMobileOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "unset";
-    }
-  }, [isMobileOpen]);
-
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
 
-  // --- CONFIGURACIÓN MENÚ ---
+  // CONFIG MENU
   const mainLinks: MenuLink[] = [
     {
       key: "dashboard",
@@ -305,18 +262,8 @@ export function Sidebar() {
       )}
 
       <aside
-        className={`
-          fixed md:sticky top-0 left-0 
-          h-[100dvh] w-64 
-          bg-[#0d1b2a] text-white 
-          flex flex-col justify-between 
-          shadow-2xl z-40 
-          overflow-hidden 
-          transition-transform duration-300 ease-in-out 
-          ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
-        `}
+        className={`fixed md:sticky top-0 left-0 h-[100dvh] w-64 bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl z-40 overflow-hidden transition-transform duration-300 ease-in-out ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
       >
-        {/* HEADER PERFIL */}
         <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
           <Link
             href="/admin/usuario"
@@ -356,7 +303,6 @@ export function Sidebar() {
           </span>
         </div>
 
-        {/* NAV */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
           {visibleMainLinks.map((link) => (
             <Link

@@ -17,7 +17,6 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 
-// 1. TIPOS
 interface NavbarProps {
   club: Club | null;
   tieneQuincho: boolean;
@@ -32,7 +31,6 @@ type UserProfile = {
   isAdmin?: boolean;
 };
 
-// 2. COMPONENTE
 const Navbar = ({
   club,
   tieneQuincho,
@@ -40,7 +38,6 @@ const Navbar = ({
   showProfesores,
   initialUser,
 }: NavbarProps) => {
-  // Singleton para cliente Supabase (Evita "Multiple GoTrueClient instances")
   const [supabase] = useState(() =>
     createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,11 +48,12 @@ const Navbar = ({
   const [hidden, setHidden] = useState<boolean>(false);
   const [lastScrollY, setLastScrollY] = useState<number>(0);
 
-  // Estados
+  // CONTROL DE HIDRATACIÓN
   const [isMounted, setIsMounted] = useState(false);
+
   const [user, setUser] = useState<User | null>(initialUser);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [meLoading, setMeLoading] = useState<boolean>(!initialUser); // Optimización de carga
+  const [meLoading, setMeLoading] = useState<boolean>(!initialUser);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -63,12 +61,11 @@ const Navbar = ({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // --- 1. Control de Montaje (Solución Hydration Mismatch) ---
+  // 1. Evitar Mismatch
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
-  // --- Reset UI al navegar ---
   useEffect(() => {
     setIsNavigating(false);
     setIsMobileMenuOpen(false);
@@ -80,7 +77,6 @@ const Navbar = ({
     setIsMobileMenuOpen(false);
   };
 
-  // --- Scroll Logic ---
   useEffect(() => {
     const handleScroll = () => {
       if (isMobileMenuOpen) return;
@@ -95,7 +91,6 @@ const Navbar = ({
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY, isMobileMenuOpen]);
 
-  // --- Fetch Profile ---
   const fetchProfile = useCallback(
     async (userId: string) => {
       try {
@@ -105,15 +100,19 @@ const Navbar = ({
           .eq("id_usuario", userId)
           .single();
 
+        // Ajusta el ID Club según tu lógica real (aquí ejemplo id=1)
         const { data: rolesData } = await supabase
           .from("club_usuarios")
           .select("roles(nombre)")
           .eq("id_usuario", userId)
           .eq("id_club", 1);
 
-        const isAdmin = rolesData?.some(
-          (r: any) => r.roles?.nombre === "admin",
-        );
+        // Manejo seguro de array de roles
+        let isAdmin = false;
+        if (rolesData && Array.isArray(rolesData)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          isAdmin = rolesData.some((r: any) => r.roles?.nombre === "admin");
+        }
 
         setUserProfile({
           nombre: profile?.nombre ?? null,
@@ -129,11 +128,8 @@ const Navbar = ({
     [supabase],
   );
 
-  // --- Auth Logic ---
   useEffect(() => {
-    // A. Prioridad: Datos del Server
     if (initialUser) {
-      // Solo seteamos si difiere para evitar renders innecesarios
       if (user?.id !== initialUser.id) {
         setUser(initialUser);
         fetchProfile(initialUser.id);
@@ -141,7 +137,6 @@ const Navbar = ({
         fetchProfile(initialUser.id);
       }
     } else {
-      // B. Verificación Cliente (Fallback)
       supabase.auth.getUser().then(({ data }) => {
         if (data.user) {
           setUser(data.user);
@@ -152,12 +147,10 @@ const Navbar = ({
       });
     }
 
-    // C. Listener tiempo real
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       const currentUser = session?.user ?? null;
-      // Solo actualizamos si el usuario cambió realmente
       setUser((prev) => (prev?.id === currentUser?.id ? prev : currentUser));
 
       if (currentUser) {
@@ -173,7 +166,6 @@ const Navbar = ({
     };
   }, [initialUser, supabase, fetchProfile]);
 
-  // --- Logout ---
   const handleLogout = async () => {
     const isConfirmed = window.confirm(
       "¿Estás seguro de que querés cerrar sesión?",
@@ -191,13 +183,11 @@ const Navbar = ({
   };
 
   const closeMenu = () => setIsMobileMenuOpen(false);
-
   const brandName = club?.nombre ?? "VERSORI";
   const brandDotColor = club?.color_primario ?? "#3b82f6";
 
   return (
     <>
-      {/* OVERLAY DE CARGA */}
       {isNavigating && (
         <div className="fixed inset-0 z-[100] bg-neutral-950/80 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300">
           <div className="flex flex-col items-center gap-4">
@@ -213,7 +203,6 @@ const Navbar = ({
         className={`fixed top-0 left-0 w-full z-50 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800 transition-transform duration-300 ${hidden ? "-translate-y-full" : "translate-y-0"}`}
       >
         <Container className="flex items-center justify-between py-4 h-20">
-          {/* LOGO */}
           <Link
             href="/"
             className="flex items-center gap-3 z-50 relative shrink-0 group"
@@ -226,7 +215,8 @@ const Navbar = ({
                   alt={`${brandName} Logo`}
                   fill
                   className="object-contain"
-                  sizes="(max-width: 768px) 40px, 60px" // CORREGIDO: Valor consistente
+                  // FIX: Tamaños exactos para evitar warning y mismatch
+                  sizes="(max-width: 768px) 32px, 40px"
                   priority
                 />
               </div>
@@ -239,7 +229,6 @@ const Navbar = ({
             </span>
           </Link>
 
-          {/* DESKTOP NAV */}
           <div className="hidden md:flex items-center gap-6">
             <nav className="flex items-center gap-6 text-sm font-medium text-neutral-300">
               {showProfesores && (
@@ -278,7 +267,7 @@ const Navbar = ({
               </Link>
             </nav>
 
-            {/* SECCIÓN USUARIO DESKTOP */}
+            {/* SECCIÓN USUARIO (Protegida con isMounted para evitar Hydration Error) */}
             {isMounted ? (
               !user ? (
                 <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
@@ -299,7 +288,6 @@ const Navbar = ({
                 </div>
               ) : (
                 <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
-                  {/* BOTÓN ADMIN AMARILLO */}
                   {userProfile?.isAdmin && (
                     <Link
                       href="/admin/"
@@ -341,7 +329,7 @@ const Navbar = ({
                 </div>
               )
             ) : (
-              // Placeholder del mismo tamaño exacto para evitar salto visual e hidratación fallida
+              // FIX: Placeholder EXACTAMENTE del mismo ancho que el estado inicial para evitar salto
               <div className="w-[140px] h-8"></div>
             )}
           </div>
@@ -355,7 +343,6 @@ const Navbar = ({
         </Container>
       </header>
 
-      {/* MOBILE MENU */}
       <div
         className={`fixed inset-0 bg-[#0b0d12] z-40 flex flex-col justify-center items-center gap-8 transition-opacity duration-300 ease-in-out md:hidden ${isMobileMenuOpen ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"}`}
       >
