@@ -3,7 +3,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation"; // Para resaltar link activo
+import { usePathname } from "next/navigation";
+import { createBrowserClient } from "@supabase/ssr";
 import {
   LayoutDashboard,
   Calendar,
@@ -14,7 +15,7 @@ import {
   ChevronRight,
   LogOut,
   Building2,
-  Users2, // Icono Profesores
+  Users2,
   Trophy,
   Home,
   Tag,
@@ -22,44 +23,126 @@ import {
   X,
   BookOpen,
   LayoutGrid,
+  ExternalLink,
+  User as UserIcon,
 } from "lucide-react";
 
-// Definimos los roles posibles (esto debería coincidir con tu BD/Auth)
+// Tipos
 type UserRole = "admin" | "cajero";
 
-// Tipo para un enlace del menú
 type MenuLink = {
   key: string;
   href: string;
   label: string;
   icon: React.ReactNode;
-  allowedRoles: UserRole[]; // Quién puede ver esto
+  allowedRoles: UserRole[];
 };
 
 export function Sidebar() {
-  // --- ESTADO DEL USUARIO ---
-  // Aquí simulo el rol. En tu app real, esto vendría de tu contexto de Auth o Supabase.
-  // Cambia "admin" por "cajero" para probar la vista restringida.
-  const [userRole, setUserRole] = useState<UserRole>("admin");
+  const [supabase] = useState(() =>
+    createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    ),
+  );
 
-  const user = {
-    nombreCompleto: "Juan Cruz",
-    rol: userRole === "admin" ? "Administrador" : "Cajero",
-    fotoPerfil: "/placeholder-avatar.png",
-  };
+  const [userRole, setUserRole] = useState<UserRole>("admin");
+  const [userData, setUserData] = useState<{
+    nombreCompleto: string;
+    rol: string;
+    fotoPerfil: string | null; // Ahora permite null
+  }>({
+    nombreCompleto: "Cargando...",
+    rol: "...",
+    fotoPerfil: null, // Inicializamos en null para mostrar fallback
+  });
 
   const pathname = usePathname();
 
-  // --- ESTADOS DE UI ---
+  // Estados UI
   const [isCanchasOpen, setIsCanchasOpen] = useState(true);
   const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // ==========================================
-  // CONFIGURACIÓN DEL MENÚ (Centralizada)
-  // ==========================================
+  // Helper para iniciales
+  const getInitials = (name: string) => {
+    if (!name || name === "Cargando...") return "";
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase();
+  };
 
-  // 1. GRUPO PRINCIPAL
+  // --- CARGAR DATOS USUARIO REAL ---
+  useEffect(() => {
+    const loadUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        // 1. Obtener Perfil
+        const { data: profile } = await supabase
+          .from("profiles") // Asegurate que tu tabla se llama 'profiles' o 'perfiles' según tu DB
+          .select("nombre, apellido")
+          .eq("id_usuario", user.id)
+          .single();
+
+        // 2. Obtener Rol
+        const { data: rolesData } = await supabase
+          .from("club_usuarios")
+          .select("roles(nombre)")
+          .eq("id_usuario", user.id)
+          .eq("id_club", 1) // Ajustar ID Club
+          .single();
+
+        const roleName = rolesData?.roles?.nombre || "cajero";
+
+        setUserData({
+          nombreCompleto: profile
+            ? `${profile.nombre} ${profile.apellido}`
+            : "Usuario",
+          rol: roleName === "admin" ? "Administrador" : "Staff",
+          fotoPerfil: null, // Aquí podrías poner la URL si tuvieras campo foto
+        });
+
+        setUserRole(roleName as UserRole);
+      }
+    };
+    loadUser();
+  }, [supabase]);
+
+  // --- LOGOUT REAL ---
+  const handleLogout = async () => {
+    const isConfirmed = window.confirm("¿Cerrar sesión del panel?");
+    if (isConfirmed) {
+      try {
+        await supabase.auth.signOut();
+        await fetch("/api/auth/signout", { method: "POST", cache: "no-store" });
+        window.location.href = "/";
+      } catch (error) {
+        window.location.href = "/";
+      }
+    }
+  };
+
+  const closeMobileMenu = () => setIsMobileOpen(false);
+
+  // Bloquear scroll en móvil
+  useEffect(() => {
+    if (isMobileOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
+  }, [isMobileOpen]);
+
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(`${href}/`);
+
+  // --- CONFIGURACIÓN MENÚ ---
   const mainLinks: MenuLink[] = [
     {
       key: "dashboard",
@@ -91,30 +174,28 @@ export function Sidebar() {
     },
   ];
 
-  // 2. GRUPO GESTIÓN (Canchas & Tarifas)
   const gestionLinks: MenuLink[] = [
     {
       key: "mis-canchas",
       href: "/admin/personalizacion/canchas",
       label: "Mis Canchas",
       icon: <Trophy size={14} />,
-      allowedRoles: ["admin"], // Solo admin configura canchas
+      allowedRoles: ["admin"],
     },
     {
       key: "tarifarios",
       href: "/admin/personalizacion/tarifarios",
       label: "Tarifarios",
       icon: <Tag size={14} />,
-      allowedRoles: ["admin"], // Solo admin toca precios
+      allowedRoles: ["admin"],
     },
   ];
 
-  // 3. GRUPO PERSONALIZACIÓN WEB
   const personalizacionLinks: MenuLink[] = [
     {
       key: "config-club",
       href: "/admin/personalizacion/club",
-      label: "Config General / Home",
+      label: "Config General",
       icon: <Building2 size={14} />,
       allowedRoles: ["admin"],
     },
@@ -141,49 +222,27 @@ export function Sidebar() {
     },
   ];
 
-  // --- FILTRADO DE ENLACES SEGÚN ROL ---
-  const visibleMainLinks = mainLinks.filter((link) =>
-    link.allowedRoles.includes(userRole),
+  const visibleMainLinks = mainLinks.filter((l) =>
+    l.allowedRoles.includes(userRole),
   );
-  const visibleGestionLinks = gestionLinks.filter((link) =>
-    link.allowedRoles.includes(userRole),
+  const visibleGestionLinks = gestionLinks.filter((l) =>
+    l.allowedRoles.includes(userRole),
   );
-  const visiblePersonalizacionLinks = personalizacionLinks.filter((link) =>
-    link.allowedRoles.includes(userRole),
+  const visiblePersonalizacionLinks = personalizacionLinks.filter((l) =>
+    l.allowedRoles.includes(userRole),
   );
-
-  // --- LOGICA UI ---
-  const handleLogout = () => {
-    alert("Cerrando sesión...");
-    // Aquí iría tu lógica real de logout (supabase.auth.signOut())
-  };
-
-  const closeMobileMenu = () => setIsMobileOpen(false);
-
-  useEffect(() => {
-    if (isMobileOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "unset";
-    }
-  }, [isMobileOpen]);
-
-  // Helper para saber si un link está activo
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(`${href}/`);
 
   return (
     <>
-      {/* 1. BOTÓN MÓVIL */}
+      {/* MÓVIL TOGGLE */}
       <button
         onClick={() => setIsMobileOpen(!isMobileOpen)}
         className="md:hidden fixed top-4 left-4 z-50 p-2 bg-[#0d1b2a] text-white rounded-lg shadow-lg border border-gray-700 hover:bg-[#1b263b] transition-colors"
-        aria-label="Menú"
       >
         {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
-      {/* 2. OVERLAY */}
+      {/* OVERLAY */}
       {isMobileOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
@@ -191,33 +250,44 @@ export function Sidebar() {
         />
       )}
 
-      {/* 3. SIDEBAR */}
+      {/* SIDEBAR */}
       <aside
+        // CAMBIO IMPORTANTE: h-[100dvh] en lugar de h-screen para móviles
         className={`
-          fixed md:sticky top-0 left-0 h-screen w-64 
-          bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl 
-          z-40 overflow-hidden transition-transform duration-300 ease-in-out
+          fixed md:sticky top-0 left-0 
+          h-[100dvh] w-64 
+          bg-[#0d1b2a] text-white 
+          flex flex-col justify-between 
+          shadow-2xl z-40 
+          overflow-hidden 
+          transition-transform duration-300 ease-in-out 
           ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
       >
-        {/* --- HEADER USUARIO --- */}
+        {/* HEADER PERFIL */}
         <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
           <Link
             href="/admin/usuario"
-            className="group relative"
             onClick={closeMobileMenu}
+            className="group relative"
           >
             <div className="relative w-16 h-16 mx-auto transition-transform duration-300 group-hover:scale-105">
-              <div className="rounded-full overflow-hidden border-2 border-blue-500/30 w-16 h-16 bg-gray-800 relative">
-                {/* Fallback si no hay imagen real */}
-                <Image
-                  src={user.fotoPerfil}
-                  alt="Perfil"
-                  fill
-                  className="object-cover"
-                  sizes="64px"
-                  priority
-                />
+              <div className="rounded-full overflow-hidden border-2 border-blue-500/30 w-16 h-16 bg-gray-800 relative flex items-center justify-center">
+                {userData.fotoPerfil ? (
+                  <Image
+                    src={userData.fotoPerfil}
+                    alt="Perfil"
+                    fill
+                    className="object-cover"
+                    sizes="64px"
+                    priority
+                  />
+                ) : (
+                  // AVATAR GENÉRICO CON INICIALES
+                  <div className="w-full h-full bg-[#1b263b] flex items-center justify-center text-blue-300 font-bold text-xl">
+                    {getInitials(userData.nombreCompleto) || <UserIcon />}
+                  </div>
+                )}
               </div>
               <div
                 className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-[#0b1623] rounded-full"
@@ -225,36 +295,24 @@ export function Sidebar() {
               ></div>
             </div>
           </Link>
-          <h2 className="mt-3 text-sm font-semibold tracking-wide text-gray-100">
-            {user.nombreCompleto}
+          <h2 className="mt-3 text-sm font-semibold tracking-wide text-gray-100 text-center">
+            {userData.nombreCompleto}
           </h2>
           <span
-            className={`px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider rounded-full border 
-            ${userRole === "admin" ? "bg-blue-900/40 text-blue-300 border-blue-800/50" : "bg-purple-900/40 text-purple-300 border-purple-800/50"}`}
+            className={`px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider rounded-full border ${userRole === "admin" ? "bg-blue-900/40 text-blue-300 border-blue-800/50" : "bg-purple-900/40 text-purple-300 border-purple-800/50"}`}
           >
-            {user.rol}
+            {userData.rol}
           </span>
-
-          {/* TOGGLE TEMPORAL PARA PROBAR ROLES (BORRAR EN PRODUCCIÓN) */}
-          {/* <button 
-            onClick={() => setUserRole(userRole === 'admin' ? 'cajero' : 'admin')}
-            className="mt-2 text-[9px] text-gray-500 hover:text-white underline"
-          >
-            [Dev: Cambiar Rol]
-          </button> */}
         </div>
 
-        {/* --- NAVEGACIÓN --- */}
+        {/* NAVEGACIÓN */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-          {/* 1. LINKS PRINCIPALES (Siempre visibles si tienen permiso) */}
           {visibleMainLinks.map((link) => (
             <Link
               key={link.key}
               href={link.href}
               onClick={closeMobileMenu}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group font-medium text-sm
-                ${isActive(link.href) ? "bg-[#1b263b] text-white shadow-sm" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}
-              `}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group font-medium text-sm ${isActive(link.href) ? "bg-[#1b263b] text-white shadow-sm" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}`}
             >
               <span
                 className={`transition-colors ${isActive(link.href) ? "text-blue-400" : "group-hover:text-blue-400"}`}
@@ -265,14 +323,12 @@ export function Sidebar() {
             </Link>
           ))}
 
-          {/* 2. GRUPO: GESTIÓN (Solo si hay items visibles) */}
+          {/* GRUPO GESTIÓN */}
           {visibleGestionLinks.length > 0 && (
             <div className="pt-4 mt-2 border-t border-gray-800/50">
               <button
                 onClick={() => setIsCanchasOpen(!isCanchasOpen)}
-                className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm 
-                  ${isCanchasOpen ? "bg-[#1b263b] text-white" : "text-gray-400 hover:bg-[#1b263b] hover:text-white"}
-                `}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm ${isCanchasOpen ? "bg-[#1b263b] text-white" : "text-gray-400 hover:bg-[#1b263b] hover:text-white"}`}
               >
                 <LayoutGrid
                   size={18}
@@ -285,7 +341,6 @@ export function Sidebar() {
                   <ChevronRight size={14} className="text-gray-500" />
                 )}
               </button>
-
               {isCanchasOpen && (
                 <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
                   {visibleGestionLinks.map((subLink) => (
@@ -293,9 +348,7 @@ export function Sidebar() {
                       key={subLink.key}
                       href={subLink.href}
                       onClick={closeMobileMenu}
-                      className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-all duration-200
-                        ${isActive(subLink.href) ? "text-white bg-[#1b263b]/80" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}
-                      `}
+                      className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-all duration-200 ${isActive(subLink.href) ? "text-white bg-[#1b263b]/80" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}`}
                     >
                       <span className="opacity-70 text-green-300">
                         {subLink.icon}
@@ -308,14 +361,12 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* 3. GRUPO: PERSONALIZACIÓN (Solo si hay items visibles) */}
+          {/* GRUPO PERSONALIZACIÓN */}
           {visiblePersonalizacionLinks.length > 0 && (
             <div className="pt-2 mt-2">
               <button
                 onClick={() => setIsPersonalizacionOpen(!isPersonalizacionOpen)}
-                className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm 
-                  ${isPersonalizacionOpen ? "bg-[#1b263b] text-white" : "text-gray-400 hover:bg-[#1b263b] hover:text-white"}
-                `}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm ${isPersonalizacionOpen ? "bg-[#1b263b] text-white" : "text-gray-400 hover:bg-[#1b263b] hover:text-white"}`}
               >
                 <Settings
                   size={18}
@@ -330,7 +381,6 @@ export function Sidebar() {
                   <ChevronRight size={14} className="text-gray-500" />
                 )}
               </button>
-
               {isPersonalizacionOpen && (
                 <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
                   {visiblePersonalizacionLinks.map((subLink) => (
@@ -338,9 +388,7 @@ export function Sidebar() {
                       key={subLink.key}
                       href={subLink.href}
                       onClick={closeMobileMenu}
-                      className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-all duration-200
-                        ${isActive(subLink.href) ? "text-white bg-[#1b263b]/80" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}
-                      `}
+                      className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-all duration-200 ${isActive(subLink.href) ? "text-white bg-[#1b263b]/80" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}`}
                     >
                       <span className="opacity-70 text-blue-300">
                         {subLink.icon}
@@ -354,8 +402,18 @@ export function Sidebar() {
           )}
         </nav>
 
-        {/* --- PIE DE PÁGINA --- */}
-        <div className="p-3 border-t border-gray-800 bg-[#0b1623]">
+        {/* FOOTER: ACCIONES */}
+        {/* pb-safe asegura respeto al área segura de iOS (barra home) */}
+        <div className="p-3 border-t border-gray-800 bg-[#0b1623] space-y-2 pb-6 md:pb-3">
+          {/* Volver al Home */}
+          <Link
+            href="/"
+            className="flex w-full items-center justify-center gap-2 py-2 text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all border border-gray-800 hover:border-gray-700"
+          >
+            <ExternalLink size={14} /> Volver al sitio
+          </Link>
+
+          {/* Cerrar Sesión */}
           <button
             onClick={() => {
               handleLogout();
@@ -363,8 +421,7 @@ export function Sidebar() {
             }}
             className="flex w-full items-center justify-center gap-2 py-2.5 text-xs font-bold uppercase tracking-wider text-red-400 hover:bg-red-950/30 hover:text-red-300 rounded-lg transition-all duration-200 border border-transparent hover:border-red-900/30"
           >
-            <LogOut size={16} />
-            Cerrar sesión
+            <LogOut size={16} /> Cerrar sesión
           </button>
         </div>
       </aside>

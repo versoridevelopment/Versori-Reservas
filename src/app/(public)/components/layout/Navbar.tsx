@@ -40,7 +40,7 @@ const Navbar = ({
   showProfesores,
   initialUser,
 }: NavbarProps) => {
-  // Cliente Supabase (Singleton para evitar warnings de múltiples instancias)
+  // Singleton para cliente Supabase (Evita "Multiple GoTrueClient instances")
   const [supabase] = useState(() =>
     createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,10 +52,10 @@ const Navbar = ({
   const [lastScrollY, setLastScrollY] = useState<number>(0);
 
   // Estados
-  const [isMounted, setIsMounted] = useState(false); // 👈 CRÍTICO PARA HIDRATACIÓN
+  const [isMounted, setIsMounted] = useState(false);
   const [user, setUser] = useState<User | null>(initialUser);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [meLoading, setMeLoading] = useState<boolean>(true);
+  const [meLoading, setMeLoading] = useState<boolean>(!initialUser); // Optimización de carga
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -63,7 +63,7 @@ const Navbar = ({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // --- 1. Evitar Hidratación Incorrecta ---
+  // --- 1. Control de Montaje (Solución Hydration Mismatch) ---
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -95,18 +95,16 @@ const Navbar = ({
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY, isMobileMenuOpen]);
 
-  // --- Fetch Profile Memoizado ---
+  // --- Fetch Profile ---
   const fetchProfile = useCallback(
     async (userId: string) => {
       try {
-        // 1. Perfil Básico
         const { data: profile } = await supabase
           .from("profiles")
           .select("nombre, apellido")
           .eq("id_usuario", userId)
           .single();
 
-        // 2. Rol Admin (id_club fijo en 1 o dinámico según tu lógica)
         const { data: rolesData } = await supabase
           .from("club_usuarios")
           .select("roles(nombre)")
@@ -123,7 +121,7 @@ const Navbar = ({
           isAdmin,
         });
       } catch (err) {
-        console.error("Error fetching profile:", err);
+        console.error("Error fetching profile", err);
       } finally {
         setMeLoading(false);
       }
@@ -131,14 +129,19 @@ const Navbar = ({
     [supabase],
   );
 
-  // --- Auth Logic Robusta ---
+  // --- Auth Logic ---
   useEffect(() => {
-    // A. Si el server ya nos dio usuario, cargar perfil
+    // A. Prioridad: Datos del Server
     if (initialUser) {
-      setUser(initialUser);
-      fetchProfile(initialUser.id);
+      // Solo seteamos si difiere para evitar renders innecesarios
+      if (user?.id !== initialUser.id) {
+        setUser(initialUser);
+        fetchProfile(initialUser.id);
+      } else if (!userProfile && meLoading) {
+        fetchProfile(initialUser.id);
+      }
     } else {
-      // B. Si no, verificar en cliente por si acaso (recuperación)
+      // B. Verificación Cliente (Fallback)
       supabase.auth.getUser().then(({ data }) => {
         if (data.user) {
           setUser(data.user);
@@ -149,12 +152,13 @@ const Navbar = ({
       });
     }
 
-    // C. Escuchar cambios en tiempo real
+    // C. Listener tiempo real
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       const currentUser = session?.user ?? null;
-      setUser(currentUser);
+      // Solo actualizamos si el usuario cambió realmente
+      setUser((prev) => (prev?.id === currentUser?.id ? prev : currentUser));
 
       if (currentUser) {
         fetchProfile(currentUser.id);
@@ -177,9 +181,9 @@ const Navbar = ({
     if (isConfirmed) {
       setIsNavigating(true);
       try {
-        await supabase.auth.signOut(); // Limpia localStorage
-        await fetch("/api/auth/signout", { method: "POST", cache: "no-store" }); // Limpia Cookies Server
-        window.location.href = "/"; // Hard Refresh
+        await supabase.auth.signOut();
+        await fetch("/api/auth/signout", { method: "POST", cache: "no-store" });
+        window.location.href = "/";
       } catch (_) {
         window.location.href = "/";
       }
@@ -190,10 +194,6 @@ const Navbar = ({
 
   const brandName = club?.nombre ?? "VERSORI";
   const brandDotColor = club?.color_primario ?? "#3b82f6";
-
-  // Si no está montado, renderizamos un header esqueleto o vacío para evitar error de hidratación
-  // Sin embargo, para SEO es mejor renderizar lo estático.
-  // La clave aquí es usar 'user' que ahora está sincronizado.
 
   return (
     <>
@@ -226,7 +226,7 @@ const Navbar = ({
                   alt={`${brandName} Logo`}
                   fill
                   className="object-contain"
-                  sizes="(max-width: 768px) 32px, 40px"
+                  sizes="(max-width: 768px) 40px, 60px" // CORREGIDO: Valor consistente
                   priority
                 />
               </div>
@@ -278,8 +278,7 @@ const Navbar = ({
               </Link>
             </nav>
 
-            {/* SECCIÓN USUARIO (Protegida contra Hidratación) */}
-            {/* Solo mostramos estado de auth cuando el cliente está montado para asegurar coincidencia */}
+            {/* SECCIÓN USUARIO DESKTOP */}
             {isMounted ? (
               !user ? (
                 <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
@@ -342,8 +341,8 @@ const Navbar = ({
                 </div>
               )
             ) : (
-              // Placeholder invisible durante hidratación para mantener estructura
-              <div className="w-[120px] h-8"></div>
+              // Placeholder del mismo tamaño exacto para evitar salto visual e hidratación fallida
+              <div className="w-[140px] h-8"></div>
             )}
           </div>
 
@@ -399,8 +398,8 @@ const Navbar = ({
           </div>
 
           <div className="w-full px-10 mt-12">
-            {isMounted &&
-              (!user ? (
+            {isMounted ? (
+              !user ? (
                 <div className="flex flex-col gap-6 text-center border-t border-neutral-800 pt-8">
                   <Link
                     href="/login"
@@ -429,7 +428,7 @@ const Navbar = ({
                     <Link
                       href="/admin/"
                       onClick={() => handleNavClick("/admin/")}
-                      className="flex items-center gap-2 px-6 py-3 bg-yellow-400 text-black font-bold rounded-xl shadow-lg"
+                      className="flex items-center gap-2 px-6 py-3 bg-yellow-400 hover:bg-yellow-500 text-black font-bold rounded-xl shadow-lg transition-transform active:scale-95"
                     >
                       <LayoutDashboard size={20} /> <span>PANEL ADMIN</span>
                     </Link>
@@ -452,7 +451,8 @@ const Navbar = ({
                     <LogOut size={20} /> Cerrar Sesión
                   </button>
                 </div>
-              ))}
+              )
+            ) : null}
           </div>
         </div>
       </div>
