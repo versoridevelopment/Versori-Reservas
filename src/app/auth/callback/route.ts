@@ -1,54 +1,59 @@
 import { NextResponse } from "next/server";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 export const runtime = "nodejs";
 
+function baseDomainFromHost(host: string) {
+  // ejemplo simple: ferpadel.versorisports.com -> versorisports.com
+  // si usás www, dev, etc. ajustalo según tu caso
+  const parts = host.split(".");
+  if (parts.length >= 2) return parts.slice(-2).join(".");
+  return host;
+}
+
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get("code");
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const next = url.searchParams.get("next") ?? "/";
+  const tenant = url.searchParams.get("tenant"); // subdominio (ferpadel)
 
-  // "next" es a donde redirigir después de loguearse (por defecto al home)
-  const next = searchParams.get("next") ?? "/";
-
-  if (code) {
-    const cookieStore = await cookies();
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options),
-              );
-            } catch {
-              // El 'set' puede fallar en un Server Component, pero en un Route Handler
-              // suele funcionar bien si se maneja la respuesta correctamente.
-              // Sin embargo, para mayor seguridad en Route Handlers con @supabase/ssr,
-              // el patrón ideal implica manipular la respuesta, pero este método
-              // usando 'cookies()' de next/headers es válido en versiones recientes
-              // para Route Handlers.
-            }
-          },
-        },
-      },
-    );
-
-    // Intercambiamos el código por la sesión y cookies
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (!error) {
-      // Redirigimos al origen + la ruta siguiente
-      return NextResponse.redirect(`${origin}${next}`);
-    }
+  if (!code) {
+    return NextResponse.redirect(`${url.origin}/auth/auth-code-error`);
   }
 
-  // Si hay error, redirigimos al login o página de error
-  return NextResponse.redirect(`${origin}/auth/auth-code-error`);
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options),
+          );
+        },
+      },
+    },
+  );
+
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+  if (error) {
+    return NextResponse.redirect(`${url.origin}/auth/auth-code-error`);
+  }
+
+  // ✅ reconstruimos el destino
+  const currentHost = url.host; // incluye puerto si hubiera
+  const baseDomain = baseDomainFromHost(currentHost);
+
+  const targetOrigin = tenant
+    ? `https://${tenant}.${baseDomain}`
+    : url.origin; // fallback
+
+  return NextResponse.redirect(`${targetOrigin}${next}`);
 }
