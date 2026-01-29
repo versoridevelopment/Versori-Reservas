@@ -4,19 +4,12 @@ import { cookies } from "next/headers";
 
 export const runtime = "nodejs";
 
-function baseDomainFromHost(host: string) {
-  // ejemplo simple: ferpadel.versorisports.com -> versorisports.com
-  // si usás www, dev, etc. ajustalo según tu caso
-  const parts = host.split(".");
-  if (parts.length >= 2) return parts.slice(-2).join(".");
-  return host;
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
+  // Buscamos el subdominio (tenant) en los params o lo inferimos del host
+  const tenant = url.searchParams.get("tenant");
   const next = url.searchParams.get("next") ?? "/";
-  const tenant = url.searchParams.get("tenant"); // subdominio (ferpadel)
 
   if (!code) {
     return NextResponse.redirect(`${url.origin}/auth/auth-code-error`);
@@ -33,27 +26,43 @@ export async function GET(request: Request) {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options),
-          );
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch (error) {
+            // Esto sucede si el middleware ya respondió, 
+            // en un GET de Route Handler es seguro ignorar si falla el set individual
+          }
         },
       },
-    },
+    }
   );
 
+  // Intercambiamos el código por la sesión
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
+    console.error("Auth error:", error.message);
     return NextResponse.redirect(`${url.origin}/auth/auth-code-error`);
   }
 
-  // ✅ reconstruimos el destino
-  const currentHost = url.host; // incluye puerto si hubiera
-  const baseDomain = baseDomainFromHost(currentHost);
+  // LÓGICA DE REDIRECCIÓN MULTI-TENANT
+  const currentHost = request.headers.get("host") || "";
+  
+  // Si ya tenemos el tenant (ej: ferpadel), construimos la URL.
+  // Si no viene en la URL, intentamos extraerlo del host actual.
+  let targetOrigin = `https://${currentHost}`;
 
-  const targetOrigin = tenant
-    ? `https://${tenant}.${baseDomain}`
-    : url.origin; // fallback
+  if (tenant) {
+    // Si tu dominio base es versorisports.com
+    const baseDomain = currentHost.includes("versorisports.com") 
+      ? "versorisports.com" 
+      : currentHost.split('.').slice(-2).join('.');
+    
+    targetOrigin = `https://${tenant}.${baseDomain}`;
+  }
 
+  // Redirigir al home del club (o a la página 'next')
   return NextResponse.redirect(`${targetOrigin}${next}`);
 }
