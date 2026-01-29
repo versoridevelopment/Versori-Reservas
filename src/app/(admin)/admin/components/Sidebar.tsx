@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 
 // Tipos
-type UserRole = "admin" | "cajero";
+type UserRole = "admin" | "cajero" | "profe"; // Agregamos 'profe' por si acaso
 
 type MenuLink = {
   key: string;
@@ -46,15 +46,16 @@ export function Sidebar() {
     ),
   );
 
-  const [userRole, setUserRole] = useState<UserRole>("admin");
+  // Estados de Usuario
+  const [userRole, setUserRole] = useState<UserRole>("cajero");
   const [userData, setUserData] = useState<{
     nombreCompleto: string;
-    rol: string;
-    fotoPerfil: string | null; // Ahora permite null
+    rolLabel: string; // Texto para mostrar en UI
+    fotoPerfil: string | null;
   }>({
     nombreCompleto: "Cargando...",
-    rol: "...",
-    fotoPerfil: null, // Inicializamos en null para mostrar fallback
+    rolLabel: "...",
+    fotoPerfil: null,
   });
 
   const pathname = usePathname();
@@ -75,46 +76,98 @@ export function Sidebar() {
       .toUpperCase();
   };
 
-  // --- CARGAR DATOS USUARIO REAL ---
+  // --- CARGAR DATOS ---
   useEffect(() => {
-    const loadUser = async () => {
+    const loadUserAndRole = async () => {
+      // 1. Usuario Auth
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (user) {
-        // 1. Obtener Perfil
-        const { data: profile } = await supabase
-          .from("profiles") // Asegurate que tu tabla se llama 'profiles' o 'perfiles' según tu DB
-          .select("nombre, apellido")
-          .eq("id_usuario", user.id)
-          .single();
+      if (!user) return;
 
-        // 2. Obtener Rol
-        const { data: rolesData } = await supabase
-          .from("club_usuarios")
-          .select("roles(nombre)")
-          .eq("id_usuario", user.id)
-          .eq("id_club", 1) // Ajustar ID Club
-          .single();
+      // 2. Determinar ID Club (Lógica Robusta)
+      let currentClubId = 9; // ⚠️ TEMPORAL: Forzamos el 9 (Fer Padel) para probar si es error de detección de host
 
-        const roleName = rolesData?.roles?.nombre || "cajero";
+      // Intentamos detectar dinámicamente si estamos en producción
+      if (typeof window !== "undefined") {
+        const hostname = window.location.hostname;
+        const subdomain = hostname.split(".")[0];
 
-        setUserData({
-          nombreCompleto: profile
-            ? `${profile.nombre} ${profile.apellido}`
-            : "Usuario",
-          rol: roleName === "admin" ? "Administrador" : "Staff",
-          fotoPerfil: null, // Aquí podrías poner la URL si tuvieras campo foto
-        });
-
-        setUserRole(roleName as UserRole);
+        // Si es localhost y no es un subdominio explícito, usamos 9 por defecto para dev
+        // Si tienes lógica de subdominios locales (ej: ferpadel.localhost), esto funcionará:
+        if (subdomain && subdomain !== "localhost" && subdomain !== "www") {
+          const { data: clubData } = await supabase
+            .from("clubes")
+            .select("id_club")
+            .eq("subdominio", subdomain)
+            .maybeSingle();
+          if (clubData) currentClubId = clubData.id_club;
+        }
       }
+
+      console.log(
+        "🔍 Buscando rol para Club ID:",
+        currentClubId,
+        "Usuario:",
+        user.id,
+      );
+
+      // 3. Obtener Perfil
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("nombre, apellido")
+        .eq("id_usuario", user.id)
+        .single();
+
+      // 4. Obtener Rol (Consulta Segura)
+      const { data: rolesData, error: rolesError } = await supabase
+        .from("club_usuarios")
+        .select(
+          `
+            roles (
+                nombre
+            )
+        `,
+        )
+        .eq("id_usuario", user.id)
+        .eq("id_club", currentClubId)
+        .maybeSingle();
+
+      if (rolesError) console.error("Error fetching roles:", rolesError);
+
+      // 5. Extracción Segura del Rol (Array vs Objeto)
+      let roleKey = "cajero"; // Fallback por defecto
+      const rawRoles = rolesData?.roles;
+
+      if (rawRoles) {
+        if (Array.isArray(rawRoles) && rawRoles.length > 0) {
+          // Si devuelve array: [{ nombre: 'admin' }]
+          roleKey = rawRoles[0].nombre;
+        } else if (!Array.isArray(rawRoles) && (rawRoles as any).nombre) {
+          // Si devuelve objeto: { nombre: 'admin' }
+          roleKey = (rawRoles as any).nombre;
+        }
+      }
+
+      console.log("✅ Rol detectado en DB:", roleKey);
+
+      // 6. Actualizar Estado
+      setUserData({
+        nombreCompleto: profile
+          ? `${profile.nombre} ${profile.apellido}`
+          : "Usuario",
+        rolLabel: roleKey.charAt(0).toUpperCase() + roleKey.slice(1), // Capitalizar (ej: 'Admin')
+        fotoPerfil: null,
+      });
+
+      setUserRole(roleKey as UserRole);
     };
-    loadUser();
+
+    loadUserAndRole();
   }, [supabase]);
 
-  // --- LOGOUT REAL ---
+  // --- LOGOUT ---
   const handleLogout = async () => {
     const isConfirmed = window.confirm("¿Cerrar sesión del panel?");
     if (isConfirmed) {
@@ -122,7 +175,7 @@ export function Sidebar() {
         await supabase.auth.signOut();
         await fetch("/api/auth/signout", { method: "POST", cache: "no-store" });
         window.location.href = "/";
-      } catch (error) {
+      } catch (_) {
         window.location.href = "/";
       }
     }
@@ -130,7 +183,6 @@ export function Sidebar() {
 
   const closeMobileMenu = () => setIsMobileOpen(false);
 
-  // Bloquear scroll en móvil
   useEffect(() => {
     if (isMobileOpen) {
       document.body.style.overflow = "hidden";
@@ -142,7 +194,7 @@ export function Sidebar() {
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
 
-  // --- CONFIGURACIÓN MENÚ ---
+  // --- MENU ---
   const mainLinks: MenuLink[] = [
     {
       key: "dashboard",
@@ -234,7 +286,6 @@ export function Sidebar() {
 
   return (
     <>
-      {/* MÓVIL TOGGLE */}
       <button
         onClick={() => setIsMobileOpen(!isMobileOpen)}
         className="md:hidden fixed top-4 left-4 z-50 p-2 bg-[#0d1b2a] text-white rounded-lg shadow-lg border border-gray-700 hover:bg-[#1b263b] transition-colors"
@@ -242,7 +293,6 @@ export function Sidebar() {
         {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
-      {/* OVERLAY */}
       {isMobileOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
@@ -250,9 +300,7 @@ export function Sidebar() {
         />
       )}
 
-      {/* SIDEBAR */}
       <aside
-        // CAMBIO IMPORTANTE: h-[100dvh] en lugar de h-screen para móviles
         className={`
           fixed md:sticky top-0 left-0 
           h-[100dvh] w-64 
@@ -283,7 +331,6 @@ export function Sidebar() {
                     priority
                   />
                 ) : (
-                  // AVATAR GENÉRICO CON INICIALES
                   <div className="w-full h-full bg-[#1b263b] flex items-center justify-center text-blue-300 font-bold text-xl">
                     {getInitials(userData.nombreCompleto) || <UserIcon />}
                   </div>
@@ -298,10 +345,18 @@ export function Sidebar() {
           <h2 className="mt-3 text-sm font-semibold tracking-wide text-gray-100 text-center">
             {userData.nombreCompleto}
           </h2>
+
+          {/* ETIQUETA DE ROL DINÁMICA */}
           <span
-            className={`px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider rounded-full border ${userRole === "admin" ? "bg-blue-900/40 text-blue-300 border-blue-800/50" : "bg-purple-900/40 text-purple-300 border-purple-800/50"}`}
+            className={`px-3 py-1 mt-2 text-[10px] uppercase font-bold tracking-wider rounded-full border 
+            ${
+              userRole === "admin"
+                ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                : "bg-gray-700/50 text-gray-400 border-gray-600"
+            }`}
           >
-            {userData.rol}
+            {userData.rolLabel}{" "}
+            {/* Aquí mostrará EXACTAMENTE lo que traiga la DB */}
           </span>
         </div>
 
@@ -323,7 +378,7 @@ export function Sidebar() {
             </Link>
           ))}
 
-          {/* GRUPO GESTIÓN */}
+          {/* GESTIÓN */}
           {visibleGestionLinks.length > 0 && (
             <div className="pt-4 mt-2 border-t border-gray-800/50">
               <button
@@ -361,7 +416,7 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* GRUPO PERSONALIZACIÓN */}
+          {/* PERSONALIZACIÓN */}
           {visiblePersonalizacionLinks.length > 0 && (
             <div className="pt-2 mt-2">
               <button
@@ -402,10 +457,8 @@ export function Sidebar() {
           )}
         </nav>
 
-        {/* FOOTER: ACCIONES */}
-        {/* pb-safe asegura respeto al área segura de iOS (barra home) */}
+        {/* FOOTER */}
         <div className="p-3 border-t border-gray-800 bg-[#0b1623] space-y-2 pb-6 md:pb-3">
-          {/* Volver al Home */}
           <Link
             href="/"
             className="flex w-full items-center justify-center gap-2 py-2 text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all border border-gray-800 hover:border-gray-700"
@@ -413,7 +466,6 @@ export function Sidebar() {
             <ExternalLink size={14} /> Volver al sitio
           </Link>
 
-          {/* Cerrar Sesión */}
           <button
             onClick={() => {
               handleLogout();
