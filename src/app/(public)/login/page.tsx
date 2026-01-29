@@ -313,6 +313,7 @@ const LoginPage: FC = () => {
           </Link>
         </p>
 
+        {/*   BOTON DE GOOGLE FUERA DE SERVICIO POR EL MOMENTO
         <div className="mt-8">
           <div className="flex items-center gap-2 justify-center text-gray-400 text-sm mb-4">
             <span className="w-10 h-px bg-gray-600"></span>o
@@ -332,6 +333,8 @@ const LoginPage: FC = () => {
             Iniciar sesión con Google
           </button>
         </div>
+
+            */}
       </motion.div>
     </section>
   );
