@@ -33,62 +33,46 @@ export async function middleware(req: NextRequest) {
 
   // --- PROTECCIÓN RUTAS ADMIN ---
   if (url.pathname.startsWith("/admin")) {
-    console.log("🔒 [Middleware] Verificando acceso a /admin");
-
+    // 1. Si no hay usuario, fuera.
     if (!user) {
-      console.log(
-        "❌ [Middleware] No hay usuario logueado. Redirigiendo a login.",
-      );
       const redirectUrl = url.clone();
       redirectUrl.pathname = "/login";
       return NextResponse.redirect(redirectUrl);
     }
 
-    console.log(`👤 [Middleware] Usuario ID: ${user.id}`);
-
-    // Consulta simplificada para depurar
+    // 2. Consultar Roles
     const { data: rolesData, error } = await supabase
       .from("club_usuarios")
-      .select(
-        `
-        id_rol,
-        roles ( nombre )
-      `,
-      )
+      .select("roles!inner(nombre)")
       .eq("id_usuario", user.id);
 
     if (error) {
-      console.error("❌ [Middleware] Error consultando roles:", error.message);
-      // Si hay error de DB, mejor dejar pasar o redirigir a error, pero aquí redirigimos a home
+      // Por seguridad, si falla la BD, al home.
       const redirectUrl = url.clone();
       redirectUrl.pathname = "/";
       return NextResponse.redirect(redirectUrl);
     }
 
-    // Aplanamos y normalizamos a minúsculas para evitar errores de tipeo
+    // 3. Aplanar array de roles
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const userRoles =
       rolesData?.map((r: any) => r.roles?.nombre?.toLowerCase()) || [];
 
-    console.log("📋 [Middleware] Roles encontrados:", userRoles);
-
-    // Lista de roles permitidos (todo en minúsculas)
-    const allowedRoles = ["admin", "cajero", "staff", "profe"];
+    // 🔴 4. LISTA BLANCA (WHITELIST)
+    // IMPORTANTE: Aquí NO debe estar 'profe' ni 'cliente'
+    const allowedRoles = ["admin", "cajero", "staff"];
 
     const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
 
-    if (hasAccess) {
-      console.log("✅ [Middleware] Acceso CONCEDIDO.");
-      return res;
-    } else {
-      console.log("⛔ [Middleware] Acceso DENEGADO. Redirigiendo a Home.");
+    if (!hasAccess) {
+      console.log(`⛔ Acceso denegado a ${user.email}. Roles: ${userRoles}`);
       const redirectUrl = url.clone();
-      redirectUrl.pathname = "/";
+      redirectUrl.pathname = "/"; // Lo mandamos al inicio
       return NextResponse.redirect(redirectUrl);
     }
   }
 
-  // ... lógica recovery ...
+  // ... lógica recovery (sin cambios) ...
   const recoveryCookie = req.cookies.get("recovery_pending")?.value;
   if (
     recoveryCookie === "true" &&

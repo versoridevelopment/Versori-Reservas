@@ -29,7 +29,7 @@ interface NavbarProps {
 type UserProfile = {
   nombre: string | null;
   apellido: string | null;
-  canAccessPanel?: boolean; // Cambiado de 'isAdmin' a 'canAccessPanel' para ser más genérico
+  canAccessPanel?: boolean;
 };
 
 const Navbar = ({
@@ -103,15 +103,13 @@ const Navbar = ({
           .from("club_usuarios")
           .select("roles(nombre)")
           .eq("id_usuario", userId);
-        // Nota: quitamos .eq('id_club', 1) para hacerlo más robusto si manejas multi-club en el futuro,
-        // o asegúrate de que el ID del club sea el correcto.
 
-        // Lógica de acceso: Admin, Cajero, Staff o Profe pueden ver el panel
         let canAccessPanel = false;
         if (rolesData && Array.isArray(rolesData)) {
+          // 🔴 MODIFICACIÓN: Quitamos 'profe' de la lista permitida para ver el botón
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           canAccessPanel = rolesData.some((r: any) =>
-            ["admin", "cajero", "staff", "profe"].includes(r.roles?.nombre),
+            ["admin", "cajero", "staff"].includes(r.roles?.nombre),
           );
         }
 
@@ -287,7 +285,7 @@ const Navbar = ({
                 </div>
               ) : (
                 <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
-                  {/* BOTÓN PANEL (Visible para Admin, Cajero, Staff) */}
+                  {/* BOTÓN PANEL (Solo si canAccessPanel es true) */}
                   {userProfile?.canAccessPanel && (
                     <Link
                       href="/admin/"
@@ -424,6 +422,7 @@ const Navbar = ({
                       : "Bienvenido"}
                   </p>
 
+                  {/* BOTÓN PANEL MÓVIL */}
                   {userProfile?.canAccessPanel && (
                     <Link
                       href="/admin/"

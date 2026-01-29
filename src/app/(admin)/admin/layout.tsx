@@ -15,7 +15,6 @@ export default async function AdminLayout({
 }) {
   const cookieStore = await cookies();
 
-  // 1. Instanciar Supabase Server Client
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -29,15 +28,13 @@ export default async function AdminLayout({
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options),
             );
-          } catch {
-            // El layout es Server Component, no puede setear cookies a veces
-          }
+          } catch {}
         },
       },
     },
   );
 
-  // 2. Verificar Sesión
+  // 1. Verificar Sesión
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -46,34 +43,28 @@ export default async function AdminLayout({
     redirect("/login");
   }
 
-  // 3. Verificar ROL en Base de Datos (Seguridad Real)
-  // Buscamos los roles del usuario
+  // 2. Verificar Roles en Base de Datos
   const { data: rolesData } = await supabase
     .from("club_usuarios")
-    .select(
-      `
-      roles!inner ( nombre )
-    `,
-    )
+    .select("roles!inner(nombre)")
     .eq("id_usuario", user.id);
 
-  // 🔴 CAMBIO AQUÍ: Validamos contra una lista de roles permitidos, no solo 'admin'
+  // 🔴 3. LISTA BLANCA (WHITELIST) - Sincronizada con el Middleware
+  // Solo estos pueden ver el layout del admin.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasAccess = rolesData?.some((r: any) =>
-    ["admin", "cajero", "staff", "profe"].includes(r.roles?.nombre),
+    ["admin", "cajero", "staff"].includes(r.roles?.nombre),
   );
 
-  // 4. Si no tiene ninguno de esos roles, lo expulsamos al Home
+  // 4. Expulsión
   if (!hasAccess) {
     redirect("/");
   }
 
-  // 5. Renderizar Panel
   return (
     <html lang="es">
       <body className="bg-gray-50">
         <div className="flex h-screen text-gray-900">
-          {/* Sidebar Cliente */}
           <Sidebar />
           <main className="flex-1 overflow-y-auto p-6">{children}</main>
         </div>
