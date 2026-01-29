@@ -28,7 +28,9 @@ const Hero = ({
 
   const cleanNumber = whatsappNumber?.replace(/\D/g, "");
   const whatsappLink = cleanNumber
-    ? `https://wa.me/${cleanNumber}?text=${encodeURIComponent("Hola! Quisiera hacer una consulta.")}`
+    ? `https://wa.me/${cleanNumber}?text=${encodeURIComponent(
+        "Hola! Quisiera hacer una consulta.",
+      )}`
     : null;
 
   const instagramLink = instagramUser
@@ -36,7 +38,9 @@ const Hero = ({
     : null;
 
   return (
-    <section className="relative h-[85vh] min-h-[600px] w-full overflow-hidden flex items-center">
+    // CAMBIO 1: Altura ajustada para móviles (h-[65vh]) vs PC (h-[90vh])
+    // Esto evita que el zoom recorte demasiado la imagen en pantallas verticales
+    <section className="relative h-[65vh] min-h-[450px] md:h-[90vh] md:min-h-[600px] w-full overflow-hidden flex items-center justify-center bg-[#0b0d12]">
       {/* --- FONDO --- */}
       <div className="absolute inset-0 z-0">
         {heroUrl ? (
@@ -47,14 +51,15 @@ const Hero = ({
               loop
               muted
               playsInline
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover object-center"
             />
           ) : (
             <Image
               src={heroUrl}
               alt="Portada del club"
               fill
-              className="object-cover"
+              // object-center asegura que el centro (donde suele estar el logo) sea el punto focal
+              className="object-cover object-center"
               priority
               sizes="100vw"
             />
@@ -64,8 +69,10 @@ const Hero = ({
         )}
       </div>
 
-      {/* --- CAPAS DE COLOR --- */}
-      <div className="absolute inset-0 bg-black/50 z-[1]" />
+      {/* --- CAPAS DE COLOR (Overlay) --- */}
+      {/* Reducimos un poco la opacidad en móvil para que se vea más el fondo */}
+      <div className="absolute inset-0 bg-black/30 md:bg-black/40 z-[1]" />
+
       <div
         className="absolute inset-0 z-[2] opacity-40 mix-blend-overlay pointer-events-none"
         style={{
@@ -80,25 +87,27 @@ const Hero = ({
       />
 
       {/* --- CONTENIDO --- */}
-      <Container className="relative z-10">
-        <div className="max-w-3xl space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-          <h1 className="text-5xl md:text-7xl font-black text-white leading-tight tracking-tight drop-shadow-lg">
+      <Container className="relative z-10 w-full px-4">
+        <div className="max-w-3xl mx-auto md:mx-0 space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-1000 text-center md:text-left">
+          {/* CAMBIO 2: Tipografía más pequeña en móvil (text-4xl) para no tapar el logo */}
+          <h1 className="text-4xl md:text-7xl font-black text-white leading-tight tracking-tight drop-shadow-xl">
             {titulo || "TU CLUB DE PÁDEL"}
           </h1>
 
-          <p className="text-xl md:text-2xl text-gray-200 font-medium max-w-xl drop-shadow-md leading-relaxed">
+          <p className="text-base md:text-2xl text-gray-100 font-medium max-w-xl mx-auto md:mx-0 drop-shadow-md leading-relaxed opacity-90">
             {subtitulo ||
               "El mejor lugar para disfrutar del deporte que te apasiona."}
           </p>
 
-          <div className="pt-4 flex flex-wrap gap-4">
-            {/* 1. Botón Reservar (CORREGIDO: Link con estilos, sin button dentro) */}
+          {/* BOTONES */}
+          <div className="pt-4 md:pt-6 flex flex-wrap gap-3 md:gap-4 justify-center md:justify-start">
+            {/* 1. Botón Reservar */}
             <Link
               href="/reserva"
-              className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-black/20"
+              className="px-6 py-3 md:px-8 md:py-4 rounded-xl font-bold text-white text-sm md:text-base flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-black/30 active:scale-95"
               style={{ backgroundColor: primaryColor }}
             >
-              Reservar Cancha <ArrowRight className="w-5 h-5" />
+              Reservar Cancha <ArrowRight className="w-4 h-4 md:w-5 md:h-5" />
             </Link>
 
             {/* 2. Botón WhatsApp */}
@@ -107,10 +116,10 @@ const Hero = ({
                 href={whatsappLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-green-900/20 bg-green-600 hover:bg-green-700 border border-green-500/30 backdrop-blur-sm"
+                className="px-6 py-3 md:px-8 md:py-4 rounded-xl font-bold text-white text-sm md:text-base flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-green-900/20 bg-green-600 hover:bg-green-700 border border-green-500/30 backdrop-blur-sm active:scale-95"
               >
-                <MessageCircle className="w-5 h-5" />
-                WhatsApp
+                <MessageCircle className="w-4 h-4 md:w-5 md:h-5" />
+                Consultar
               </a>
             )}
 
@@ -120,9 +129,9 @@ const Hero = ({
                 href={instagramLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-pink-900/20 bg-gradient-to-r from-purple-600 to-pink-600 hover:to-pink-500 border border-pink-500/30 backdrop-blur-sm"
+                className="px-6 py-3 md:px-8 md:py-4 rounded-xl font-bold text-white text-sm md:text-base flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-pink-900/20 bg-gradient-to-r from-purple-600 to-pink-600 hover:to-pink-500 border border-pink-500/30 backdrop-blur-sm active:scale-95"
               >
-                <Instagram className="w-5 h-5" />
+                <Instagram className="w-4 h-4 md:w-5 md:h-5" />
                 Instagram
               </a>
             )}
@@ -130,8 +139,8 @@ const Hero = ({
         </div>
       </Container>
 
-      {/* Decoración inferior */}
-      <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-[#0b0d12] to-transparent z-[3]" />
+      {/* Decoración inferior reducida en móvil */}
+      <div className="absolute bottom-0 left-0 w-full h-16 md:h-32 bg-gradient-to-t from-[#0b0d12] to-transparent z-[3]" />
     </section>
   );
 };
