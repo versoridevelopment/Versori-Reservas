@@ -4,7 +4,7 @@ import { useState, useEffect, FormEvent, FC } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
-import { supabase } from "../../../lib/supabase/supabaseClient";
+import { supabase } from "@/lib/supabase/supabaseClient";
 import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
 import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
@@ -36,7 +36,7 @@ const RegisterPage: FC = () => {
   const [messageType, setMessageType] = useState<MessageType>(null);
 
   const [clubId, setClubId] = useState<number | null>(null);
-  const [clubLogo, setClubLogo] = useState<string | null>(null); // Estado para logo
+  const [clubLogo, setClubLogo] = useState<string | null>(null);
   const [clubLoading, setClubLoading] = useState(true);
   const [subdomain, setSubdomain] = useState<string | null>(null);
 
@@ -65,45 +65,27 @@ const RegisterPage: FC = () => {
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    if (!nombre.trim()) {
-      newErrors.nombre = "El nombre es obligatorio.";
-    } else if (nombre.trim().length < 2) {
-      newErrors.nombre = "El nombre debe tener al menos 2 caracteres.";
-    }
+    if (!nombre.trim()) newErrors.nombre = "El nombre es obligatorio.";
+    else if (nombre.trim().length < 2) newErrors.nombre = "El nombre debe tener al menos 2 caracteres.";
 
-    if (!apellido.trim()) {
-      newErrors.apellido = "El apellido es obligatorio.";
-    } else if (apellido.trim().length < 2) {
-      newErrors.apellido = "El apellido debe tener al menos 2 caracteres.";
-    }
+    if (!apellido.trim()) newErrors.apellido = "El apellido es obligatorio.";
+    else if (apellido.trim().length < 2) newErrors.apellido = "El apellido debe tener al menos 2 caracteres.";
 
     const telClean = telefono.replace(/\D/g, "");
-    if (!telClean) {
-      newErrors.telefono = "El teléfono es obligatorio.";
-    } else if (telClean.length < 6) {
-      newErrors.telefono = "El teléfono debe tener al menos 6 dígitos.";
-    }
+    if (!telClean) newErrors.telefono = "El teléfono es obligatorio.";
+    else if (telClean.length < 6) newErrors.telefono = "El teléfono debe tener al menos 6 dígitos.";
 
-    if (!email.trim()) {
-      newErrors.email = "El email es obligatorio.";
-    } else {
+    if (!email.trim()) newErrors.email = "El email es obligatorio.";
+    else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email.trim())) {
-        newErrors.email = "Ingresá un email válido.";
-      }
+      if (!emailRegex.test(email.trim())) newErrors.email = "Ingresá un email válido.";
     }
 
-    if (!password) {
-      newErrors.password = "La contraseña es obligatoria.";
-    } else if (password.length < 6) {
-      newErrors.password = "La contraseña debe tener al menos 6 caracteres.";
-    }
+    if (!password) newErrors.password = "La contraseña es obligatoria.";
+    else if (password.length < 6) newErrors.password = "La contraseña debe tener al menos 6 caracteres.";
 
-    if (!confirmPassword) {
-      newErrors.confirmPassword = "Debés confirmar la contraseña.";
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = "Las contraseñas no coinciden.";
-    }
+    if (!confirmPassword) newErrors.confirmPassword = "Debés confirmar la contraseña.";
+    else if (password !== confirmPassword) newErrors.confirmPassword = "Las contraseñas no coinciden.";
 
     setErrors(newErrors);
 
@@ -122,8 +104,7 @@ const RegisterPage: FC = () => {
     setMessageType(null);
     setErrors({});
 
-    const isValid = validateForm();
-    if (!isValid) return;
+    if (!validateForm()) return;
 
     if (!clubId || !subdomain) {
       setMessage("Error detectando el club. Intentá recargar la página.");
@@ -133,6 +114,7 @@ const RegisterPage: FC = () => {
 
     setIsLoading(true);
 
+    // (Opcional) tu check de profiles, lo dejo intacto:
     const { data: existingProfile, error: profileError } = await supabase
       .from("profiles")
       .select("id_usuario")
@@ -141,9 +123,7 @@ const RegisterPage: FC = () => {
 
     if (profileError) {
       console.error("[Register] Error consultando profiles:", profileError);
-      setMessage(
-        "Ocurrió un error al verificar el usuario. Intentá más tarde.",
-      );
+      setMessage("Ocurrió un error al verificar el usuario. Intentá más tarde.");
       setMessageType("error");
       setIsLoading(false);
       return;
@@ -151,13 +131,14 @@ const RegisterPage: FC = () => {
 
     if (existingProfile) {
       setMessage(
-        "Atención: este email ya está registrado en el sistema VERSORI. Ya te registraste en otro club. Iniciá sesión con tu contraseña original.",
+        "Atención: este email ya está registrado en el sistema VERSORI. Ya te registraste en otro club. Iniciá sesión con tu contraseña original."
       );
       setMessageType("warning");
       setIsLoading(false);
       return;
     }
 
+    // ✅ Callback SSR que intercambia code -> cookies
     const redirectTo = `${window.location.origin}/auth/callback`;
 
     const { error: signUpError } = await supabase.auth.signUp({
@@ -177,13 +158,8 @@ const RegisterPage: FC = () => {
     if (signUpError) {
       console.error("[Register] signUp error:", signUpError);
       const msg = signUpError.message || "";
-      if (
-        msg.toLowerCase().includes("already registered") ||
-        msg.toLowerCase().includes("already exists")
-      ) {
-        setMessage(
-          "Atención: este email ya está registrado. Iniciá sesión con tu contraseña original.",
-        );
+      if (msg.toLowerCase().includes("already registered") || msg.toLowerCase().includes("already exists")) {
+        setMessage("Atención: este email ya está registrado. Iniciá sesión con tu contraseña original.");
         setMessageType("warning");
       } else {
         setMessage("Error al registrar: " + signUpError.message);
@@ -193,9 +169,7 @@ const RegisterPage: FC = () => {
       return;
     }
 
-    setMessage(
-      "Te enviamos un enlace de verificación. Revisá tu correo para activar tu cuenta.",
-    );
+    setMessage("Te enviamos un enlace de verificación. Revisá tu correo para activar tu cuenta.");
     setMessageType("success");
     setIsSubmitted(true);
     setIsLoading(false);
@@ -219,6 +193,7 @@ const RegisterPage: FC = () => {
           className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
         >
           <h2 className="text-3xl font-bold mb-4">Registro procesado</h2>
+
           {message && (
             <div
               className={`mb-4 text-sm p-3 rounded-xl border ${
@@ -230,6 +205,7 @@ const RegisterPage: FC = () => {
               {message}
             </div>
           )}
+
           <p className="text-neutral-400 text-sm mt-6">
             Ya podés ir a{" "}
             <Link href="/login" className="text-blue-400 hover:underline">
@@ -249,16 +225,9 @@ const RegisterPage: FC = () => {
         transition={{ duration: 0.8 }}
         className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
       >
-        {/* LOGO DINÁMICO */}
         {clubLogo ? (
           <div className="relative w-24 h-24 mx-auto mb-6">
-            <Image
-              src={clubLogo}
-              alt="Logo del Club"
-              fill
-              className="object-contain"
-              priority
-            />
+            <Image src={clubLogo} alt="Logo del Club" fill className="object-contain" priority />
           </div>
         ) : (
           <div className="w-20 h-20 mx-auto mb-6 bg-white/10 rounded-full flex items-center justify-center font-bold text-2xl">
@@ -274,25 +243,18 @@ const RegisterPage: FC = () => {
               messageType === "warning"
                 ? "bg-amber-500/10 text-amber-200 border-amber-500/40"
                 : messageType === "error"
-                  ? "bg-red-500/10 text-red-300 border-red-500/40"
-                  : "bg-blue-500/10 text-blue-200 border-blue-500/40"
+                ? "bg-red-500/10 text-red-300 border-red-500/40"
+                : "bg-blue-500/10 text-blue-200 border-blue-500/40"
             }`}
           >
             <p>{message}</p>
           </div>
         )}
 
-        <form
-          noValidate
-          onSubmit={handleSignUp}
-          className="flex flex-col gap-4 text-left mt-2"
-        >
+        <form noValidate onSubmit={handleSignUp} className="flex flex-col gap-4 text-left mt-2">
           <div className="flex gap-4">
             <div className="flex-1">
-              <label
-                htmlFor="nombre"
-                className="block text-sm text-gray-300 mb-1"
-              >
+              <label htmlFor="nombre" className="block text-sm text-gray-300 mb-1">
                 Nombre
               </label>
               <input
@@ -309,15 +271,11 @@ const RegisterPage: FC = () => {
                   errors.nombre ? "border-red-500" : "border-blue-900/40"
                 }`}
               />
-              {errors.nombre && (
-                <p className="mt-1 text-xs text-red-400">{errors.nombre}</p>
-              )}
+              {errors.nombre && <p className="mt-1 text-xs text-red-400">{errors.nombre}</p>}
             </div>
+
             <div className="flex-1">
-              <label
-                htmlFor="apellido"
-                className="block text-sm text-gray-300 mb-1"
-              >
+              <label htmlFor="apellido" className="block text-sm text-gray-300 mb-1">
                 Apellido
               </label>
               <input
@@ -334,17 +292,12 @@ const RegisterPage: FC = () => {
                   errors.apellido ? "border-red-500" : "border-blue-900/40"
                 }`}
               />
-              {errors.apellido && (
-                <p className="mt-1 text-xs text-red-400">{errors.apellido}</p>
-              )}
+              {errors.apellido && <p className="mt-1 text-xs text-red-400">{errors.apellido}</p>}
             </div>
           </div>
 
           <div>
-            <label
-              htmlFor="telefono"
-              className="block text-sm text-gray-300 mb-1"
-            >
+            <label htmlFor="telefono" className="block text-sm text-gray-300 mb-1">
               Teléfono
             </label>
             <input
@@ -360,9 +313,7 @@ const RegisterPage: FC = () => {
                 errors.telefono ? "border-red-500" : "border-blue-900/40"
               }`}
             />
-            {errors.telefono && (
-              <p className="mt-1 text-xs text-red-400">{errors.telefono}</p>
-            )}
+            {errors.telefono && <p className="mt-1 text-xs text-red-400">{errors.telefono}</p>}
           </div>
 
           <div>
@@ -382,16 +333,11 @@ const RegisterPage: FC = () => {
                 errors.email ? "border-red-500" : "border-blue-900/40"
               }`}
             />
-            {errors.email && (
-              <p className="mt-1 text-xs text-red-400">{errors.email}</p>
-            )}
+            {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email}</p>}
           </div>
 
           <div>
-            <label
-              htmlFor="password"
-              className="block text-sm text-gray-300 mb-1"
-            >
+            <label htmlFor="password" className="block text-sm text-gray-300 mb-1">
               Contraseña
             </label>
             <input
@@ -407,16 +353,11 @@ const RegisterPage: FC = () => {
                 errors.password ? "border-red-500" : "border-blue-900/40"
               }`}
             />
-            {errors.password && (
-              <p className="mt-1 text-xs text-red-400">{errors.password}</p>
-            )}
+            {errors.password && <p className="mt-1 text-xs text-red-400">{errors.password}</p>}
           </div>
 
           <div>
-            <label
-              htmlFor="confirmPassword"
-              className="block text-sm text-gray-300 mb-1"
-            >
+            <label htmlFor="confirmPassword" className="block text-sm text-gray-300 mb-1">
               Confirmar contraseña
             </label>
             <input
@@ -433,9 +374,7 @@ const RegisterPage: FC = () => {
               }`}
             />
             {errors.confirmPassword && (
-              <p className="mt-1 text-xs text-red-400">
-                {errors.confirmPassword}
-              </p>
+              <p className="mt-1 text-xs text-red-400">{errors.confirmPassword}</p>
             )}
           </div>
 
