@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 // AJUSTA ESTOS IMPORTS SEGÚN TU ESTRUCTURA REAL
 // Si CobroModal está en sidebar/, entonces types está dos niveles arriba
-import type { ReservaUI } from "../../types";
+import type { ReservaUI } from "../types";
 import { formatMoney } from "../hooks/useReservaSidebar";
 
 interface Props {
