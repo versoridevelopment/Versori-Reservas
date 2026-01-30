@@ -4,7 +4,10 @@ import { useState, useEffect, FormEvent, FC } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
-import { supabase } from "@/lib/supabase/supabaseClient";
+
+// ✅ IMPORTANTE: usar browser-only client (implicit)
+import { supabaseBrowser } from "@/lib/supabase/supabaseBrowser";
+
 import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
 import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
@@ -172,9 +175,17 @@ const RegisterPage: FC = () => {
     return true;
   };
 
-  // ✅ Flujo correcto: SOLO manda a "Registro procesado" si NO está confirmado
+  // ✅ PARA QUE QUEDE LOGUEADO CON MIDDLEWARE SSR:
+  // mandar el email a un handler SSR (/auth/callback) que setea cookies.
+  const buildEmailRedirectTo = () => {
+    const origin = window.location.origin;
+    return `${origin}/auth/callback?next=${encodeURIComponent("/")}`;
+  };
+
+
+  // ✅ Flujo: email existe -> usamos endpoint y reenviamos
   const smartExistingFlow = async (mail: string) => {
-    const redirectTo = `${window.location.origin}/auth/callback`;
+    const redirectTo = buildEmailRedirectTo();
     const res = await apiResendSmart(mail, redirectTo);
 
     if (!res.ok) {
@@ -193,7 +204,6 @@ const RegisterPage: FC = () => {
       return;
     }
 
-    // RESENT o NOT_FOUND (por seguridad, mensaje genérico)
     setMessage(
       "Si este email existe y todavía no está verificado, te reenviamos el enlace de verificación. Revisá tu correo."
     );
@@ -212,7 +222,7 @@ const RegisterPage: FC = () => {
     setMessageType(null);
 
     try {
-      const redirectTo = `${window.location.origin}/auth/callback`;
+      const redirectTo = buildEmailRedirectTo();
       const res = await apiResendSmart(mail, redirectTo);
 
       if (!res.ok) {
@@ -258,8 +268,8 @@ const RegisterPage: FC = () => {
 
     const mail = email.trim().toLowerCase();
 
-    // Tu check de profiles lo dejamos, pero ahora NO decide confirmado/no confirmado.
-    const { data: existingProfile, error: profileError } = await supabase
+    // ✅ check profiles (ok mantenerlo)
+    const { data: existingProfile, error: profileError } = await supabaseBrowser
       .from("profiles")
       .select("id_usuario")
       .eq("email", mail)
@@ -273,16 +283,15 @@ const RegisterPage: FC = () => {
       return;
     }
 
-    // Si existe en el sistema, resolvemos con endpoint (CONFIRMED vs RESENT)
     if (existingProfile) {
       await smartExistingFlow(mail);
       setIsLoading(false);
       return;
     }
 
-    const redirectTo = `${window.location.origin}/auth/callback`;
+    const redirectTo = buildEmailRedirectTo();
 
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { error: signUpError } = await supabaseBrowser.auth.signUp({
       email: mail,
       password,
       options: {
@@ -300,7 +309,6 @@ const RegisterPage: FC = () => {
       console.error("[Register] signUp error:", signUpError);
       const msg = (signUpError.message || "").toLowerCase();
 
-      // Si Supabase dice que ya existe, resolvemos con endpoint (CONFIRMED vs RESENT)
       if (msg.includes("already registered") || msg.includes("already exists")) {
         await smartExistingFlow(mail);
         setIsLoading(false);
