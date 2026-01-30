@@ -42,50 +42,47 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     getWhatsappLink,
   } = useReservaSidebar(props);
 
-  const { isOpen, onClose, isCreating } = props; // Quité props que no se usaban directamente aquí
-
+  const { isOpen, onClose, isCreating, onCreated } = props;
   const [isEditingMove, setIsEditingMove] = useState(false);
 
-  // 1. Extraer y Normalizar hora (asegurar HH:mm)
+  // --- SINCRONIZACIÓN DE DATOS DESDE EL CALENDARIO ---
+  // Extraemos datos de forma segura
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawTime = (props as any).inicio || (props as any).selectedStart || "";
   const incomingTime = rawTime.length > 5 ? rawTime.slice(0, 5) : rawTime;
 
-  // ✅ SOLUCIÓN DEFINITIVA PARA SINCRONIZACIÓN DE HORA
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const incomingCanchaId = (props as any).preSelectedCanchaId;
+
+  // ✅ EFFECT: Actualizar formData cuando el usuario hace clic en el calendario
   useEffect(() => {
-    // Solo ejecutamos si el sidebar está abierto y estamos en modo CREAR
-    if (isOpen && isCreating && incomingTime) {
+    if (isOpen && isCreating) {
       setFormData((prev) => {
-        // Si la hora es distinta, actualizamos
-        if (prev.horaInicio !== incomingTime) {
-          console.log(
-            "🔄 Actualizando hora de:",
-            prev.horaInicio,
-            "a:",
-            incomingTime,
-          );
+        // Verificamos si cambió la hora o la cancha para actualizar
+        const timeChanged = incomingTime && prev.horaInicio !== incomingTime;
+        const canchaChanged =
+          incomingCanchaId && prev.canchaId !== incomingCanchaId.toString();
+
+        if (timeChanged || canchaChanged) {
           return {
             ...prev,
-            horaInicio: incomingTime,
-            // Opcional: Si quieres resetear el precio al cambiar de hora
-            // precio: 0
+            horaInicio: incomingTime || prev.horaInicio,
+            canchaId: incomingCanchaId
+              ? incomingCanchaId.toString()
+              : prev.canchaId,
           };
         }
         return prev;
       });
     }
 
-    if (!isOpen) {
-      setIsEditingMove(false);
-    }
-  }, [isOpen, isCreating, incomingTime, setFormData]);
+    if (!isOpen) setIsEditingMove(false);
+  }, [isOpen, isCreating, incomingTime, incomingCanchaId, setFormData]);
 
-  // ✅ TICKET
+  // --- TICKET DE IMPRESIÓN ---
   const handlePrintTicket = () => {
     if (!reserva) return;
-
     const printWindow = window.open("", "PRINT", "height=650,width=450");
-
     if (printWindow) {
       const fechaImpresion = new Date().toLocaleString("es-AR", {
         day: "2-digit",
@@ -160,7 +157,6 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity duration-300"
         onClick={onClose}
       />
-
       <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col">
         {/* HEADER */}
         <div className="px-6 py-4 bg-white border-b border-gray-100 flex justify-between items-start sticky top-0 z-10">
@@ -214,6 +210,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
           <button
             onClick={onClose}
             className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 transition-colors"
+            title="Cerrar"
           >
             <X className="w-6 h-6" />
           </button>
@@ -244,7 +241,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                 onCancel={() => setIsEditingMove(false)}
                 onSaved={() => {
                   setIsEditingMove(false);
-                  onCreated();
+                  if (onCreated) onCreated();
                 }}
               />
             ) : (
@@ -275,11 +272,10 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                   createLoading ||
                   (!formData.esTurnoFijo &&
                     (priceLoading || !formData.precio)) ||
-                  !formData.horaInicio ||
-                  availableTimes.length === 0
+                  !formData.horaInicio
                 }
               >
-                {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
                 Crear
               </button>
             </div>

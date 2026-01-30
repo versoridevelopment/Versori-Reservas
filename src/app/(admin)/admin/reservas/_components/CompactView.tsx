@@ -7,18 +7,36 @@ interface Props {
   reservas: ReservaUI[];
   startHour: number;
   endHour: number;
+  date: Date; // ✅ RECIBIMOS LA FECHA BASE
   onReservaClick: (r: ReservaUI) => void;
-  onEmptySlotClick: (canchaId: number, time: number) => void;
+  // ✅ AHORA DEVUELVE TAMBIÉN LA FECHA CALCULADA (YYYY-MM-DD)
+  onEmptySlotClick: (
+    canchaId: number,
+    timeStr: string,
+    dateStr: string,
+  ) => void;
 }
 
 const PIXELS_PER_HOUR = 140;
 const GRID_TOP_OFFSET = 30;
+
+// Helper para sumar días y formatear localmente sin líos de UTC
+function getTargetDateISO(baseDate: Date, extraDays: number) {
+  const d = new Date(baseDate);
+  d.setDate(d.getDate() + extraDays);
+
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 export default function CompactView({
   canchas,
   reservas,
   startHour,
   endHour,
+  date,
   onReservaClick,
   onEmptySlotClick,
 }: Props) {
@@ -46,11 +64,12 @@ export default function CompactView({
   const formatHourLabel = (val: number) => {
     let h = Math.floor(val);
     const m = val % 1 === 0.5 ? "30" : "00";
-    if (h >= 24) h -= 24;
+    if (h >= 24) h -= 24; // Convertimos 24->00, 25->01
     return `${h.toString().padStart(2, "0")}:${m}`;
   };
 
-  const totalHeight = (endHour - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET + 50;
+  const totalHeight =
+    (endHour - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET + 50;
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden select-none">
@@ -66,9 +85,20 @@ export default function CompactView({
                   <div
                     key={time}
                     className="absolute w-full text-center -mt-3"
-                    style={{ top: (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET }}
+                    style={{
+                      top:
+                        (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
+                    }}
                   >
-                    <span className="text-xs font-black text-slate-400 block">{formatHourLabel(time)}</span>
+                    <span className="text-xs font-black text-slate-400 block">
+                      {formatHourLabel(time)}
+                    </span>
+                    {/* Indicador visual de día siguiente si aplica */}
+                    {time >= 24 && (
+                      <span className="text-[9px] text-slate-300 block leading-none">
+                        +1 día
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -84,7 +114,9 @@ export default function CompactView({
                 key={cancha.id_cancha}
                 className="flex-1 min-w-[160px] md:min-w-[200px] border-r border-gray-200 relative"
               >
-                <div className={`h-12 sticky top-0 z-20 flex items-center justify-center border-b border-gray-200 shadow-sm ${theme.header}`}>
+                <div
+                  className={`h-12 sticky top-0 z-20 flex items-center justify-center border-b border-gray-200 shadow-sm ${theme.header}`}
+                >
                   <div className="text-center px-2">
                     <h3 className="text-xs md:text-sm font-black uppercase tracking-wide leading-none truncate w-full">
                       {cancha.nombre}
@@ -98,16 +130,36 @@ export default function CompactView({
                 <div className="relative w-full h-full bg-white">
                   {/* Slots Vacíos */}
                   {timeSlots.map((time) => {
-                    if (time === endHour && !Number.isInteger(time)) return null;
+                    if (time === endHour && !Number.isInteger(time))
+                      return null;
+
+                    // ✅ LÓGICA DE DÍA SIGUIENTE
+                    // Si la hora visual es >= 24 (ej. 00:00, 01:00), es mañana.
+                    const isNextDay = time >= 24;
+                    const slotDateISO = getTargetDateISO(
+                      date,
+                      isNextDay ? 1 : 0,
+                    );
+
                     return (
                       <div
                         key={time}
-                        onClick={() => onEmptySlotClick(cancha.id_cancha, time)}
+                        onClick={() =>
+                          onEmptySlotClick(
+                            cancha.id_cancha,
+                            formatHourLabel(time),
+                            slotDateISO,
+                          )
+                        }
                         className={`absolute w-full cursor-pointer hover:bg-slate-50 transition-colors ${
-                          Number.isInteger(time) ? "border-b border-gray-200" : "border-b border-gray-100 border-dashed"
+                          Number.isInteger(time)
+                            ? "border-b border-gray-200"
+                            : "border-b border-gray-100 border-dashed"
                         }`}
                         style={{
-                          top: (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
+                          top:
+                            (time - startHour) * PIXELS_PER_HOUR +
+                            GRID_TOP_OFFSET,
                           height: PIXELS_PER_HOUR / 2,
                         }}
                       />
@@ -130,12 +182,15 @@ export default function CompactView({
                         `}
                         style={{
                           top: getTopPosition(reserva.horaInicio),
-                          height: getHeight(reserva.horaInicio, reserva.horaFin) - 3,
+                          height:
+                            getHeight(reserva.horaInicio, reserva.horaFin) - 3,
                         }}
                       >
                         <div
                           className={`absolute top-2 right-2 w-2 h-2 rounded-full ring-2 ring-white/50 ${
-                            reserva.estado === "confirmada" ? "bg-green-500" : "bg-orange-400"
+                            reserva.estado === "confirmada"
+                              ? "bg-green-500"
+                              : "bg-orange-400"
                           }`}
                         />
                         <span className="text-[10px] font-bold opacity-70 flex gap-1 mb-0.5">
@@ -147,7 +202,8 @@ export default function CompactView({
 
                         <div className="mt-1 flex justify-between items-end">
                           <span className="text-[10px] bg-white/60 px-1.5 rounded text-slate-700 font-bold tracking-tight">
-                            ${Number(reserva.precio_total || 0).toLocaleString()}
+                            $
+                            {Number(reserva.precio_total || 0).toLocaleString()}
                           </span>
 
                           {Number(reserva.saldo_pendiente || 0) > 0 && (
