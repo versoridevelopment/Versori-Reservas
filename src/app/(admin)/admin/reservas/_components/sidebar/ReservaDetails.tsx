@@ -1,20 +1,37 @@
-import { User, Phone, MessageCircle, Clock, DollarSign, XCircle, CheckCircle2 } from "lucide-react";
+import {
+  User,
+  Phone,
+  MessageCircle,
+  Clock,
+  DollarSign,
+  XCircle,
+  CheckCircle2,
+} from "lucide-react";
 import { formatMoney } from "../hooks/useReservaSidebar";
 import type { ReservaUI } from "../types";
 
 interface Props {
   reserva: ReservaUI;
   getWhatsappLink: (phone: string) => string;
+  onEdit: () => void; // ✅ nuevo
 }
 
-export default function ReservaDetails({ reserva, getWhatsappLink }: Props) {
+export default function ReservaDetails({
+  reserva,
+  getWhatsappLink,
+  onEdit,
+}: Props) {
   return (
     <div className="space-y-6">
       {/* Sección Jugador */}
       <div className="relative">
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-base font-semibold text-gray-800">Jugador</h3>
-          <button className="text-xs text-green-700 border border-green-700 px-2 py-0.5 rounded hover:bg-green-50">
+          <button
+            type="button"
+            onClick={onEdit} // ✅ nuevo
+            className="text-xs text-green-700 border border-green-700 px-2 py-0.5 rounded hover:bg-green-50"
+          >
             Editar
           </button>
         </div>
@@ -44,7 +61,9 @@ export default function ReservaDetails({ reserva, getWhatsappLink }: Props) {
 
       {/* Sección Historial */}
       <div>
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Historial</h3>
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+          Historial
+        </h3>
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-sm text-gray-700">
             <XCircle className="w-4 h-4 text-gray-400" /> No tiene deudas
@@ -70,17 +89,22 @@ export default function ReservaDetails({ reserva, getWhatsappLink }: Props) {
               {reserva.horaInicio} - {reserva.horaFin}
             </span>
           </li>
+
           <li className="flex items-center gap-2">
             <DollarSign className="w-4 h-4 text-gray-400" />
             <span>
-              Precio <span className="text-green-600 font-bold">{formatMoney(reserva.precio_total)}</span>
+              Precio{" "}
+              <span className="text-green-600 font-bold">
+                {formatMoney(reserva.precio_total)}
+              </span>
             </span>
           </li>
+
           <li className="flex items-center gap-2">
             <DollarSign className="w-4 h-4 text-gray-400" />
             <span>
-              Pagado: <strong>{formatMoney(reserva.pagos_aprobados_total)}</strong> — Saldo:{" "}
-              <strong>{formatMoney(reserva.saldo_pendiente)}</strong>
+              Pagado: <strong>{formatMoney(reserva.pagos_aprobados_total)}</strong>{" "}
+              — Saldo: <strong>{formatMoney(reserva.saldo_pendiente)}</strong>
             </span>
           </li>
         </ul>

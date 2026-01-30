@@ -1,19 +1,19 @@
 "use client";
 
 import { X, Calendar, Copy, Clock, Loader2 } from "lucide-react";
+import { useState } from "react";
 import { useReservaSidebar, type ReservaSidebarProps } from "./hooks/useReservaSidebar";
 
 import CreateReservaForm from "./sidebar/CreateReservaForm";
 import ReservaDetails from "./sidebar/ReservaDetails";
 import CobroModal from "./sidebar/CobroModal";
+import EditReservaMoveForm from "./sidebar/EditReservaMoveForm";
 
 export default function ReservaSidebar(props: ReservaSidebarProps) {
   const {
     formData,
     setFormData,
-
     reserva,
-
     showCobro,
     setShowCobro,
     cobroMonto,
@@ -22,19 +22,16 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     setCobroMetodo,
     cobroNota,
     setCobroNota,
-
     priceLoading,
     priceError,
     createLoading,
     createError,
     cobroLoading,
     cobroError,
-
     availableTimes,
     canchaDisplay,
     fechaDisplay,
     horaFinCalculada,
-
     handleCreate,
     handleCancelar,
     openCobro,
@@ -42,15 +39,21 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     getWhatsappLink,
   } = useReservaSidebar(props);
 
-  const { isOpen, onClose, isCreating, canchas } = props;
+  const { isOpen, onClose, isCreating, canchas, onCreated } = props;
+
+  const [isEditingMove, setIsEditingMove] = useState(false);
 
   if (!isOpen) return null;
+
+  const inViewMode = !isCreating && !!reserva;
+  const showEditForm = inViewMode && isEditingMove;
 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
 
       <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col">
+        {/* HEADER igual */}
         <div className="px-6 py-4 bg-white border-b border-gray-100 flex justify-between items-start sticky top-0 z-10">
           <div>
             {isCreating ? (
@@ -77,7 +80,9 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                     <Copy className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <h2 className="text-xl font-bold text-gray-800">Turno {reserva?.horaInicio} hs</h2>
+                <h2 className="text-xl font-bold text-gray-800">
+                  {isEditingMove ? "Editar turno" : `Turno ${reserva?.horaInicio} hs`}
+                </h2>
                 <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
                   <span>{canchaDisplay}</span>
                   <span className="capitalize">
@@ -96,6 +101,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
           </button>
         </div>
 
+        {/* BODY */}
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-white">
           {isCreating ? (
             <CreateReservaForm
@@ -109,10 +115,31 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
               createError={createError}
             />
           ) : reserva ? (
-            <ReservaDetails reserva={reserva} getWhatsappLink={getWhatsappLink} />
+            showEditForm ? (
+              <EditReservaMoveForm
+                reserva={reserva}
+                idClub={props.idClub}
+                canchas={props.canchas}
+                reservas={props.reservas || []}
+                startHour={props.startHour ?? 8}
+                endHour={props.endHour ?? 26}
+                onCancel={() => setIsEditingMove(false)}
+                onSaved={() => {
+                  setIsEditingMove(false);
+                  props.onCreated(); // refresca agenda
+                }}
+              />
+            ) : (
+              <ReservaDetails
+                reserva={reserva}
+                getWhatsappLink={getWhatsappLink}
+                onEdit={() => setIsEditingMove(true)}
+              />
+            )
           ) : null}
         </div>
 
+        {/* FOOTER */}
         <div className="p-4 bg-white border-t border-gray-200">
           {isCreating ? (
             <div className="flex gap-3">
@@ -127,18 +154,21 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                 onClick={handleCreate}
                 className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
                 disabled={
-                    createLoading ||
-                    (!formData.esTurnoFijo && (priceLoading || !formData.precio)) ||
-                    !formData.horaInicio ||
-                    availableTimes.length === 0
-                  }    >
+                  createLoading ||
+                  (!formData.esTurnoFijo && (priceLoading || !formData.precio)) ||
+                  !formData.horaInicio ||
+                  availableTimes.length === 0
+                }
+              >
                 {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                 Crear
               </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <button className="py-2.5 bg-pink-600 text-white rounded-full text-sm font-bold hover:bg-pink-700">Reportar</button>
+              <button className="py-2.5 bg-pink-600 text-white rounded-full text-sm font-bold hover:bg-pink-700">
+                Reportar
+              </button>
 
               <button
                 onClick={handleCancelar}
