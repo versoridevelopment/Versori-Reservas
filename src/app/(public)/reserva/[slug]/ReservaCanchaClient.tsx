@@ -57,6 +57,66 @@ function addDaysISO(dateISO: string, add: number) {
   return `${yy}-${mm}-${dd}`;
 }
 
+// ===== Regla anti “30 colgados” (bloques libres máximos en unidades de 30m) =====
+type FreeBlockU = { startU: number; endU: number }; // [startU, endU)
+
+function absToU(absMin: number) {
+  return Math.round(absMin / CELL_MIN); // CELL_MIN = 30
+}
+
+function buildFreeBlocksFromSlots(
+  allAbsSorted: number[],
+  isCellFreeFn: (abs: number) => boolean
+): FreeBlockU[] {
+  const free: FreeBlockU[] = [];
+  if (!allAbsSorted.length) return free;
+
+  let runStartAbs: number | null = null;
+  let prevAbs: number | null = null;
+
+  for (const abs of allAbsSorted) {
+    const freeCell = isCellFreeFn(abs);
+
+    if (freeCell) {
+      if (runStartAbs === null) runStartAbs = abs;
+      prevAbs = abs;
+      continue;
+    }
+
+    // cerramos racha si veníamos en free
+    if (runStartAbs !== null && prevAbs !== null) {
+      const startU = absToU(runStartAbs);
+      const endU = absToU(prevAbs + CELL_MIN); // boundary después de la última celda libre
+      if (endU > startU) free.push({ startU, endU });
+    }
+    runStartAbs = null;
+    prevAbs = null;
+  }
+
+  // cerrar racha final
+  if (runStartAbs !== null && prevAbs !== null) {
+    const startU = absToU(runStartAbs);
+    const endU = absToU(prevAbs + CELL_MIN);
+    if (endU > startU) free.push({ startU, endU });
+  }
+
+  return free;
+}
+
+/**
+ * ✅ regla:
+ * bloquear SOLO si deja exactamente 1 unidad (30m) libre
+ * al inicio o al final del bloque libre máximo donde cae.
+ */
+function noDangling30(block: FreeBlockU, startU: number, endU: number) {
+  const leftU = startU - block.startU;
+  const rightU = block.endU - endU;
+
+  if (leftU === 1) return false;
+  if (rightU === 1) return false;
+  return true;
+}
+
 export default function ReservaCanchaClient({
   club,
   cancha,
@@ -90,14 +150,20 @@ export default function ReservaCanchaClient({
 
   // precio
   const [priceLoading, setPriceLoading] = useState(false);
-  const [pricePreview, setPricePreview] = useState<PrecioPreviewOk | PrecioPreviewErr | null>(null);
+  const [pricePreview, setPricePreview] = useState<
+    PrecioPreviewOk | PrecioPreviewErr | null
+  >(null);
 
   const openDay = useMemo(() => {
     return availableDays.find((d) => d.dateISO === openDateISO) || null;
   }, [availableDays, openDateISO]);
 
   const durationsAllowed = useMemo(() => {
-    return (openDay?.durations_allowed?.length ? openDay.durations_allowed : [60, 90, 120]) as number[];
+    return (openDay?.durations_allowed?.length ? openDay.durations_allowed : [
+      60,
+      90,
+      120,
+    ]) as number[];
   }, [openDay]);
 
   const slotsByAbs = useMemo(() => {
@@ -208,6 +274,9 @@ export default function ReservaCanchaClient({
     if (anchorAbs === null) {
       setAnchorAbs(absMin);
 
+      // ✅ bloques libres máximos (con celdas realmente "clickables")
+      const freeBlocks = buildFreeBlocksFromSlots(allAbsSorted, isCellFree);
+
       // valid ends = última CELDA a tocar
       const ends = new Set<number>();
 
@@ -226,7 +295,18 @@ export default function ReservaCanchaClient({
         // 2) boundary debe existir para poder tomar endTime
         const boundaryExists = !!slotsByAbs.get(boundary);
 
-        if (okRange && boundaryExists) ends.add(last);
+        if (!okRange || !boundaryExists) continue;
+
+        // ✅ 3) regla anti “30 colgados”
+        const startU = absToU(absMin);
+        const endU = absToU(boundary);
+
+        const block = freeBlocks.find((b) => startU >= b.startU && endU <= b.endU);
+        if (!block) continue;
+
+        if (!noDangling30(block, startU, endU)) continue;
+
+        ends.add(last);
       }
 
       setValidEndAbsSet(ends);
@@ -382,7 +462,13 @@ export default function ReservaCanchaClient({
       {/* hero */}
       <div className="w-full max-w-5xl relative z-10 mb-8">
         <div className="relative w-full h-48 sm:h-64 rounded-3xl overflow-hidden shadow-2xl border border-white/10">
-          <Image src={cancha.imagen} alt={cancha.nombre} fill className="object-cover" priority />
+          <Image
+            src={cancha.imagen}
+            alt={cancha.nombre}
+            fill
+            className="object-cover"
+            priority
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
 
           <div className="absolute bottom-0 left-0 p-6 w-full">
@@ -417,9 +503,12 @@ export default function ReservaCanchaClient({
             <div className="flex items-center gap-3">
               <Calendar className="w-5 h-5 text-[var(--primary)]" />
               <div className="flex flex-col items-start">
-                <span className="text-xs text-neutral-400 uppercase font-bold tracking-wider">Fecha</span>
+                <span className="text-xs text-neutral-400 uppercase font-bold tracking-wider">
+                  Fecha
+                </span>
                 <span className="text-sm font-semibold capitalize text-white">
-                  {openDayLabel} <span className="opacity-50 font-normal">({fechaTexto})</span>
+                  {openDayLabel}{" "}
+                  <span className="opacity-50 font-normal">({fechaTexto})</span>
                 </span>
               </div>
             </div>
@@ -528,7 +617,9 @@ export default function ReservaCanchaClient({
                   <Clock className="w-6 h-6 text-[var(--primary)]" />
                 </div>
                 <div>
-                  <p className="text-neutral-400 text-xs uppercase font-bold tracking-wider">Resumen</p>
+                  <p className="text-neutral-400 text-xs uppercase font-bold tracking-wider">
+                    Resumen
+                  </p>
                   <div className="text-white font-medium flex gap-2 items-center">
                     <span>
                       {startTime} - {endTime}
