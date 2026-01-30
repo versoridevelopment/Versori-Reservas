@@ -91,7 +91,7 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
     .select("id_usuario, id_club, roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"])
+    .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
 
   if (error) {
@@ -142,33 +142,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
 
     if (!id_cancha || Number.isNaN(id_cancha))
-      return NextResponse.json({ error: "id_cancha requerido" }, { status: 400 });
+      return NextResponse.json(
+        { error: "id_cancha requerido" },
+        { status: 400 },
+      );
 
     if (!/^\d{2}:\d{2}$/.test(inicio))
-      return NextResponse.json({ error: "inicio inválido (HH:MM)" }, { status: 400 });
+      return NextResponse.json(
+        { error: "inicio inválido (HH:MM)" },
+        { status: 400 },
+      );
 
     if (![60, 90, 120].includes(duracion_min))
       return NextResponse.json(
         { error: "duracion_min inválida (60/90/120)" },
-        { status: 400 }
+        { status: 400 },
       );
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start_date))
       return NextResponse.json(
         { error: "start_date inválida (YYYY-MM-DD)" },
-        { status: 400 }
+        { status: 400 },
       );
 
     if (end_date && !/^\d{4}-\d{2}-\d{2}$/.test(end_date))
       return NextResponse.json(
         { error: "end_date inválida (YYYY-MM-DD)" },
-        { status: 400 }
+        { status: 400 },
       );
 
     if (cliente_nombre.trim() === "" && cliente_telefono.trim() === "") {
       return NextResponse.json(
         { error: "Cliente requerido (nombre o teléfono)" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -177,7 +183,7 @@ export async function POST(req: Request) {
     if (aErr)
       return NextResponse.json(
         { error: "No se pudo validar sesión" },
-        { status: 401 }
+        { status: 401 },
       );
     const adminUserId = authRes?.user?.id ?? null;
     if (!adminUserId)
@@ -190,7 +196,7 @@ export async function POST(req: Request) {
     // --- CORRECCIÓN LÓGICA DE OFFSET (igual que en admin/reservas) ---
     const startMin = toMin(inicio);
     const endMinAbs = startMin + duracion_min;
-    
+
     // Si endMinAbs >= 1440 significa que termina a las 00:00 del día siguiente o después.
     const fin_dia_offset: 0 | 1 = endMinAbs >= 1440 ? 1 : 0;
     const fin = minToHHMM(endMinAbs);
@@ -229,7 +235,7 @@ export async function POST(req: Request) {
           error: `Error creando turno fijo: ${tfErr?.message || "unknown"}`,
           detail: tfErr,
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -237,7 +243,11 @@ export async function POST(req: Request) {
 
     // 2) Rango de generación
     const maxEnd = addDaysISO(start_date, weeks_ahead * 7);
-    const limitEnd = end_date ? (end_date < maxEnd ? end_date : maxEnd) : maxEnd;
+    const limitEnd = end_date
+      ? end_date < maxEnd
+        ? end_date
+        : maxEnd
+      : maxEnd;
 
     const fechas: string[] = [];
     for (let i = 0; i <= weeks_ahead; i++) {
@@ -259,30 +269,37 @@ export async function POST(req: Request) {
     if (cErr || !club) {
       return NextResponse.json(
         { error: "Error leyendo club para anticipo", detail: cErr },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     const pctRaw = Number((club as any).anticipo_porcentaje ?? 50);
     const pct = Math.min(100, Math.max(0, pctRaw));
 
-    async function calcularPrecio(params: { fecha: string; inicio: string; fin: string }) {
-      const calcRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: req.headers.get("cookie") || "",
+    async function calcularPrecio(params: {
+      fecha: string;
+      inicio: string;
+      fin: string;
+    }) {
+      const calcRes = await fetch(
+        new URL("/api/reservas/calcular-precio", req.url),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: req.headers.get("cookie") || "",
+          },
+          body: JSON.stringify({
+            id_club,
+            id_cancha,
+            fecha: params.fecha,
+            inicio: params.inicio,
+            fin: params.fin,
+            segmento_override,
+          }),
+          cache: "no-store",
         },
-        body: JSON.stringify({
-          id_club,
-          id_cancha,
-          fecha: params.fecha,
-          inicio: params.inicio,
-          fin: params.fin,
-          segmento_override,
-        }),
-        cache: "no-store",
-      });
+      );
 
       const calcJson = await calcRes.json().catch(() => null);
       return { calcRes, calcJson };
@@ -295,7 +312,11 @@ export async function POST(req: Request) {
       let segmento: Segmento = segmento_override;
 
       try {
-        const { calcRes, calcJson } = await calcularPrecio({ fecha, inicio, fin });
+        const { calcRes, calcJson } = await calcularPrecio({
+          fecha,
+          inicio,
+          fin,
+        });
 
         if (!calcRes.ok || !calcJson?.ok) {
           conflicts.push({
@@ -337,7 +358,7 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const monto_anticipo = Math.round((precio_total * (pct / 100)) * 100) / 100;
+      const monto_anticipo = Math.round(precio_total * (pct / 100) * 100) / 100;
 
       const { error: insErr } = await supabaseAdmin.from("reservas").insert({
         id_club,
@@ -371,7 +392,13 @@ export async function POST(req: Request) {
           if (on_conflict === "abort") break;
           continue;
         }
-        conflicts.push({ fecha, inicio, fin, reason: "ERROR_INSERT", detail: insErr });
+        conflicts.push({
+          fecha,
+          inicio,
+          fin,
+          reason: "ERROR_INSERT",
+          detail: insErr,
+        });
         if (on_conflict === "abort") break;
         continue;
       }
@@ -386,13 +413,16 @@ export async function POST(req: Request) {
     });
   } catch (e: any) {
     console.error("[POST /api/admin/turnos-fijos] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Error interno" },
+      { status: 500 },
+    );
   }
 }
 
 function dowFromISO(fechaISO: string) {
   const d = new Date(`${fechaISO}T00:00:00-03:00`);
-  return d.getDay(); 
+  return d.getDay();
 }
 
 function todayISO() {
@@ -407,26 +437,42 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const id_club = Number(url.searchParams.get("id_club") || 0);
-    const fecha = url.searchParams.get("fecha"); 
+    const fecha = url.searchParams.get("fecha");
     const include_future_count =
       url.searchParams.get("include_future_count") === "1" ||
       url.searchParams.get("include_future_count") === "true";
 
-    if (!id_club) return NextResponse.json({ ok: false, error: "id_club requerido" }, { status: 400 });
+    if (!id_club)
+      return NextResponse.json(
+        { ok: false, error: "id_club requerido" },
+        { status: 400 },
+      );
 
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
-    if (aErr) return NextResponse.json({ ok: false, error: "No se pudo validar sesión" }, { status: 401 });
+    if (aErr)
+      return NextResponse.json(
+        { ok: false, error: "No se pudo validar sesión" },
+        { status: 401 },
+      );
     const userId = authRes?.user?.id ?? null;
-    if (!userId) return NextResponse.json({ ok: false, error: "LOGIN_REQUERIDO" }, { status: 401 });
+    if (!userId)
+      return NextResponse.json(
+        { ok: false, error: "LOGIN_REQUERIDO" },
+        { status: 401 },
+      );
 
     const perm = await assertAdminOrStaff({ id_club, userId });
-    if (!perm.ok) return NextResponse.json({ ok: false, error: perm.error }, { status: perm.status });
+    if (!perm.ok)
+      return NextResponse.json(
+        { ok: false, error: perm.error },
+        { status: perm.status },
+      );
 
     let q = supabaseAdmin
       .from("turnos_fijos")
       .select(
-        "id_turno_fijo,id_club,id_cancha,dow,inicio,duracion_min,fin,fin_dia_offset,activo,segmento,tipo_turno,notas,cliente_nombre,cliente_telefono,cliente_email,start_date,end_date,created_at,updated_at"
+        "id_turno_fijo,id_club,id_cancha,dow,inicio,duracion_min,fin,fin_dia_offset,activo,segmento,tipo_turno,notas,cliente_nombre,cliente_telefono,cliente_email,start_date,end_date,created_at,updated_at",
       )
       .eq("id_club", id_club)
       .order("activo", { ascending: false })
@@ -434,7 +480,10 @@ export async function GET(req: Request) {
 
     if (fecha) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-        return NextResponse.json({ ok: false, error: "fecha inválida (YYYY-MM-DD)" }, { status: 400 });
+        return NextResponse.json(
+          { ok: false, error: "fecha inválida (YYYY-MM-DD)" },
+          { status: 400 },
+        );
       }
       const dow = dowFromISO(fecha);
       q = q
@@ -444,7 +493,11 @@ export async function GET(req: Request) {
     }
 
     const { data: templates, error: tErr } = await q;
-    if (tErr) return NextResponse.json({ ok: false, error: tErr.message }, { status: 500 });
+    if (tErr)
+      return NextResponse.json(
+        { ok: false, error: tErr.message },
+        { status: 500 },
+      );
 
     if (!include_future_count) {
       return NextResponse.json({
@@ -467,7 +520,7 @@ export async function GET(req: Request) {
           .in("estado", ["confirmada", "pendiente_pago"]);
 
         return { ...tf, future_count: error ? 0 : Number(count || 0) };
-      })
+      }),
     );
 
     return NextResponse.json({
@@ -478,6 +531,9 @@ export async function GET(req: Request) {
     });
   } catch (e: any) {
     console.error("[GET /api/admin/turnos-fijos] ex:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Error interno" },
+      { status: 500 },
+    );
   }
 }

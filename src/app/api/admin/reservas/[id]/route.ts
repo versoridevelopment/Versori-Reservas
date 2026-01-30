@@ -13,7 +13,7 @@ async function assertAdminOrStaff(id_club: number, userId: string) {
     .select("roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"])
+    .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
 
   if (error || !data || data.length === 0) return false;
@@ -46,13 +46,16 @@ export async function GET(req: Request, { params }: Ctx) {
         cancha:canchas(nombre),
         profile:profiles(id_usuario, nombre, apellido, telefono, email),
         pagos:reservas_pagos(*)
-      `
+      `,
       )
       .eq("id_reserva", id_reserva)
       .single();
 
     if (error || !reserva) {
-      return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Reserva no encontrada" },
+        { status: 404 },
+      );
     }
 
     // 3. Verificar permisos sobre el club de la reserva
@@ -63,13 +66,16 @@ export async function GET(req: Request, { params }: Ctx) {
 
     // 4. Normalizar Datos
     // Prioridad: Datos en reserva (invitado) > Datos en perfil (registrado)
-    const cliente_nombre = (
-      reserva.cliente_nombre ||
-      (reserva.profile ? `${reserva.profile.nombre} ${reserva.profile.apellido}` : "")
-    )
-      .trim() || "Sin nombre";
+    const cliente_nombre =
+      (
+        reserva.cliente_nombre ||
+        (reserva.profile
+          ? `${reserva.profile.nombre} ${reserva.profile.apellido}`
+          : "")
+      ).trim() || "Sin nombre";
 
-    const cliente_telefono = reserva.cliente_telefono || reserva.profile?.telefono || "";
+    const cliente_telefono =
+      reserva.cliente_telefono || reserva.profile?.telefono || "";
     const cliente_email = reserva.cliente_email || reserva.profile?.email || "";
 
     // Calcular totales financieros
@@ -133,13 +139,22 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const inicio = String(body?.inicio || "");
 
     if (!Number.isFinite(id_cancha) || id_cancha <= 0) {
-      return NextResponse.json({ error: "id_cancha inválido" }, { status: 400 });
+      return NextResponse.json(
+        { error: "id_cancha inválido" },
+        { status: 400 },
+      );
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-      return NextResponse.json({ error: "fecha inválida (YYYY-MM-DD)" }, { status: 400 });
+      return NextResponse.json(
+        { error: "fecha inválida (YYYY-MM-DD)" },
+        { status: 400 },
+      );
     }
     if (!/^\d{2}:\d{2}$/.test(inicio)) {
-      return NextResponse.json({ error: "inicio inválido (HH:MM)" }, { status: 400 });
+      return NextResponse.json(
+        { error: "inicio inválido (HH:MM)" },
+        { status: 400 },
+      );
     }
 
     // Auth
@@ -156,15 +171,23 @@ export async function PATCH(req: Request, { params }: Ctx) {
     // - segmento (para precio)
     const { data: r0, error: r0Err } = await supabaseAdmin
       .from("reservas")
-      .select("id_reserva,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,segmento,estado")
+      .select(
+        "id_reserva,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,segmento,estado",
+      )
       .eq("id_reserva", id_reserva)
       .maybeSingle();
 
-    if (r0Err) return NextResponse.json({ error: r0Err.message }, { status: 500 });
-    if (!r0?.id_club) return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 });
+    if (r0Err)
+      return NextResponse.json({ error: r0Err.message }, { status: 500 });
+    if (!r0?.id_club)
+      return NextResponse.json(
+        { error: "Reserva no encontrada" },
+        { status: 404 },
+      );
 
     const okPerm = await assertAdminOrStaff(r0.id_club, userId);
-    if (!okPerm) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+    if (!okPerm)
+      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
     // ----- duración snapshot -----
     const oldInicio = String(r0.inicio || "").slice(0, 5);
@@ -196,31 +219,35 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const fin = addMinutesHHMM(inicio, duracion_min);
     const fin_dia_offset = endMin > 1440 ? 1 : 0;
 
-
     // ----- recalcular precio usando TU API -----
     // usamos segmento de la reserva (si no hay, default "publico")
     const segmento_override =
-      r0.segmento === "profe" || r0.segmento === "publico" ? r0.segmento : "publico";
+      r0.segmento === "profe" || r0.segmento === "publico"
+        ? r0.segmento
+        : "publico";
 
-    const priceRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({
-        id_club: r0.id_club,
-        id_cancha,
-        fecha,
-        inicio,
-        fin,
-        segmento_override,
-      }),
-    });
+    const priceRes = await fetch(
+      new URL("/api/reservas/calcular-precio", req.url),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          id_club: r0.id_club,
+          id_cancha,
+          fecha,
+          inicio,
+          fin,
+          segmento_override,
+        }),
+      },
+    );
 
     const priceJson = await priceRes.json().catch(() => null);
     if (!priceRes.ok || !priceJson?.ok) {
       return NextResponse.json(
         { error: priceJson?.error || "No se pudo calcular el precio" },
-        { status: 409 }
+        { status: 409 },
       );
     }
 
@@ -252,9 +279,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, data: Array.isArray(data) ? data[0] : data });
+    return NextResponse.json({
+      ok: true,
+      data: Array.isArray(data) ? data[0] : data,
+    });
   } catch (e: any) {
     console.error("[PATCH /api/admin/reservas/[id]]", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Error interno" },
+      { status: 500 },
+    );
   }
 }

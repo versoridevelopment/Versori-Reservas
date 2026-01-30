@@ -105,7 +105,7 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
     .select("id_usuario, id_club, roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"])
+    .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
 
   if (error)

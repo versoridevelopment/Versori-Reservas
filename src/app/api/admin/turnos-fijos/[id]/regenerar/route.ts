@@ -13,11 +13,21 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
     .select("id_usuario, id_club, roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"])
+    .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
 
-  if (error) return { ok: false as const, status: 500, error: `Error validando rol: ${error.message}` };
-  if (!data || data.length === 0) return { ok: false as const, status: 403, error: "No tenés permisos admin/staff en este club" };
+  if (error)
+    return {
+      ok: false as const,
+      status: 500,
+      error: `Error validando rol: ${error.message}`,
+    };
+  if (!data || data.length === 0)
+    return {
+      ok: false as const,
+      status: 403,
+      error: "No tenés permisos admin/staff en este club",
+    };
   return { ok: true as const };
 }
 
@@ -25,14 +35,18 @@ function toMin(hhmm: string) {
   const [h, m] = (hhmm || "").slice(0, 5).split(":").map(Number);
   return (h || 0) * 60 + (m || 0);
 }
-function pad2(n: number) { return String(n).padStart(2, "0"); }
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
 function minToHHMM(minAbs: number) {
   const m = ((minAbs % 1440) + 1440) % 1440;
   const hh = Math.floor(m / 60);
   const mm = m % 60;
   return `${pad2(hh)}:${pad2(mm)}`;
 }
-function round2(n: number) { return Math.round(n * 100) / 100; }
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
 function addDaysISO(dateISO: string, add: number) {
   const [y, m, d] = dateISO.split("-").map(Number);
   const dt = new Date(y, m - 1, d + add);
@@ -55,28 +69,42 @@ type Body = {
   on_conflict?: "skip" | "abort";
 };
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const resolvedParams = await params;
     const id_turno_fijo = Number(resolvedParams.id);
-    
-    if (!id_turno_fijo) return NextResponse.json({ error: "ID inválido" }, { status: 400 });
+
+    if (!id_turno_fijo)
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 });
 
     const body = (await req.json().catch(() => null)) as Body | null;
     const id_club = Number(body?.id_club || 0);
-    const weeks_ahead = Math.min(52, Math.max(1, Number(body?.weeks_ahead ?? 8)));
+    const weeks_ahead = Math.min(
+      52,
+      Math.max(1, Number(body?.weeks_ahead ?? 8)),
+    );
     const on_conflict = body?.on_conflict ?? "skip";
 
-    if (!id_club) return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
+    if (!id_club)
+      return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
 
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
-    if (aErr) return NextResponse.json({ error: "No se pudo validar sesión" }, { status: 401 });
+    if (aErr)
+      return NextResponse.json(
+        { error: "No se pudo validar sesión" },
+        { status: 401 },
+      );
     const userId = authRes?.user?.id ?? null;
-    if (!userId) return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
+    if (!userId)
+      return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
 
     const perm = await assertAdminOrStaff({ id_club, userId });
-    if (!perm.ok) return NextResponse.json({ error: perm.error }, { status: perm.status });
+    if (!perm.ok)
+      return NextResponse.json({ error: perm.error }, { status: perm.status });
 
     const { data: tf, error: tfErr } = await supabaseAdmin
       .from("turnos_fijos")
@@ -85,8 +113,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .eq("id_club", id_club)
       .maybeSingle();
 
-    if (tfErr) return NextResponse.json({ error: tfErr.message }, { status: 500 });
-    if (!tf) return NextResponse.json({ error: "Turno fijo no encontrado" }, { status: 404 });
+    if (tfErr)
+      return NextResponse.json({ error: tfErr.message }, { status: 500 });
+    if (!tf)
+      return NextResponse.json(
+        { error: "Turno fijo no encontrado" },
+        { status: 404 },
+      );
 
     const id_cancha = Number(tf.id_cancha);
     const inicio = String(tf.inicio).slice(0, 5);
@@ -113,7 +146,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .maybeSingle();
 
     const hoy = todayISO();
-    const start_from = lastInst?.fecha ? addDaysISO(String(lastInst.fecha), 7) : String(tf.start_date || hoy);
+    const start_from = lastInst?.fecha
+      ? addDaysISO(String(lastInst.fecha), 7)
+      : String(tf.start_date || hoy);
     const hardEnd = tf.end_date ? String(tf.end_date) : null;
 
     const dates: string[] = [];
@@ -127,12 +162,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let created_count = 0;
 
     for (const fecha of dates) {
-      const calcRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", cookie: req.headers.get("cookie") || "" },
-        body: JSON.stringify({ id_club, id_cancha, fecha, inicio, fin, segmento_override }),
-        cache: "no-store",
-      });
+      const calcRes = await fetch(
+        new URL("/api/reservas/calcular-precio", req.url),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: req.headers.get("cookie") || "",
+          },
+          body: JSON.stringify({
+            id_club,
+            id_cancha,
+            fecha,
+            inicio,
+            fin,
+            segmento_override,
+          }),
+          cache: "no-store",
+        },
+      );
 
       const calcJson = await calcRes.json().catch(() => null);
       if (!calcRes.ok || !calcJson?.ok) {
@@ -146,18 +194,41 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const id_regla = Number(calcJson?.id_regla ?? null);
       const segmento = (calcJson?.segmento ?? segmento_override) as any;
 
-      const { data: club } = await supabaseAdmin.from("clubes").select("anticipo_porcentaje").eq("id_club", id_club).maybeSingle();
-      const pct = Math.min(100, Math.max(0, Number((club as any)?.anticipo_porcentaje ?? 50)));
+      const { data: club } = await supabaseAdmin
+        .from("clubes")
+        .select("anticipo_porcentaje")
+        .eq("id_club", id_club)
+        .maybeSingle();
+      const pct = Math.min(
+        100,
+        Math.max(0, Number((club as any)?.anticipo_porcentaje ?? 50)),
+      );
       const monto_anticipo = round2(precio_total * (pct / 100));
 
       const { error: insErr } = await supabaseAdmin.from("reservas").insert({
-        id_club, id_cancha, id_usuario: null, fecha, inicio, fin, fin_dia_offset,
-        estado: "confirmada", precio_total, anticipo_porcentaje: pct, monto_anticipo,
-        segmento, id_tarifario: Number.isFinite(id_tarifario) ? id_tarifario : null,
-        id_regla: Number.isFinite(id_regla) ? id_regla : null, tipo_turno,
-        notas: notas?.toString() || null, cliente_nombre: cliente_nombre.trim() || null,
-        cliente_telefono: cliente_telefono.trim() || null, cliente_email: cliente_email.trim() || null,
-        origen: "turno_fijo", creado_por: userId, expires_at: null, id_turno_fijo,
+        id_club,
+        id_cancha,
+        id_usuario: null,
+        fecha,
+        inicio,
+        fin,
+        fin_dia_offset,
+        estado: "confirmada",
+        precio_total,
+        anticipo_porcentaje: pct,
+        monto_anticipo,
+        segmento,
+        id_tarifario: Number.isFinite(id_tarifario) ? id_tarifario : null,
+        id_regla: Number.isFinite(id_regla) ? id_regla : null,
+        tipo_turno,
+        notas: notas?.toString() || null,
+        cliente_nombre: cliente_nombre.trim() || null,
+        cliente_telefono: cliente_telefono.trim() || null,
+        cliente_email: cliente_email.trim() || null,
+        origen: "turno_fijo",
+        creado_por: userId,
+        expires_at: null,
+        id_turno_fijo,
       });
 
       if (insErr) {
@@ -166,14 +237,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           if (on_conflict === "abort") break;
           continue;
         }
-        return NextResponse.json({ error: insErr.message, detail: insErr }, { status: 500 });
+        return NextResponse.json(
+          { error: insErr.message, detail: insErr },
+          { status: 500 },
+        );
       }
       created_count++;
     }
 
-    return NextResponse.json({ ok: true, id_turno_fijo, created_count, conflicts, start_from, weeks_ahead });
+    return NextResponse.json({
+      ok: true,
+      id_turno_fijo,
+      created_count,
+      conflicts,
+      start_from,
+      weeks_ahead,
+    });
   } catch (e: any) {
     console.error("[POST /api/admin/turnos-fijos/:id/regenerar] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Error interno" },
+      { status: 500 },
+    );
   }
 }

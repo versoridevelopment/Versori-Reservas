@@ -15,7 +15,7 @@ async function assertAdminOrStaff(id_club: number, userId: string) {
     .select("roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"])
+    .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
 
   return !(error || !data || data.length === 0);
@@ -75,7 +75,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     if (current.id_club !== id_club)
       return NextResponse.json(
         { error: "No coincide id_club" },
-        { status: 403 }
+        { status: 403 },
       );
 
     const patch: any = {};
@@ -102,13 +102,13 @@ export async function PATCH(req: Request, ctx: RouteContext) {
       if (!body.inicio || !body.fin) {
         return NextResponse.json(
           { error: "inicio/fin requeridos al pasar a parcial" },
-          { status: 400 }
+          { status: 400 },
         );
       }
       if (!isHHMM(body.inicio) || !isHHMM(body.fin)) {
         return NextResponse.json(
           { error: "inicio/fin deben ser HH:MM" },
-          { status: 400 }
+          { status: 400 },
         );
       }
       patch.inicio = body.inicio;
@@ -120,8 +120,10 @@ export async function PATCH(req: Request, ctx: RouteContext) {
         const [fh, fm] = patch.fin.split(":").map(Number);
         if (fh * 60 + fm <= ih * 60 + im) {
           return NextResponse.json(
-            { error: "fin debe ser mayor que inicio (o marcá cruza medianoche)" },
-            { status: 400 }
+            {
+              error: "fin debe ser mayor que inicio (o marcá cruza medianoche)",
+            },
+            { status: 400 },
           );
         }
       }
@@ -136,8 +138,11 @@ export async function PATCH(req: Request, ctx: RouteContext) {
         // si el actual es total (inicio/fin null), para editar horas primero tendrías que pasar a parcial
         if (!current.inicio || !current.fin) {
           return NextResponse.json(
-            { error: "Este cierre es total. Pasalo a parcial para editar horas." },
-            { status: 400 }
+            {
+              error:
+                "Este cierre es total. Pasalo a parcial para editar horas.",
+            },
+            { status: 400 },
           );
         }
 
@@ -146,7 +151,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
         if (!isHHMM(inicio) || !isHHMM(fin))
           return NextResponse.json(
             { error: "inicio/fin deben ser HH:MM" },
-            { status: 400 }
+            { status: 400 },
           );
 
         patch.inicio = inicio;
@@ -165,8 +170,11 @@ export async function PATCH(req: Request, ctx: RouteContext) {
           const [fh, fm] = fin.split(":").map(Number);
           if (fh * 60 + fm <= ih * 60 + im) {
             return NextResponse.json(
-              { error: "fin debe ser mayor que inicio (o marcá cruza medianoche)" },
-              { status: 400 }
+              {
+                error:
+                  "fin debe ser mayor que inicio (o marcá cruza medianoche)",
+              },
+              { status: 400 },
             );
           }
         }
@@ -178,7 +186,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
       .update(patch)
       .eq("id_cierre", id_cierre)
       .select(
-        "id_cierre,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,motivo,activo,created_at"
+        "id_cierre,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,motivo,activo,created_at",
       )
       .single();
 
@@ -187,10 +195,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
 
     return NextResponse.json({ ok: true, cierre: data });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message ?? "Error" }, { status: 500 });
   }
 }
 
@@ -228,7 +233,7 @@ export async function DELETE(req: Request, ctx: RouteContext) {
     if (cur.id_club !== id_club)
       return NextResponse.json(
         { error: "No coincide id_club" },
-        { status: 403 }
+        { status: 403 },
       );
 
     const { error } = await supabaseAdmin
@@ -241,9 +246,6 @@ export async function DELETE(req: Request, ctx: RouteContext) {
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message ?? "Error" }, { status: 500 });
   }
 }

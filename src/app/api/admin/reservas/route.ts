@@ -73,7 +73,7 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
     .select("id_usuario, id_club, roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"])
+    .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
 
   if (error) {
@@ -114,16 +114,19 @@ export async function POST(req: Request) {
     if (!id_club || Number.isNaN(id_club))
       return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
     if (!id_cancha || Number.isNaN(id_cancha))
-      return NextResponse.json({ error: "id_cancha requerido" }, { status: 400 });
+      return NextResponse.json(
+        { error: "id_cancha requerido" },
+        { status: 400 },
+      );
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha))
       return NextResponse.json(
         { error: "fecha inválida (YYYY-MM-DD)" },
-        { status: 400 }
+        { status: 400 },
       );
     if (!/^\d{2}:\d{2}$/.test(inicio))
       return NextResponse.json(
         { error: "inicio inválido (HH:MM)" },
-        { status: 400 }
+        { status: 400 },
       );
 
     // ✅ Cálculo de duración_min
@@ -142,7 +145,7 @@ export async function POST(req: Request) {
     if (![60, 90, 120].includes(duracion_min)) {
       return NextResponse.json(
         { error: "duracion_min inválida (60/90/120)" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -152,7 +155,7 @@ export async function POST(req: Request) {
     if (aErr)
       return NextResponse.json(
         { error: "No se pudo validar sesión" },
-        { status: 401 }
+        { status: 401 },
       );
     const adminUserId = authRes?.user?.id ?? null;
     if (!adminUserId)
@@ -167,7 +170,7 @@ export async function POST(req: Request) {
     if (cliente_nombre.trim() === "" && cliente_telefono.trim() === "") {
       return NextResponse.json(
         { error: "Cliente requerido (nombre o teléfono)" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -190,7 +193,9 @@ export async function POST(req: Request) {
 
     // Ventana de solapes
     const windowStart = new Date(arMidnightISO(fecha)).toISOString();
-    const windowEnd = new Date(arMidnightISO(addDaysISO(fecha, 2))).toISOString();
+    const windowEnd = new Date(
+      arMidnightISO(addDaysISO(fecha, 2)),
+    ).toISOString();
 
     const { error: ovErr } = await supabaseAdmin
       .from("reservas")
@@ -205,7 +210,7 @@ export async function POST(req: Request) {
     if (ovErr) {
       return NextResponse.json(
         { error: `Error validando solapes: ${ovErr.message}` },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -227,7 +232,7 @@ export async function POST(req: Request) {
           segmento_override,
         }),
         cache: "no-store",
-      }
+      },
     );
 
     const calcJson = await calcRes.json().catch(() => null);
@@ -237,7 +242,7 @@ export async function POST(req: Request) {
           error: calcJson?.error || "No se pudo calcular el precio",
           detail: calcJson,
         },
-        { status: calcRes.status || 409 }
+        { status: calcRes.status || 409 },
       );
     }
 
@@ -247,7 +252,7 @@ export async function POST(req: Request) {
     if (!Number.isFinite(precio_total) || precio_total <= 0) {
       return NextResponse.json(
         { error: "Precio inválido calculado" },
-        { status: 409 }
+        { status: 409 },
       );
     }
 
@@ -265,15 +270,20 @@ export async function POST(req: Request) {
     if (cErr)
       return NextResponse.json(
         { error: `Error leyendo club: ${cErr.message}` },
-        { status: 500 }
+        { status: 500 },
       );
 
     // ✅ (2) VALIDACIÓN club no encontrado
     if (!club) {
-      return NextResponse.json({ error: "Club no encontrado" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Club no encontrado" },
+        { status: 404 },
+      );
     }
 
-    const anticipo_porcentaje = Number((club as any)?.anticipo_porcentaje ?? 50);
+    const anticipo_porcentaje = Number(
+      (club as any)?.anticipo_porcentaje ?? 50,
+    );
     const pct = Math.min(100, Math.max(0, anticipo_porcentaje));
     const monto_anticipo = round2(precio_total * (pct / 100));
 
@@ -309,11 +319,14 @@ export async function POST(req: Request) {
 
     if (insErr) {
       if ((insErr as any).code === "23P01") {
-        return NextResponse.json({ error: "TURNOS_SOLAPADOS" }, { status: 409 });
+        return NextResponse.json(
+          { error: "TURNOS_SOLAPADOS" },
+          { status: 409 },
+        );
       }
       return NextResponse.json(
         { error: `Error creando reserva: ${insErr.message}`, detail: insErr },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -337,7 +350,7 @@ export async function POST(req: Request) {
     console.error("[POST /api/admin/reservas] ex:", e);
     return NextResponse.json(
       { error: e?.message || "Error interno" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

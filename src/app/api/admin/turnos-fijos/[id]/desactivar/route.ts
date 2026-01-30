@@ -14,11 +14,21 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
     .select("id_usuario, id_club, roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"])
+    .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
 
-  if (error) return { ok: false as const, status: 500, error: `Error validando rol: ${error.message}` };
-  if (!data || data.length === 0) return { ok: false as const, status: 403, error: "No tenés permisos admin/staff en este club" };
+  if (error)
+    return {
+      ok: false as const,
+      status: 500,
+      error: `Error validando rol: ${error.message}`,
+    };
+  if (!data || data.length === 0)
+    return {
+      ok: false as const,
+      status: 403,
+      error: "No tenés permisos admin/staff en este club",
+    };
   return { ok: true as const };
 }
 
@@ -37,12 +47,16 @@ type Body = {
   incluir_hoy?: boolean;
 };
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const resolvedParams = await params;
     const id_turno_fijo = Number(resolvedParams.id);
-    
-    if (!id_turno_fijo) return NextResponse.json({ error: "ID inválido" }, { status: 400 });
+
+    if (!id_turno_fijo)
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 });
 
     const body = (await req.json().catch(() => null)) as Body | null;
     const id_club = Number(body?.id_club || 0);
@@ -50,16 +64,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const incluir_hoy = body?.incluir_hoy ?? true;
     const motivo = (body?.motivo ?? "Turno fijo desactivado").toString();
 
-    if (!id_club) return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
+    if (!id_club)
+      return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
 
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
-    if (aErr) return NextResponse.json({ error: "No se pudo validar sesión" }, { status: 401 });
+    if (aErr)
+      return NextResponse.json(
+        { error: "No se pudo validar sesión" },
+        { status: 401 },
+      );
     const userId = authRes?.user?.id ?? null;
-    if (!userId) return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
+    if (!userId)
+      return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
 
     const perm = await assertAdminOrStaff({ id_club, userId });
-    if (!perm.ok) return NextResponse.json({ error: perm.error }, { status: perm.status });
+    if (!perm.ok)
+      return NextResponse.json({ error: perm.error }, { status: perm.status });
 
     const { data: tf, error: tfErr } = await supabaseAdmin
       .from("turnos_fijos")
@@ -67,9 +88,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .eq("id_turno_fijo", id_turno_fijo)
       .maybeSingle();
 
-    if (tfErr) return NextResponse.json({ error: tfErr.message }, { status: 500 });
+    if (tfErr)
+      return NextResponse.json({ error: tfErr.message }, { status: 500 });
     if (!tf || Number((tf as any).id_club) !== id_club) {
-      return NextResponse.json({ error: "Turno fijo no encontrado" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Turno fijo no encontrado" },
+        { status: 404 },
+      );
     }
 
     const { error: upErr } = await supabaseAdmin
@@ -78,7 +103,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .eq("id_turno_fijo", id_turno_fijo)
       .eq("id_club", id_club);
 
-    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+    if (upErr)
+      return NextResponse.json({ error: upErr.message }, { status: 500 });
 
     let canceled_count = 0;
 
@@ -102,13 +128,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         ? await base.gte("fecha", hoy).select("id_reserva")
         : await base.gt("fecha", hoy).select("id_reserva");
 
-      if (canErr) return NextResponse.json({ error: canErr.message }, { status: 500 });
+      if (canErr)
+        return NextResponse.json({ error: canErr.message }, { status: 500 });
       canceled_count = Array.isArray(upd) ? upd.length : 0;
     }
 
     return NextResponse.json({ ok: true, id_turno_fijo, canceled_count });
   } catch (e: any) {
     console.error("[POST /api/admin/turnos-fijos/:id/desactivar] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Error interno" },
+      { status: 500 },
+    );
   }
 }

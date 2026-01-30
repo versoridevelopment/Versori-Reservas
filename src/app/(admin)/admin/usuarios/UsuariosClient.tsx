@@ -48,10 +48,10 @@ function RoleBadge({ rol }: { rol: string }) {
   const activeStyle = r.includes("admin")
     ? styles.admin
     : r.includes("staff")
-    ? styles.staff
-    : r.includes("profe")
-    ? styles.profe
-    : styles.cliente;
+      ? styles.staff
+      : r.includes("profe")
+        ? styles.profe
+        : styles.cliente;
 
   return (
     <span
@@ -74,14 +74,14 @@ function Avatar({
   size?: "sm" | "md" | "lg";
 }) {
   const iniciales = `${(nombre || "").charAt(0)}${(apellido || "").charAt(
-    0
+    0,
   )}`.toUpperCase();
   const sizeClass =
     size === "lg"
       ? "w-12 h-12 text-sm"
       : size === "sm"
-      ? "w-8 h-8 text-[10px]"
-      : "w-10 h-10 text-xs";
+        ? "w-8 h-8 text-[10px]"
+        : "w-10 h-10 text-xs";
 
   return (
     <div className="relative inline-block">
@@ -224,8 +224,8 @@ export default function UsuariosClient({
                   ? [...r.roles, "profe"]
                   : r.roles.filter((role) => role !== "profe"),
               }
-            : r
-        )
+            : r,
+        ),
       );
     } catch (err: any) {
       alert(err.message);
@@ -252,8 +252,8 @@ export default function UsuariosClient({
 
       setRows((prev) =>
         prev.map((r) =>
-          r.id_usuario === u.id_usuario ? { ...r, bloqueado: !r.bloqueado } : r
-        )
+          r.id_usuario === u.id_usuario ? { ...r, bloqueado: !r.bloqueado } : r,
+        ),
       );
     } catch (err: any) {
       alert(err.message);
@@ -465,13 +465,13 @@ export default function UsuariosClient({
                               <div className="flex items-center gap-1.5 text-slate-700 font-medium">
                                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
                                 {new Date(u.ultima_reserva).toLocaleDateString(
-                                  "es-AR"
+                                  "es-AR",
                                 )}
                               </div>
                               <span className="text-xs text-slate-400 pl-5">
                                 {new Date(u.ultima_reserva).toLocaleTimeString(
                                   "es-AR",
-                                  { hour: "2-digit", minute: "2-digit" }
+                                  { hour: "2-digit", minute: "2-digit" },
                                 )}
                               </span>
                             </div>
@@ -498,21 +498,7 @@ export default function UsuariosClient({
                             >
                               <UserCheck className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleToggleBloqueo(u)}
-                              title={u.bloqueado ? "Desbloquear" : "Bloquear"}
-                              className={`p-2 rounded-lg border transition-all ${
-                                u.bloqueado
-                                  ? "bg-red-50 text-red-600 border-red-200"
-                                  : "bg-white text-slate-400 border-slate-200 hover:text-red-600"
-                              }`}
-                            >
-                              {u.bloqueado ? (
-                                <CheckCircle2 className="w-4 h-4" />
-                              ) : (
-                                <Ban className="w-4 h-4" />
-                              )}
-                            </button>
+
                             <Link
                               href={`/admin/usuarios/${u.id_usuario}`}
                               className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
@@ -584,7 +570,7 @@ export default function UsuariosClient({
                           <span>
                             Última reserva:{" "}
                             {new Date(u.ultima_reserva).toLocaleDateString(
-                              "es-AR"
+                              "es-AR",
                             )}
                           </span>
                         </div>

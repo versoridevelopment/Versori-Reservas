@@ -13,7 +13,7 @@ async function assertAdminOrStaff(id_club: number, userId: string) {
     .select("roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"])
+    .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
 
   return !(error || !data || data.length === 0);
@@ -30,10 +30,10 @@ function isHHMM(s: string) {
 type CreateBody = {
   id_club: number;
   id_cancha?: number | null;
-  fecha: string;              // YYYY-MM-DD
-  cierre_total: boolean;      // true => inicio/fin null
-  inicio?: string | null;     // HH:MM
-  fin?: string | null;        // HH:MM
+  fecha: string; // YYYY-MM-DD
+  cierre_total: boolean; // true => inicio/fin null
+  inicio?: string | null; // HH:MM
+  fin?: string | null; // HH:MM
   cruza_medianoche?: boolean; // si true => fin_dia_offset=1
   motivo?: string | null;
   activo?: boolean;
@@ -47,39 +47,50 @@ export async function GET(req: Request) {
     const id_cancha = url.searchParams.get("id_cancha"); // opcional
     const include_inactivos = url.searchParams.get("include_inactivos") === "1";
 
-    if (!id_club) return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
+    if (!id_club)
+      return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
 
     // Auth
     const supabase = await getSupabaseServerClient();
     const { data: auth } = await supabase.auth.getUser();
     const userId = auth.user?.id;
-    if (!userId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    if (!userId)
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
     const ok = await assertAdminOrStaff(id_club, userId);
-    if (!ok) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+    if (!ok)
+      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
     let q = supabaseAdmin
       .from("club_cierres")
-      .select("id_cierre,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,motivo,activo,created_at")
+      .select(
+        "id_cierre,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,motivo,activo,created_at",
+      )
       .eq("id_club", id_club)
       .order("fecha", { ascending: true })
       .order("created_at", { ascending: false });
 
     if (fecha) {
-      if (!isISODate(fecha)) return NextResponse.json({ error: "fecha inválida" }, { status: 400 });
+      if (!isISODate(fecha))
+        return NextResponse.json({ error: "fecha inválida" }, { status: 400 });
       q = q.eq("fecha", fecha);
     }
 
     if (id_cancha !== null && id_cancha !== undefined && id_cancha !== "") {
       const n = Number(id_cancha);
-      if (!n) return NextResponse.json({ error: "id_cancha inválido" }, { status: 400 });
+      if (!n)
+        return NextResponse.json(
+          { error: "id_cancha inválido" },
+          { status: 400 },
+        );
       q = q.eq("id_cancha", n);
     }
 
     if (!include_inactivos) q = q.eq("activo", true);
 
     const { data, error } = await q;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error)
+      return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true, cierres: data ?? [] });
   } catch (e: any) {
@@ -95,17 +106,21 @@ export async function POST(req: Request) {
     const id_cancha = body.id_cancha ? Number(body.id_cancha) : null;
     const fecha = body.fecha;
 
-    if (!id_club) return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
-    if (!fecha || !isISODate(fecha)) return NextResponse.json({ error: "fecha inválida" }, { status: 400 });
+    if (!id_club)
+      return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
+    if (!fecha || !isISODate(fecha))
+      return NextResponse.json({ error: "fecha inválida" }, { status: 400 });
 
     // Auth
     const supabase = await getSupabaseServerClient();
     const { data: auth } = await supabase.auth.getUser();
     const userId = auth.user?.id;
-    if (!userId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    if (!userId)
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
     const ok = await assertAdminOrStaff(id_club, userId);
-    if (!ok) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+    if (!ok)
+      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
     const cierre_total = !!body.cierre_total;
 
@@ -115,10 +130,16 @@ export async function POST(req: Request) {
 
     if (!cierre_total) {
       if (!body.inicio || !body.fin) {
-        return NextResponse.json({ error: "inicio/fin requeridos si no es cierre_total" }, { status: 400 });
+        return NextResponse.json(
+          { error: "inicio/fin requeridos si no es cierre_total" },
+          { status: 400 },
+        );
       }
       if (!isHHMM(body.inicio) || !isHHMM(body.fin)) {
-        return NextResponse.json({ error: "inicio/fin deben ser HH:MM" }, { status: 400 });
+        return NextResponse.json(
+          { error: "inicio/fin deben ser HH:MM" },
+          { status: 400 },
+        );
       }
       inicio = body.inicio;
       fin = body.fin;
@@ -134,7 +155,7 @@ export async function POST(req: Request) {
       if (b <= a) {
         return NextResponse.json(
           { error: "fin debe ser mayor que inicio (o marcá cruza medianoche)" },
-          { status: 400 }
+          { status: 400 },
         );
       }
     }
@@ -153,10 +174,13 @@ export async function POST(req: Request) {
     const { data, error } = await supabaseAdmin
       .from("club_cierres")
       .insert(insert)
-      .select("id_cierre,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,motivo,activo,created_at")
+      .select(
+        "id_cierre,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,motivo,activo,created_at",
+      )
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error)
+      return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true, cierre: data });
   } catch (e: any) {
