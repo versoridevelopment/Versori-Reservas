@@ -175,10 +175,11 @@ const RegisterPage: FC = () => {
     return true;
   };
 
-  // ✅ redirectTo para implicit: página CLIENT que lee hash (#access_token)
+  // ✅ PARA QUE QUEDE LOGUEADO CON MIDDLEWARE SSR:
+  // mandar el email a un handler SSR (/auth/callback) que setea cookies.
   const buildEmailRedirectTo = () => {
     const origin = window.location.origin; // mismo subdominio
-    return `${origin}/auth/confirm?next=${encodeURIComponent("/")}`;
+    return `${origin}/auth/callback?next=${encodeURIComponent("/")}`;
   };
 
   // ✅ Flujo: email existe -> usamos endpoint y reenviamos
