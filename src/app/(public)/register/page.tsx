@@ -178,9 +178,10 @@ const RegisterPage: FC = () => {
   // ✅ PARA QUE QUEDE LOGUEADO CON MIDDLEWARE SSR:
   // mandar el email a un handler SSR (/auth/callback) que setea cookies.
   const buildEmailRedirectTo = () => {
-    const origin = window.location.origin; // mismo subdominio
+    const origin = window.location.origin;
     return `${origin}/auth/callback?next=${encodeURIComponent("/")}`;
   };
+
 
   // ✅ Flujo: email existe -> usamos endpoint y reenviamos
   const smartExistingFlow = async (mail: string) => {

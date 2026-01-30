@@ -11,10 +11,11 @@ export async function GET(request: Request) {
   const code = url.searchParams.get("code");
   const next = url.searchParams.get("next") ?? "/";
 
-  // Si no hay code, no podemos crear sesión server-side.
-  // Mandamos a login con mensaje, o al home.
+  // ✅ Si NO viene code, pasamos a CLIENT (/auth/confirm) para leer hash (#access_token)
   if (!code) {
-    return NextResponse.redirect(`${url.origin}/login`);
+    return NextResponse.redirect(
+      `${url.origin}/auth/confirm?next=${encodeURIComponent(next)}`
+    );
   }
 
   const cookieStore = await cookies();
@@ -40,9 +41,12 @@ export async function GET(request: Request) {
 
   if (error) {
     console.error("[auth/callback] exchangeCodeForSession error:", error.message);
-    return NextResponse.redirect(`${url.origin}/login`);
+    // si falla el exchange, intentamos client fallback igual
+    return NextResponse.redirect(
+      `${url.origin}/auth/confirm?next=${encodeURIComponent(next)}`
+    );
   }
 
-  // ✅ cookies seteadas => middleware ya ve user
+  // ✅ cookies SSR listas => tu middleware ve user
   return NextResponse.redirect(`${url.origin}${next}`);
 }
