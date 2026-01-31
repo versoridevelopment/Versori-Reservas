@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   User,
   Phone,
@@ -7,11 +8,36 @@ import {
   AlertCircle,
   Loader2,
   CalendarDays,
+  Check,
+  RefreshCw,
 } from "lucide-react";
 import { formatMoney } from "../hooks/useReservaSidebar";
 import type { CanchaUI } from "../types";
-import ClientSearchInput from "./ClientSearchInput"; // ✅ Importamos el buscador
+import ClientSearchInput from "./ClientSearchInput";
 
+// --- FUNCIÓN HELPER (Fuera del componente) ---
+const normalizePhone = (input: string) => {
+  if (!input) return "";
+
+  // 1. Dejar solo números
+  let clean = input.replace(/\D/g, "");
+
+  // 2. Quitar prefijos internacionales comunes de Argentina
+  if (clean.startsWith("549")) {
+    clean = clean.slice(3);
+  } else if (clean.startsWith("54")) {
+    clean = clean.slice(2);
+  }
+
+  // 3. Quitar el 0 del código de área (ej: 0379 -> 379)
+  if (clean.startsWith("0")) {
+    clean = clean.slice(1);
+  }
+
+  return clean;
+};
+
+// --- INTERFAZ PROPS ---
 interface Props {
   formData: any;
   setFormData: (d: any) => void;
@@ -21,9 +47,10 @@ interface Props {
   priceLoading: boolean;
   priceError: string | null;
   createError: string | null;
-  idClub: number; // ✅ Recibimos el ID del club
+  idClub: number;
 }
 
+// --- COMPONENTE ---
 export default function CreateReservaForm({
   formData,
   setFormData,
@@ -35,6 +62,9 @@ export default function CreateReservaForm({
   createError,
   idClub,
 }: Props) {
+  const [checking, setChecking] = useState(false);
+  const [matchFound, setMatchFound] = useState<string | null>(null);
+
   const esFijo = !!formData.esTurnoFijo;
 
   const toggleFijo = (checked: boolean) => {
@@ -49,30 +79,101 @@ export default function CreateReservaForm({
     }));
   };
 
-  // ✅ Función para manejar la selección del autocompletado
   const handleClientSelect = (cliente: {
     nombre: string;
     telefono: string;
     email: string;
   }) => {
+    // Al seleccionar del autocompletado, guardamos el teléfono limpio
     setFormData((prev: any) => ({
       ...prev,
       nombre: cliente.nombre,
-      telefono: cliente.telefono || prev.telefono,
+      telefono: normalizePhone(cliente.telefono || prev.telefono),
       email: cliente.email || prev.email,
     }));
+    setMatchFound(null);
+  };
+
+  // Validación inteligente al salir del campo
+  const checkExistingUser = async (
+    field: "nombre" | "telefono",
+    value: string,
+  ) => {
+    if (!value || value.length < 3) return;
+
+    // Normalizamos siempre antes de buscar
+    const queryValue =
+      field === "telefono" ? normalizePhone(value) : value.toLowerCase();
+
+    if (field === "telefono" && queryValue.length < 4) return;
+
+    setChecking(true);
+    try {
+      // Buscamos en la BD usando el valor limpio
+      const res = await fetch(
+        `/api/admin/clientes/search?q=${encodeURIComponent(queryValue)}&id_club=${idClub}&type=manual`,
+      );
+      const json = await res.json();
+
+      const results = json.results || [];
+
+      if (results.length > 0) {
+        const match =
+          results.find((r: any) => {
+            if (field === "telefono") {
+              // Comparamos peras con peras (ambos normalizados)
+              return normalizePhone(r.telefono) === queryValue;
+            }
+            return r.nombre.toLowerCase().includes(queryValue);
+          }) || results[0];
+
+        if (match) {
+          // Autocompletar NOMBRE si buscó por teléfono
+          if (field === "telefono" && match.nombre) {
+            setFormData((prev: any) => ({
+              ...prev,
+              nombre: match.nombre,
+              email: match.email || prev.email,
+              telefono: normalizePhone(match.telefono), // Aseguramos formato limpio
+            }));
+            setMatchFound(`Cliente encontrado: ${match.nombre}`);
+          }
+
+          // Autocompletar TELÉFONO si buscó por nombre
+          if (field === "nombre" && match.telefono && !formData.telefono) {
+            setFormData((prev: any) => ({
+              ...prev,
+              telefono: normalizePhone(match.telefono),
+              email: match.email || prev.email,
+            }));
+            setMatchFound(`Datos cargados de: ${match.nombre}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setChecking(false);
+      setTimeout(() => setMatchFound(null), 3000);
+    }
   };
 
   return (
     <form className="space-y-6 pb-20" onSubmit={(e) => e.preventDefault()}>
       {/* SECCIÓN JUGADOR */}
-      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
+      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4 relative">
+        {checking && (
+          <div className="absolute top-4 right-4 text-xs text-orange-500 flex items-center gap-1 font-medium animate-pulse">
+            <RefreshCw className="w-3 h-3 animate-spin" /> Verificando...
+          </div>
+        )}
+
         <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
           <User className="w-4 h-4 text-slate-400" /> Datos del Jugador
         </h3>
 
         <div className="space-y-3">
-          {/* ✅ Buscador Inteligente (Reemplaza al input simple de nombre) */}
+          {/* Buscador */}
           <ClientSearchInput
             idClub={idClub}
             initialValue={formData.nombre}
@@ -82,22 +183,36 @@ export default function CreateReservaForm({
           {/* Teléfono */}
           <div className="relative group">
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
-              Teléfono
+              Teléfono <span className="text-orange-500">*</span>
             </label>
             <div className="relative">
               <input
                 type="tel"
                 value={formData.telefono}
-                onChange={(e) =>
-                  setFormData({ ...formData, telefono: e.target.value })
-                }
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm"
-                placeholder="WhatsApp..."
+                onChange={(e) => {
+                  // Permitimos escribir caracteres pero limpiamos símbolos básicos
+                  const val = e.target.value.replace(/[^0-9+\-\s]/g, "");
+                  setFormData({ ...formData, telefono: val });
+                }}
+                onBlur={(e) => {
+                  // AL SALIR DEL INPUT: Se limpia agresivamente y se valida
+                  const finalClean = normalizePhone(e.target.value);
+                  setFormData((prev: any) => ({
+                    ...prev,
+                    telefono: finalClean,
+                  }));
+                  checkExistingUser("telefono", finalClean);
+                }}
+                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm font-mono"
+                placeholder="Ej: 3794123456"
               />
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
                 <Phone className="w-4 h-4" />
               </div>
             </div>
+            <p className="text-[10px] text-slate-400 mt-1 ml-1">
+              Se guardará solo el número (sin +54, 9, ni guiones).
+            </p>
           </div>
 
           {/* Email */}
@@ -121,6 +236,16 @@ export default function CreateReservaForm({
             </div>
           </div>
         </div>
+
+        {/* Alerta de Coincidencia */}
+        {matchFound && (
+          <div className="flex items-center gap-2 p-3 bg-green-100 border border-green-200 rounded-lg text-xs font-bold text-green-800 animate-in fade-in slide-in-from-top-1 shadow-sm">
+            <div className="bg-white p-1 rounded-full">
+              <Check className="w-3 h-3 text-green-600" />
+            </div>
+            {matchFound}
+          </div>
+        )}
       </div>
 
       <hr className="border-gray-100" />
@@ -221,9 +346,6 @@ export default function CreateReservaForm({
                     }
                     className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 outline-none"
                   />
-                  <div className="text-[10px] text-gray-500 mt-1 leading-tight">
-                    Se crearán reservas por adelantado.
-                  </div>
                 </div>
 
                 <div>
@@ -246,10 +368,9 @@ export default function CreateReservaForm({
                   </div>
                 </div>
               </div>
-
               <div className="text-[11px] text-green-800 bg-green-100/50 p-2 rounded-lg border border-green-100">
                 <span className="font-bold">Nota:</span> El precio se calculará
-                individualmente para cada fecha al generarlas.
+                individualmente.
               </div>
             </div>
           )}
