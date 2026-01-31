@@ -42,11 +42,11 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     getWhatsappLink,
   } = useReservaSidebar(props);
 
-  const { isOpen, onClose, isCreating, onCreated } = props;
+  // ✅ Destructuramos idClub de las props principales
+  const { isOpen, onClose, isCreating, onCreated, idClub } = props;
   const [isEditingMove, setIsEditingMove] = useState(false);
 
   // --- SINCRONIZACIÓN DE DATOS DESDE EL CALENDARIO ---
-  // Extraemos datos de forma segura
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawTime = (props as any).inicio || (props as any).selectedStart || "";
   const incomingTime = rawTime.length > 5 ? rawTime.slice(0, 5) : rawTime;
@@ -58,7 +58,6 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
   useEffect(() => {
     if (isOpen && isCreating) {
       setFormData((prev) => {
-        // Verificamos si cambió la hora o la cancha para actualizar
         const timeChanged = incomingTime && prev.horaInicio !== incomingTime;
         const canchaChanged =
           incomingCanchaId && prev.canchaId !== incomingCanchaId.toString();
@@ -75,7 +74,6 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         return prev;
       });
     }
-
     if (!isOpen) setIsEditingMove(false);
   }, [isOpen, isCreating, incomingTime, incomingCanchaId, setFormData]);
 
@@ -220,6 +218,8 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-white">
           {isCreating ? (
             <CreateReservaForm
+              // ✅ PASAMOS EL ID CLUB AQUÍ
+              idClub={idClub}
               formData={formData}
               setFormData={setFormData}
               canchas={props.canchas}

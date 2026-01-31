@@ -5,11 +5,9 @@ import {
   Search,
   Phone,
   Mail,
-  Calendar,
   User,
   DollarSign,
   History,
-  Filter,
   ArrowUpDown,
   ChevronDown,
   Trophy,
@@ -18,6 +16,7 @@ import {
 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation"; // ✅ IMPORT CORRECTO
 
 // --- TIPOS ---
 type ClienteManual = {
@@ -39,6 +38,9 @@ export default function UsuariosManualesPage() {
   const [search, setSearch] = useState("");
   const [idClub, setIdClub] = useState<number | null>(null);
 
+  // ✅ Router de App Directory
+  const router = useRouter();
+
   // Filtros
   const [sortBy, setSortBy] = useState<SortField>("reciente");
   const [showFilters, setShowFilters] = useState(false);
@@ -54,6 +56,9 @@ export default function UsuariosManualesPage() {
   // 1. Obtener ID Club
   useEffect(() => {
     const getClub = async () => {
+      // Evitar error en SSR
+      if (typeof window === "undefined") return;
+
       const hostname = window.location.hostname;
       const subdomain = hostname.split(".")[0];
       if (subdomain && subdomain !== "localhost") {
@@ -149,7 +154,6 @@ export default function UsuariosManualesPage() {
   };
 
   return (
-    // ✅ FORZAMOS UN FONDO SÓLIDO CLARO PARA EVITAR EL EFECTO "NEGRO"
     <div className="flex-1 w-full bg-slate-50 min-h-screen p-6 md:p-10 space-y-8 font-sans">
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-slate-200 pb-6">
@@ -346,12 +350,17 @@ export default function UsuariosManualesPage() {
                 {filteredAndSorted.map((cliente) => (
                   <tr
                     key={cliente.id}
-                    className="hover:bg-orange-50/40 transition-colors group cursor-default"
+                    // ✅ NAVEGACIÓN CORREGIDA CON NEXT/NAVIGATION
+                    onClick={() =>
+                      router.push(
+                        `/admin/usuarios/manuales/${encodeURIComponent(cliente.nombre)}`,
+                      )
+                    }
+                    className="hover:bg-orange-50/40 transition-colors group cursor-pointer"
                   >
                     {/* CLIENTE */}
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
-                        {/* Avatar con gradiente */}
                         <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-slate-600 flex items-center justify-center font-bold shadow-sm border border-slate-100 group-hover:from-orange-100 group-hover:to-orange-200 group-hover:text-orange-700 group-hover:border-orange-200 transition-all">
                           {cliente.nombre.charAt(0).toUpperCase()}
                         </div>

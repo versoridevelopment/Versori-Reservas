@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     if (!clubId) {
       return NextResponse.json(
         { error: "clubId es requerido" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
           telefono,
           updated_at 
         )
-      `
+      `,
       )
       .eq("id_club", clubId);
 
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     if (reservasError) {
       console.warn(
         "Error fetching reservas (continuando sin fechas):",
-        reservasError
+        reservasError,
       );
     }
 
@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
     console.error("[ADMIN GET /usuarios] error interno:", err);
     return NextResponse.json(
       { error: "Error interno del servidor" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
