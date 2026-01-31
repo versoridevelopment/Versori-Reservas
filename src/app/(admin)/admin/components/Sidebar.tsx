@@ -26,9 +26,11 @@ import {
   LayoutGrid,
   ExternalLink,
   User as UserIcon,
+  Contact, // Icono para manuales
+  Globe, // Icono para web
 } from "lucide-react";
 
-import CierresSidebar from "./admin/CierresSidebar"; // Ajusta ruta si es necesario
+import CierresSidebar from "./admin/CierresSidebar";
 
 // Tipos
 type UserRole = "admin" | "cajero" | "staff" | "profe" | "cliente";
@@ -75,14 +77,20 @@ export function Sidebar() {
   const [cierresOpen, setCierresOpen] = useState(false);
 
   const pathname = usePathname();
+
+  // Estados de los desplegables
+  const [isUsuariosOpen, setIsUsuariosOpen] = useState(false); // ✅ NUEVO
   const [isCanchasOpen, setIsCanchasOpen] = useState(true);
   const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false);
+
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
-  }, []);
+    // Abrir menú usuarios si estamos en una sub-ruta
+    if (pathname.includes("/admin/usuarios")) setIsUsuariosOpen(true);
+  }, [pathname]);
 
   const getInitials = (name: string) => {
     if (!name || name === "Cargando...") return "";
@@ -101,7 +109,6 @@ export function Sidebar() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Determinar ID Club
       let currentClubId = 9;
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
@@ -117,7 +124,6 @@ export function Sidebar() {
       }
       setClubId(currentClubId);
 
-      // Cargar canchas para el drawer de cierres
       const { data: canchasData } = await supabase
         .from("canchas")
         .select("id_cancha,nombre")
@@ -130,29 +136,21 @@ export function Sidebar() {
         })),
       );
 
-      // 2. Obtener Perfil
       const { data: profile } = await supabase
         .from("profiles")
         .select("nombre, apellido")
         .eq("id_usuario", user.id)
         .single();
 
-      // 3. Obtener Roles (ARRAY)
-      // Usamos .select('id_rol') sin .single() para evitar errores si tiene múltiples roles
       const { data: memberships } = await supabase
         .from("club_usuarios")
         .select("id_rol")
         .eq("id_usuario", user.id)
         .eq("id_club", currentClubId);
 
-      // 4. Lógica de Jerarquía de Roles
-      // Si tiene varios roles, nos quedamos con el más alto para mostrar el menú
       let roleKey: UserRole = "cliente";
-
       if (memberships && memberships.length > 0) {
         const roleIds = memberships.map((m) => m.id_rol);
-
-        // Jerarquía: Admin > Cajero > Staff > Profe > Cliente
         if (roleIds.includes(1)) roleKey = "admin";
         else if (roleIds.includes(5)) roleKey = "cajero";
         else if (roleIds.includes(2)) roleKey = "staff";
@@ -186,7 +184,7 @@ export function Sidebar() {
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
 
-  // CONFIG MENU
+  // CONFIG MENU PRINCIPAL (Sin 'usuarios' suelto)
   const mainLinks: MenuLink[] = [
     {
       key: "dashboard",
@@ -203,13 +201,6 @@ export function Sidebar() {
       allowedRoles: ["admin", "cajero", "staff"],
     },
     {
-      key: "usuarios",
-      href: "/admin/usuarios",
-      label: "Usuarios",
-      icon: <Users size={18} />,
-      allowedRoles: ["admin", "cajero"],
-    },
-    {
       key: "pagos",
       href: "/admin/pagos",
       label: "Pagos / Caja",
@@ -222,6 +213,24 @@ export function Sidebar() {
       label: "Turnos fijos",
       icon: <CalendarClock size={18} />,
       allowedRoles: ["admin", "cajero", "staff"],
+    },
+  ];
+
+  // ✅ NUEVO: Links de Usuarios
+  const usuariosLinks: MenuLink[] = [
+    {
+      key: "usuarios-manuales",
+      href: "/admin/usuarios/manuales",
+      label: "Manuales / Frecuentes",
+      icon: <Contact size={14} />,
+      allowedRoles: ["admin", "cajero"],
+    },
+    {
+      key: "usuarios-web",
+      href: "/admin/usuarios",
+      label: "Registrados (Web)",
+      icon: <Globe size={14} />,
+      allowedRoles: ["admin", "cajero"],
     },
   ];
 
@@ -276,6 +285,9 @@ export function Sidebar() {
   const visibleMainLinks = mainLinks.filter((l) =>
     l.allowedRoles.includes(userRole),
   );
+  const visibleUsuariosLinks = usuariosLinks.filter((l) =>
+    l.allowedRoles.includes(userRole),
+  ); // ✅
   const visibleGestionLinks = gestionLinks.filter((l) =>
     l.allowedRoles.includes(userRole),
   );
@@ -304,6 +316,7 @@ export function Sidebar() {
       <aside
         className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl z-40 overflow-hidden transition-transform duration-300 ease-in-out ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
       >
+        {/* HEADER USER */}
         <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
           <Link
             href="/admin/usuario"
@@ -343,7 +356,9 @@ export function Sidebar() {
           </span>
         </div>
 
+        {/* MENU SCROLLABLE */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+          {/* LINKS PRINCIPALES */}
           {visibleMainLinks.map((link) => (
             <Link
               key={link.key}
@@ -360,7 +375,45 @@ export function Sidebar() {
             </Link>
           ))}
 
-          {/* BOTÓN CIERRES (Visible para roles permitidos) */}
+          {/* ✅ SECCIÓN USUARIOS DESPLEGABLE */}
+          {visibleUsuariosLinks.length > 0 && (
+            <div className="pt-2">
+              <button
+                onClick={() => setIsUsuariosOpen(!isUsuariosOpen)}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm ${isUsuariosOpen ? "bg-[#1b263b] text-white" : "text-gray-400 hover:bg-[#1b263b] hover:text-white"}`}
+              >
+                <Users
+                  size={18}
+                  className={isUsuariosOpen ? "text-purple-400" : ""}
+                />
+                <span className="font-medium flex-1 text-left">Usuarios</span>
+                {isUsuariosOpen ? (
+                  <ChevronDown size={14} className="text-gray-500" />
+                ) : (
+                  <ChevronRight size={14} className="text-gray-500" />
+                )}
+              </button>
+              {isUsuariosOpen && (
+                <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
+                  {visibleUsuariosLinks.map((subLink) => (
+                    <Link
+                      key={subLink.key}
+                      href={subLink.href}
+                      onClick={closeMobileMenu}
+                      className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-all duration-200 ${isActive(subLink.href) ? "text-white bg-[#1b263b]/80" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}`}
+                    >
+                      <span className="opacity-70 text-purple-300">
+                        {subLink.icon}
+                      </span>
+                      {subLink.label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* BOTÓN CIERRES */}
           {(userRole === "admin" ||
             userRole === "staff" ||
             userRole === "cajero") && (
@@ -378,6 +431,7 @@ export function Sidebar() {
             </button>
           )}
 
+          {/* GESTION */}
           {visibleGestionLinks.length > 0 && (
             <div className="pt-4 mt-2 border-t border-gray-800/50">
               <button
@@ -415,6 +469,7 @@ export function Sidebar() {
             </div>
           )}
 
+          {/* PERSONALIZACIÓN */}
           {visiblePersonalizacionLinks.length > 0 && (
             <div className="pt-2 mt-2">
               <button
@@ -455,6 +510,7 @@ export function Sidebar() {
           )}
         </nav>
 
+        {/* FOOTER */}
         <div className="p-3 border-t border-gray-800 bg-[#0b1623] space-y-2 pb-6 md:pb-3">
           <Link
             href="/"
