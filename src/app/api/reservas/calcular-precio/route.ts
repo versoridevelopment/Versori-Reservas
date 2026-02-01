@@ -31,11 +31,14 @@ type Regla = {
   activo: boolean;
 };
 
-// ✅ Duraciones soportadas (todas con tarifarios en DB, incluye 30)
+// ✅ Duraciones soportadas por el motor (pero NO vamos a exigir que existan todas en DB)
 const SUPPORTED_DURS = [30, 60, 90, 120, 150, 180, 210, 240] as const;
 type Dur = (typeof SUPPORTED_DURS)[number];
 
-// ✅ FIX TS: map tipado de duraciones -> reglas vacías
+// ✅ Duración canónica para detectar cambios de tarifario (clave)
+// (si un segmento no tiene 60, podés cambiar a 30, pero en padel normalmente existe 60)
+const CANON_DUR: Dur = 60;
+
 function emptyReglasMap(): Record<Dur, Regla[]> {
   return SUPPORTED_DURS.reduce((acc, d) => {
     acc[d] = [];
@@ -175,30 +178,60 @@ async function resolveTarifarioId(id_club: number, id_cancha: number) {
 }
 
 /**
- * Trae todas las reglas activas de ese día (fechaISO) para TODAS las duraciones soportadas,
- * y las devuelve agrupadas por duracion_min.
+ * Devuelve qué duraciones existen en DB para ese (tarifario, segmento) y fecha (vigencia).
+ * Importante: no asumimos que existan todas.
+ */
+async function fetchAvailableDurs(params: {
+  id_tarifario: number;
+  segmento: Segmento;
+  fechaISO: string;
+}): Promise<Dur[]> {
+  const { id_tarifario, segmento, fechaISO } = params;
+
+  const { data, error } = await supabaseAdmin
+    .from("canchas_tarifas_reglas")
+    .select("duracion_min")
+    .eq("id_tarifario", id_tarifario)
+    .eq("segmento", segmento)
+    .eq("activo", true)
+    .lte("vigente_desde", fechaISO)
+    .or(`vigente_hasta.is.null,vigente_hasta.gte.${fechaISO}`);
+
+  if (error) throw error;
+
+  const set = new Set<number>();
+  for (const r of data || []) set.add(Number((r as any).duracion_min));
+
+  const out = SUPPORTED_DURS.filter((d) => set.has(d)) as Dur[];
+  return out;
+}
+
+/**
+ * Trae reglas activas de ese día para un subconjunto de duraciones.
  */
 async function fetchReglasByDur(params: {
   id_tarifario: number;
   segmento: Segmento;
   fechaISO: string;
+  dursToFetch: Dur[];
 }) {
-  const { id_tarifario, segmento, fechaISO } = params;
+  const { id_tarifario, segmento, fechaISO, dursToFetch } = params;
+
+  const out = emptyReglasMap();
+  if (dursToFetch.length === 0) return out;
 
   const { data, error } = await supabaseAdmin
     .from("canchas_tarifas_reglas")
     .select("*")
     .eq("id_tarifario", id_tarifario)
     .eq("segmento", segmento)
-    .in("duracion_min", [...SUPPORTED_DURS])
+    .in("duracion_min", dursToFetch)
     .eq("activo", true)
     .lte("vigente_desde", fechaISO)
     .or(`vigente_hasta.is.null,vigente_hasta.gte.${fechaISO}`)
     .order("prioridad", { ascending: false });
 
   if (error) throw error;
-
-  const out = emptyReglasMap();
 
   for (const r of (data || []) as Regla[]) {
     const d = Number(r.duracion_min) as Dur;
@@ -216,11 +249,7 @@ function fmtHHMM(minInDay: number) {
 
 /**
  * ✅ Detecta “día lógico anterior” para la madrugada.
- * Si existe una regla del día anterior que cruza medianoche y cubre startMin,
- * entonces para esos minutos (hasta su hora_hasta) se debe usar el día anterior.
- *
- * Nota: acá seguimos usando 60 como base “canónica” para detectar el carry.
- * (Si alguna vez tuvieras escenarios sin 60 pero con 30, ahí sí conviene cambiarlo a 30.)
+ * Usa CANON_DUR (60) para detectar carry.
  */
 function findPrevCarryWindow(params: {
   startMin: number; // 0..1439
@@ -258,16 +287,14 @@ function findPrevCarryWindow(params: {
 }
 
 /**
- * DP exacto para minutos múltiplos de 30 usando “piezas” disponibles:
- * - 30/60/90/120/150/180/210/240 (todas desde DB)
- *
- * OJO: SOLO se usa como fallback cuando el grupo no coincide exacto con una duración.
+ * DP exacto para minutos múltiplos de 30 usando SOLO las duraciones disponibles (pieces).
  */
 function dpComposeCost(params: {
   minutes: number;
-  pricesByDur: Record<Dur, number>;
+  pricesByDur: Partial<Record<Dur, number>>;
+  allowedPieces: Dur[];
 }) {
-  const { minutes, pricesByDur } = params;
+  const { minutes, pricesByDur, allowedPieces } = params;
 
   if (minutes % 30 !== 0)
     return { ok: false as const, cost: 0, composition: [] as number[] };
@@ -275,22 +302,18 @@ function dpComposeCost(params: {
   const steps = minutes / 30;
   const INF = 1e18;
   const dp = new Array<number>(steps + 1).fill(INF);
-  const prev = new Array<{ i: number; dur: number } | null>(steps + 1).fill(
-    null
-  );
+  const prev = new Array<{ i: number; dur: number } | null>(steps + 1).fill(null);
   dp[0] = 0;
 
-  // ✅ NO agregamos “30 derivado”. Todo sale de DB (incluye 30).
-  const pieces: Array<{ take: number; cost: number; dur: number }> = [];
+  const pieces: Array<{ take: number; cost: number; dur: Dur }> = [];
 
-  for (const d of SUPPORTED_DURS) {
+  for (const d of allowedPieces) {
     const take = d / 30;
-    if (Number.isInteger(take)) {
-      pieces.push({ take, cost: pricesByDur[d], dur: d });
-    }
+    const cost = pricesByDur[d];
+    if (!Number.isInteger(take) || typeof cost !== "number") continue;
+    pieces.push({ take, cost, dur: d });
   }
 
-  // DP
   for (let i = 0; i <= steps; i++) {
     if (dp[i] >= INF) continue;
     for (const p of pieces) {
@@ -307,7 +330,6 @@ function dpComposeCost(params: {
   if (dp[steps] >= INF)
     return { ok: false as const, cost: 0, composition: [] as number[] };
 
-  // reconstrucción (duraciones usadas)
   const comp: number[] = [];
   let cur = steps;
   while (cur > 0) {
@@ -332,41 +354,19 @@ export async function POST(req: Request) {
     const fin = String(body?.fin || "");
 
     if (!id_club || Number.isNaN(id_club))
-      return NextResponse.json(
-        { error: "id_club es requerido y numérico" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "id_club es requerido y numérico" }, { status: 400 });
     if (!id_cancha || Number.isNaN(id_cancha))
-      return NextResponse.json(
-        { error: "id_cancha es requerido y numérico" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "id_cancha es requerido y numérico" }, { status: 400 });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha))
-      return NextResponse.json(
-        { error: "fecha debe ser YYYY-MM-DD" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "fecha debe ser YYYY-MM-DD" }, { status: 400 });
     if (!/^\d{2}:\d{2}$/.test(inicio) || !/^\d{2}:\d{2}$/.test(fin))
-      return NextResponse.json(
-        { error: "inicio/fin deben ser HH:MM" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "inicio/fin deben ser HH:MM" }, { status: 400 });
 
     const startMin = toMin(inicio);
     let endMin = toMin(fin);
     if (endMin <= startMin) endMin += 1440;
 
     const duracion_min = endMin - startMin;
-
-    if (!SUPPORTED_DURS.includes(duracion_min as Dur)) {
-      return NextResponse.json(
-        {
-          error: `Duración no soportada (${SUPPORTED_DURS.join("/")})`,
-          duracion_min,
-        },
-        { status: 400 }
-      );
-    }
 
     // ✅ auth + segmento (con override)
     const sb = await getSupabaseServerClient();
@@ -381,8 +381,7 @@ export async function POST(req: Request) {
 
     // tarifario
     const resolved = await resolveTarifarioId(id_club, id_cancha);
-    if ("error" in resolved)
-      return NextResponse.json({ error: resolved.error }, { status: 409 });
+    if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 409 });
     const id_tarifario = resolved.id_tarifario;
 
     // ====== FECHAS/DOW ======
@@ -396,28 +395,82 @@ export async function POST(req: Request) {
     const fecha1 = needsNextDay ? addDaysISO(fecha0, 1) : null;
     const dow1 = needsNextDay ? (dow0 + 1) % 7 : null;
 
-    // ====== REGLAS: prev / day0 / day1 (todas las duraciones) ======
+    // ====== Duraciones disponibles (por vigencia) ======
+    // Unimos durs de prev/day0/day1 para no romper en cruces de medianoche
+    const dursPrev = await fetchAvailableDurs({ id_tarifario, segmento, fechaISO: fechaPrev });
+    const durs0 = await fetchAvailableDurs({ id_tarifario, segmento, fechaISO: fecha0 });
+    const durs1 =
+      needsNextDay && fecha1
+        ? await fetchAvailableDurs({ id_tarifario, segmento, fechaISO: fecha1 })
+        : [];
+
+    const availableSet = new Set<Dur>([...dursPrev, ...durs0, ...durs1]);
+
+    // ✅ Duraciones mínimas que SI o SI necesitamos:
+    // - CANON_DUR para detectar cambios
+    // - la duración solicitada (si está soportada por el motor)
+    if (!availableSet.has(CANON_DUR)) {
+      return NextResponse.json(
+        {
+          error: `No hay reglas de ${CANON_DUR} min para segmento=${segmento}. Necesaria para detectar cambios de franja.`,
+          segmento,
+          id_tarifario,
+        },
+        { status: 409 }
+      );
+    }
+
+    const durReq = duracion_min as Dur;
+    if (!SUPPORTED_DURS.includes(durReq)) {
+      return NextResponse.json(
+        { error: `Duración no soportada (${SUPPORTED_DURS.join("/")})`, duracion_min },
+        { status: 400 }
+      );
+    }
+
+    if (!availableSet.has(durReq)) {
+      return NextResponse.json(
+        {
+          error: `No hay tarifario para ${durReq} min en segmento=${segmento}.`,
+          segmento,
+          duracion_min,
+          sugerencia: "Cargá reglas para esa duración en el tarifario (mismo horario/prioridad) o limita reservas a duraciones existentes.",
+        },
+        { status: 409 }
+      );
+    }
+
+    // Para DP fallback: solo usamos piezas disponibles
+    const availablePieces = Array.from(availableSet).sort((a, b) => a - b);
+
+    // ====== REGLAS: prev / day0 / day1 (solo duraciones disponibles) ======
     const reglas_prev = await fetchReglasByDur({
       id_tarifario,
       segmento,
       fechaISO: fechaPrev,
+      dursToFetch: availablePieces,
     });
     const reglas_0 = await fetchReglasByDur({
       id_tarifario,
       segmento,
       fechaISO: fecha0,
+      dursToFetch: availablePieces,
     });
 
     const reglas_1 =
       needsNextDay && fecha1
-        ? await fetchReglasByDur({ id_tarifario, segmento, fechaISO: fecha1 })
+        ? await fetchReglasByDur({
+            id_tarifario,
+            segmento,
+            fechaISO: fecha1,
+            dursToFetch: availablePieces,
+          })
         : emptyReglasMap();
 
-    // ✅ Detectar si este turno (en esta fecha) debería pertenecer al “día anterior” en madrugada
-    // (usamos 60 como base canónica)
+    // ✅ Detectar si este turno debería pertenecer al “día anterior” en madrugada (CANON_DUR)
     const prevCarry = findPrevCarryWindow({
       startMin: startMin % 1440,
-      reglasBase_prev: reglas_prev[60],
+      reglasBase_prev: reglas_prev[CANON_DUR],
       dowPrev,
     });
 
@@ -444,23 +497,22 @@ export async function POST(req: Request) {
         });
       }
 
-      // Caso B) day1 (tAbs>=1440): puede seguir perteneciendo al day0 si day0 tiene regla cruzando
+      // Caso B) day1 (tAbs>=1440): puede seguir perteneciendo al day0 si day0 tiene regla cruzando (CANON_DUR)
       if (dayIndex === 1) {
         if (dow1 === null) return null;
 
-        // Detectamos carry desde day0 usando 60 como “canónica”
         const carryFrom0 = (() => {
-          const r60_0 = pickBestRuleForStart({
-            reglas: reglas_0[60],
+          const rCanon_0 = pickBestRuleForStart({
+            reglas: reglas_0[CANON_DUR],
             startMinInDay: minInDay,
             dow: dow0,
           });
-          if (!r60_0) return null;
-          const from = timeToMinFromDB(r60_0.hora_desde);
-          const to = timeToMinFromDB(r60_0.hora_hasta);
-          const crosses = !!r60_0.cruza_medianoche || to <= from;
+          if (!rCanon_0) return null;
+          const from = timeToMinFromDB(rCanon_0.hora_desde);
+          const to = timeToMinFromDB(rCanon_0.hora_hasta);
+          const crosses = !!rCanon_0.cruza_medianoche || to <= from;
           if (!crosses) return null;
-          return minInDay < to ? true : null; // madrugada => pertenece al día0
+          return minInDay < to ? true : null;
         })();
 
         if (carryFrom0) {
@@ -471,7 +523,6 @@ export async function POST(req: Request) {
           });
         }
 
-        // day1 real
         return pickBestRuleForStart({
           reglas: reglas_1[dur],
           startMinInDay: minInDay,
@@ -487,17 +538,23 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ “key” incluye TODAS las duraciones (incluye 30) para detectar cambio de tarifario
+    /**
+     * ✅ Clave de franja: SOLO depende de la regla CANON_DUR.
+     * Esto evita exigir 30/90/120/etc para segmento profe.
+     */
     const tariffKeyAt = (tAbs: number) => {
-      const rules: Record<Dur, Regla> = {} as any;
+      const rCanon = getRuleAt(tAbs, CANON_DUR);
+      if (!rCanon) return { ok: false as const, missingDur: CANON_DUR };
 
-      for (const d of SUPPORTED_DURS) {
+      // En el grupo guardamos reglas solo para las duraciones disponibles (para cotizar)
+      const rules: Partial<Record<Dur, Regla>> = {};
+      for (const d of availablePieces) {
         const r = getRuleAt(tAbs, d);
         if (!r) return { ok: false as const, missingDur: d };
         rules[d] = r;
       }
 
-      const key = SUPPORTED_DURS.map((d) => rules[d].id_regla).join("|");
+      const key = String(rCanon.id_regla);
       return { ok: true as const, rules, key };
     };
 
@@ -505,7 +562,7 @@ export async function POST(req: Request) {
     type Group = {
       startAbs: number;
       endAbs: number;
-      rules: Record<Dur, Regla>;
+      rules: Partial<Record<Dur, Regla>>;
       key: string;
     };
 
@@ -517,6 +574,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error: "Faltan reglas para cubrir el inicio",
+          segmento,
           missing_duracion: first.missingDur,
         },
         { status: 409 }
@@ -533,6 +591,7 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             error: "Faltan reglas para cubrir un tramo del turno",
+            segmento,
             tramo_abs: t,
             missing_duracion: cur.missingDur,
           },
@@ -541,31 +600,22 @@ export async function POST(req: Request) {
       }
 
       if (cur.key !== curKey) {
-        groups.push({
-          startAbs: curStart,
-          endAbs: t,
-          rules: curRules,
-          key: curKey,
-        });
+        groups.push({ startAbs: curStart, endAbs: t, rules: curRules, key: curKey });
         curStart = t;
         curKey = cur.key;
         curRules = cur.rules;
       }
     }
-    groups.push({
-      startAbs: curStart,
-      endAbs: endMin,
-      rules: curRules,
-      key: curKey,
-    });
+    groups.push({ startAbs: curStart, endAbs: endMin, rules: curRules, key: curKey });
 
     // ====== si es 1 grupo: directo (exacto por duracion_min) ======
     if (groups.length === 1) {
-      const direct = getRuleAt(startMin, duracion_min as Dur);
+      const direct = getRuleAt(startMin, durReq);
       if (!direct) {
         return NextResponse.json(
           {
             error: "No hay regla directa para esa duración que cubra el inicio",
+            segmento,
             duracion_min,
           },
           { status: 409 }
@@ -599,46 +649,56 @@ export async function POST(req: Request) {
       minutos: number;
       dayOffset: 0 | 1;
       id_regla_aplicada: number | null;
-      duracion_usada: number; // minutos del grupo (o piezas si fallback)
+      duracion_usada: number;
       subtotal: number;
-      composition?: number[]; // solo si hizo DP fallback
+      composition?: number[];
     }> = [];
 
     for (const g of groups) {
       const minutes = g.endAbs - g.startAbs;
 
-      // precios por duración en este grupo (constantes por key)
-      const pricesByDur = Object.fromEntries(
-        SUPPORTED_DURS.map((d) => [d, Number(g.rules[d].precio)])
-      ) as Record<Dur, number>;
+      const pricesByDur: Partial<Record<Dur, number>> = {};
+      for (const d of availablePieces) {
+        const rule = g.rules[d];
+        if (rule) pricesByDur[d] = Number(rule.precio);
+      }
 
       let subtotal: number;
       let id_regla_aplicada: number | null = null;
       let duracion_usada = minutes;
       let composition: number[] | undefined;
 
-      // ✅ Caso normal: el largo del grupo coincide con una duración soportada => precio exacto de esa duración
-      if (SUPPORTED_DURS.includes(minutes as Dur)) {
+      // Caso exacto: el largo del grupo coincide con una duración disponible
+      if (SUPPORTED_DURS.includes(minutes as Dur) && availableSet.has(minutes as Dur)) {
         const d = minutes as Dur;
-        subtotal = pricesByDur[d];
-        id_regla_aplicada = g.rules[d].id_regla;
-      } else if (minutes === 30) {
-        // ✅ fragmento de 30’ (por cortes): usar regla REAL de 30 desde DB
-        subtotal = pricesByDur[30];
-        id_regla_aplicada = g.rules[30].id_regla;
-        duracion_usada = 30;
+        subtotal = pricesByDur[d] as number;
+        id_regla_aplicada = (g.rules[d] as Regla).id_regla;
       } else {
-        // Fallback: componer exacto por DP (múltiplos de 30) usando piezas desde DB (incluye 30)
-        const dp = dpComposeCost({ minutes, pricesByDur });
+        // Fallback DP: componer con piezas disponibles (si se puede)
+        const dp = dpComposeCost({
+          minutes,
+          pricesByDur,
+          allowedPieces: availablePieces,
+        });
+
         if (!dp.ok) {
           return NextResponse.json(
-            { error: "No se pudo componer el precio del grupo", minutes, grupo: g },
+            {
+              error: "No se pudo componer el precio del grupo con las duraciones disponibles del segmento",
+              segmento,
+              minutes,
+              availablePieces,
+              sugerencia:
+                "Cargá reglas para más duraciones (ej: 30/90/120) en el segmento o evita cortes de franja en el medio de la reserva.",
+            },
             { status: 409 }
           );
         }
+
         subtotal = dp.cost;
         composition = dp.composition;
-        id_regla_aplicada = null; // no hay una sola
+        id_regla_aplicada = null;
+        duracion_usada = minutes;
       }
 
       total += subtotal;
@@ -666,7 +726,7 @@ export async function POST(req: Request) {
       id_club,
       id_cancha,
       id_tarifario,
-      id_regla: null, // híbrido: no hay una única regla
+      id_regla: null,
       user_id: userId,
       segmento,
       fecha,
@@ -678,6 +738,7 @@ export async function POST(req: Request) {
       modo: "hibrido",
       breakdown,
       debug: {
+        availablePieces,
         prevCarry: prevCarry
           ? {
               fechaPrev,
@@ -691,13 +752,11 @@ export async function POST(req: Request) {
         fecha1,
         dow1,
         groups_count: groups.length,
+        canon_dur: CANON_DUR,
       },
     });
   } catch (err: any) {
     console.error("[calcular-precio] ex:", err);
-    return NextResponse.json(
-      { error: err?.message || "Error interno" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
   }
 }
