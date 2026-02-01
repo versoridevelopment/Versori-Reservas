@@ -31,8 +31,8 @@ type Regla = {
   activo: boolean;
 };
 
-// ✅ Duraciones soportadas (todas con tarifarios en DB)
-const SUPPORTED_DURS = [60, 90, 120, 150, 180, 210, 240] as const;
+// ✅ Duraciones soportadas (todas con tarifarios en DB, incluye 30)
+const SUPPORTED_DURS = [30, 60, 90, 120, 150, 180, 210, 240] as const;
 type Dur = (typeof SUPPORTED_DURS)[number];
 
 // ✅ FIX TS: map tipado de duraciones -> reglas vacías
@@ -198,7 +198,6 @@ async function fetchReglasByDur(params: {
 
   if (error) throw error;
 
-  // ✅ FIX TS: usar helper tipado
   const out = emptyReglasMap();
 
   for (const r of (data || []) as Regla[]) {
@@ -219,15 +218,18 @@ function fmtHHMM(minInDay: number) {
  * ✅ Detecta “día lógico anterior” para la madrugada.
  * Si existe una regla del día anterior que cruza medianoche y cubre startMin,
  * entonces para esos minutos (hasta su hora_hasta) se debe usar el día anterior.
+ *
+ * Nota: acá seguimos usando 60 como base “canónica” para detectar el carry.
+ * (Si alguna vez tuvieras escenarios sin 60 pero con 30, ahí sí conviene cambiarlo a 30.)
  */
 function findPrevCarryWindow(params: {
   startMin: number; // 0..1439
-  reglas60_prev: Regla[];
+  reglasBase_prev: Regla[];
   dowPrev: number;
 }) {
-  const { startMin, reglas60_prev, dowPrev } = params;
+  const { startMin, reglasBase_prev, dowPrev } = params;
 
-  const candidates = reglas60_prev.filter((r) => {
+  const candidates = reglasBase_prev.filter((r) => {
     if (r.dow !== null && Number(r.dow) !== dowPrev) return false;
 
     const from = timeToMinFromDB(r.hora_desde);
@@ -250,15 +252,14 @@ function findPrevCarryWindow(params: {
 
   const cutoffEnd = timeToMinFromDB(best.hora_hasta); // ej 03:00 => 180
   return {
-    rule60: best,
+    ruleBase: best,
     cutoffEnd, // 0..1439
   };
 }
 
 /**
  * DP exacto para minutos múltiplos de 30 usando “piezas” disponibles:
- * - 30 (derivada de 60/2)
- * - 60/90/120/150/180/210/240 (si existen)
+ * - 30/60/90/120/150/180/210/240 (todas desde DB)
  *
  * OJO: SOLO se usa como fallback cuando el grupo no coincide exacto con una duración.
  */
@@ -279,9 +280,8 @@ function dpComposeCost(params: {
   );
   dp[0] = 0;
 
-  const pieces: Array<{ take: number; cost: number; dur: number }> = [
-    { take: 1, cost: pricesByDur[60] / 2, dur: 30 }, // 30 derivado
-  ];
+  // ✅ NO agregamos “30 derivado”. Todo sale de DB (incluye 30).
+  const pieces: Array<{ take: number; cost: number; dur: number }> = [];
 
   for (const d of SUPPORTED_DURS) {
     const take = d / 30;
@@ -408,16 +408,16 @@ export async function POST(req: Request) {
       fechaISO: fecha0,
     });
 
-    // ✅ FIX TS: en vez de Object.fromEntries(...), usamos helper tipado
     const reglas_1 =
       needsNextDay && fecha1
         ? await fetchReglasByDur({ id_tarifario, segmento, fechaISO: fecha1 })
         : emptyReglasMap();
 
     // ✅ Detectar si este turno (en esta fecha) debería pertenecer al “día anterior” en madrugada
+    // (usamos 60 como base canónica)
     const prevCarry = findPrevCarryWindow({
       startMin: startMin % 1440,
-      reglas60_prev: reglas_prev[60],
+      reglasBase_prev: reglas_prev[60],
       dowPrev,
     });
 
@@ -487,7 +487,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ “key” incluye TODAS las duraciones para detectar cambio de tarifario aunque cambie solo 150/180/etc.
+    // ✅ “key” incluye TODAS las duraciones (incluye 30) para detectar cambio de tarifario
     const tariffKeyAt = (tAbs: number) => {
       const rules: Record<Dur, Regla> = {} as any;
 
@@ -515,7 +515,10 @@ export async function POST(req: Request) {
     const first = tariffKeyAt(t);
     if (!first.ok) {
       return NextResponse.json(
-        { error: "Faltan reglas para cubrir el inicio", missing_duracion: first.missingDur },
+        {
+          error: "Faltan reglas para cubrir el inicio",
+          missing_duracion: first.missingDur,
+        },
         { status: 409 }
       );
     }
@@ -549,14 +552,22 @@ export async function POST(req: Request) {
         curRules = cur.rules;
       }
     }
-    groups.push({ startAbs: curStart, endAbs: endMin, rules: curRules, key: curKey });
+    groups.push({
+      startAbs: curStart,
+      endAbs: endMin,
+      rules: curRules,
+      key: curKey,
+    });
 
     // ====== si es 1 grupo: directo (exacto por duracion_min) ======
     if (groups.length === 1) {
       const direct = getRuleAt(startMin, duracion_min as Dur);
       if (!direct) {
         return NextResponse.json(
-          { error: "No hay regla directa para esa duración que cubra el inicio", duracion_min },
+          {
+            error: "No hay regla directa para esa duración que cubra el inicio",
+            duracion_min,
+          },
           { status: 409 }
         );
       }
@@ -612,12 +623,12 @@ export async function POST(req: Request) {
         subtotal = pricesByDur[d];
         id_regla_aplicada = g.rules[d].id_regla;
       } else if (minutes === 30) {
-        // ✅ fragmento de 30’ (por cortes): derivamos de 60
-        subtotal = pricesByDur[60] / 2;
-        id_regla_aplicada = g.rules[60].id_regla;
+        // ✅ fragmento de 30’ (por cortes): usar regla REAL de 30 desde DB
+        subtotal = pricesByDur[30];
+        id_regla_aplicada = g.rules[30].id_regla;
         duracion_usada = 30;
       } else {
-        // Fallback (raro): componer exacto por DP (múltiplos de 30)
+        // Fallback: componer exacto por DP (múltiplos de 30) usando piezas desde DB (incluye 30)
         const dp = dpComposeCost({ minutes, pricesByDur });
         if (!dp.ok) {
           return NextResponse.json(
@@ -627,8 +638,7 @@ export async function POST(req: Request) {
         }
         subtotal = dp.cost;
         composition = dp.composition;
-        // id_regla_aplicada: no hay una sola, dejamos null
-        id_regla_aplicada = null;
+        id_regla_aplicada = null; // no hay una sola
       }
 
       total += subtotal;
@@ -673,7 +683,7 @@ export async function POST(req: Request) {
               fechaPrev,
               dowPrev,
               cutoffEnd: prevCarry.cutoffEnd,
-              id_regla_60_prev: prevCarry.rule60.id_regla,
+              id_regla_base_prev: prevCarry.ruleBase.id_regla,
             }
           : null,
         fecha0,
@@ -685,6 +695,9 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     console.error("[calcular-precio] ex:", err);
-    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }
