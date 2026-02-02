@@ -44,66 +44,6 @@ function addDaysISO(dateISO: string, add: number) {
   return `${yy}-${mm}-${dd}`;
 }
 
-// ===== Regla anti “30 colgados” (bloques libres máximos en unidades de 30m) =====
-type FreeBlockU = { startU: number; endU: number }; // [startU, endU)
-
-function absToU(absMin: number) {
-  return Math.round(absMin / CELL_MIN); // CELL_MIN = 30
-}
-
-function buildFreeBlocksFromSlots(
-  allAbsSorted: number[],
-  isCellFreeFn: (abs: number) => boolean
-): FreeBlockU[] {
-  const free: FreeBlockU[] = [];
-  if (!allAbsSorted.length) return free;
-
-  let runStartAbs: number | null = null;
-  let prevAbs: number | null = null;
-
-  for (const abs of allAbsSorted) {
-    const freeCell = isCellFreeFn(abs);
-
-    if (freeCell) {
-      if (runStartAbs === null) runStartAbs = abs;
-      prevAbs = abs;
-      continue;
-    }
-
-    // cerramos racha si veníamos en free
-    if (runStartAbs !== null && prevAbs !== null) {
-      const startU = absToU(runStartAbs);
-      const endU = absToU(prevAbs + CELL_MIN); // boundary después de la última celda libre
-      if (endU > startU) free.push({ startU, endU });
-    }
-    runStartAbs = null;
-    prevAbs = null;
-  }
-
-  // cerrar racha final
-  if (runStartAbs !== null && prevAbs !== null) {
-    const startU = absToU(runStartAbs);
-    const endU = absToU(prevAbs + CELL_MIN);
-    if (endU > startU) free.push({ startU, endU });
-  }
-
-  return free;
-}
-
-/**
- * ✅ regla:
- * bloquear SOLO si deja exactamente 1 unidad (30m) libre
- * al inicio o al final del bloque libre máximo donde cae.
- */
-function noDangling30(block: FreeBlockU, startU: number, endU: number) {
-  const leftU = startU - block.startU;
-  const rightU = block.endU - endU;
-
-  if (leftU === 1) return false;
-  if (rightU === 1) return false;
-  return true;
-}
-
 export function useReservaCanchaLogic({
   club,
   cancha,
@@ -152,10 +92,12 @@ export function useReservaCanchaLogic({
     return (openDay?.slots || []).map((s) => s.absMin).sort((a, b) => a - b);
   }, [openDay]);
 
-  // ✅ celda libre = slot existe + canStart true + sin reason
+  // ✅ CAMBIO CLAVE:
+  // celda libre = slot existe + NO tiene reason
+  // (ignora canStart/canEnd para que no bloquee los "30 colgados")
   const isCellFree = (abs: number) => {
     const sl = slotsByAbs.get(abs);
-    return !!sl && sl.canStart === true && !sl.reason;
+    return !!sl && !sl.reason;
   };
 
   const timeAt = (abs: number) => slotsByAbs.get(abs)?.time ?? null;
@@ -169,20 +111,26 @@ export function useReservaCanchaLogic({
   // --- Computados selección por celdas ---
   const hasAnySelection = selectedAbs.length >= 1;
   const startCellAbs = hasAnySelection ? selectedAbs[0] : null;
-  const lastCellAbs = hasAnySelection ? selectedAbs[selectedAbs.length - 1] : null;
+  const lastCellAbs = hasAnySelection
+    ? selectedAbs[selectedAbs.length - 1]
+    : null;
 
   const endBoundaryAbs =
     startCellAbs != null && lastCellAbs != null ? lastCellAbs + CELL_MIN : null;
 
   const durationMinutes =
-    startCellAbs != null && endBoundaryAbs != null ? endBoundaryAbs - startCellAbs : 0;
+    startCellAbs != null && endBoundaryAbs != null
+      ? endBoundaryAbs - startCellAbs
+      : 0;
 
+  // (por ahora mantenemos la validación por durationsAllowed)
   const durationOk = durationsAllowed.includes(durationMinutes);
 
   const startTime = startCellAbs != null ? timeAt(startCellAbs) : null;
   const endTime = endBoundaryAbs != null ? timeAt(endBoundaryAbs) : null;
 
-  const startSlot = startCellAbs != null ? slotsByAbs.get(startCellAbs) : null;
+  const startSlot =
+    startCellAbs != null ? slotsByAbs.get(startCellAbs) : null;
 
   const requestFecha = useMemo(() => {
     if (!openDateISO || !startSlot) return openDateISO;
@@ -250,37 +198,29 @@ export function useReservaCanchaLogic({
     if (anchorAbs === null) {
       setAnchorAbs(absMin);
 
-      // ✅ bloques libres máximos (con celdas realmente "clickables")
-      const freeBlocks = buildFreeBlocksFromSlots(allAbsSorted, isCellFree);
-
-      // valid ends = última CELDA a tocar
       const ends = new Set<number>();
 
       for (const d of durationsAllowed) {
-        const cellsNeeded = d / CELL_MIN; // 60->2, 90->3, 120->4
+        const cellsNeeded = d / CELL_MIN;
         if (!Number.isFinite(cellsNeeded) || cellsNeeded < 1) continue;
 
         const last = absMin + (cellsNeeded - 1) * CELL_MIN;
         const boundary = last + CELL_MIN;
 
         // 1) deben existir y ser libres todas las celdas del rango
-        const okRange = allAbsSorted
-          .filter((m) => m >= absMin && m <= last)
-          .every((m) => isCellFree(m));
+        //    (usamos salto fijo de 30m para no depender de allAbsSorted)
+        let ok = true;
+        for (let m = absMin; m <= last; m += CELL_MIN) {
+          if (!isCellFree(m)) {
+            ok = false;
+            break;
+          }
+        }
 
         // 2) boundary debe existir para poder tomar endTime
         const boundaryExists = !!slotsByAbs.get(boundary);
 
-        if (!okRange || !boundaryExists) continue;
-
-        // ✅ 3) regla anti “30 colgados”
-        const startU = absToU(absMin);
-        const endU = absToU(boundary);
-
-        const block = freeBlocks.find((b) => startU >= b.startU && endU <= b.endU);
-        if (!block) continue;
-
-        if (!noDangling30(block, startU, endU)) continue;
+        if (!ok || !boundaryExists) continue;
 
         ends.add(last);
       }
@@ -327,7 +267,6 @@ export function useReservaCanchaLogic({
     async function calc() {
       setPricePreview(null);
 
-      // para cotizar: necesitamos duración válida y start/end time
       if (!hasAnySelection || !durationOk || !startTime || !endTime) return;
 
       setPriceLoading(true);
