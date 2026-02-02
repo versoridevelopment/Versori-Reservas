@@ -15,7 +15,7 @@ type SlotPoint = {
   canStart: boolean; // puedo arrancar en este punto
   canEnd: boolean; // puedo terminar en este punto
   reason: null | "reservado" | "bloqueado";
-  block_kind?: "cierre" | "reserva" | "hold" | "past"; // ✅ agregado
+  block_kind?: "cierre" | "reserva" | "hold" | "past";
 };
 
 type DaySlots = {
@@ -39,6 +39,15 @@ type ReglaDb = {
   activo: boolean;
   vigente_desde: string;
   vigente_hasta: string | null;
+};
+
+type HorarioDb = {
+  id_club: number;
+  dow: number; // 0..6
+  abre: string; // HH:MM:SS
+  cierra: string; // HH:MM:SS
+  cruza_medianoche: boolean;
+  activo: boolean;
 };
 
 type ReservaDb = {
@@ -74,7 +83,6 @@ function todayISOAR() {
 }
 
 function nowMinutesAR() {
-  // devuelve minutos desde 00:00 en horario AR
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: TZ_AR,
     hour: "2-digit",
@@ -88,8 +96,6 @@ function nowMinutesAR() {
 }
 
 // ✅ cutoff “ATC”: siempre el PRÓXIMO cambio de hora
-// 12:59 -> 13:00 (todavía permite 13-14)
-// 13:00 -> 14:00 (bloquea 13-14 completo)
 function cutoffNextHourFromNow(nowMin: number) {
   return (Math.floor(nowMin / 60) + 1) * 60;
 }
@@ -219,6 +225,36 @@ function intervalCovers(intervals: Interval[], a: number, b: number) {
   return intervals.some((it) => it.start <= a && b <= it.end);
 }
 
+function intersectIntervals(a: Interval[], b: Interval[]) {
+  const out: Interval[] = [];
+  const A = mergeIntervals(a);
+  const B = mergeIntervals(b);
+  let i = 0,
+    j = 0;
+  while (i < A.length && j < B.length) {
+    const s = Math.max(A[i].start, B[j].start);
+    const e = Math.min(A[i].end, B[j].end);
+    if (e > s) out.push({ start: s, end: e });
+    if (A[i].end < B[j].end) i++;
+    else j++;
+  }
+  return out;
+}
+
+// Horario apertura (PRO) -> Intervalo minuto-absoluto.
+// Caso especial: cierra 00:00 sin cruce => interpretamos 24:00.
+function buildOpenInterval(h: HorarioDb): Interval {
+  const start = toMin(h.abre);
+  const endBase = toMin(h.cierra);
+
+  const endBaseFixed = !h.cruza_medianoche && endBase === 0 && start > 0 ? 1440 : endBase;
+
+  const crosses = !!h.cruza_medianoche || endBaseFixed <= start;
+  const end = crosses ? endBaseFixed + 1440 : endBaseFixed;
+
+  return { start, end };
+}
+
 type Busy = {
   startMs: number;
   endMs: number;
@@ -303,6 +339,21 @@ export async function GET(req: Request) {
 
     const segmento = await resolveSegmento(id_club);
 
+    // ✅ horarios de apertura (PRO)
+    const { data: horariosRaw, error: hErr } = await supabaseAdmin
+      .from("club_horarios")
+      .select("id_club,dow,abre,cierra,cruza_medianoche,activo")
+      .eq("id_club", id_club)
+      .eq("activo", true);
+
+    if (hErr) {
+      return NextResponse.json({ error: `Error leyendo horarios: ${hErr.message}` }, { status: 500 });
+    }
+
+    const horarios = (horariosRaw || []) as HorarioDb[];
+    const horarioByDow = new Map<number, HorarioDb>();
+    for (const h of horarios) horarioByDow.set(Number(h.dow), h);
+
     // Ventana de búsqueda reservas (AR)
     const windowStartMs = new Date(arMidnightISO(fecha_desde)).getTime();
     const windowEndMs = new Date(arMidnightISO(addDaysISO(fecha_desde, dias + 1))).getTime();
@@ -381,13 +432,13 @@ export async function GET(req: Request) {
     // ✅ para “bloquear horas corridas”
     const today = todayISOAR();
     const nowMinAR = nowMinutesAR();
-    const cutoffTodayMin = cutoffNextHourFromNow(nowMinAR); // ej 13:00=>840? NO, 13:00=>840? (13*60=780) => (13+1)*60=840
+    const cutoffTodayMin = cutoffNextHourFromNow(nowMinAR);
 
     for (let i = 0; i < dias; i++) {
       const fecha = addDaysISO(fecha_desde, i);
       const dow = dowFromISO(fecha);
 
-      // --- reglas ---
+      // --- reglas (precio/duraciones) ---
       const { data: reglas, error: rErr } = await supabaseAdmin
         .from("canchas_tarifas_reglas")
         .select(
@@ -408,9 +459,10 @@ export async function GET(req: Request) {
         .filter((n) => Number.isFinite(n) && n > 0)
         .sort((a, b) => a - b);
 
-      const allowedRaw: Interval[] = [];
-      let minStart = Infinity;
-      let maxEnd = 0;
+      // 1) Allowed por tarifas (como antes)
+      const allowedRawTarifas: Interval[] = [];
+      let minStartTarifa = Infinity;
+      let maxEndTarifa = 0;
 
       for (const r of rules) {
         const start = toMin(r.hora_desde);
@@ -418,12 +470,13 @@ export async function GET(req: Request) {
         const crosses = !!r.cruza_medianoche || endBase <= start;
         const end = crosses ? endBase + 1440 : endBase;
 
-        minStart = Math.min(minStart, start);
-        maxEnd = Math.max(maxEnd, end);
-        allowedRaw.push({ start, end });
+        minStartTarifa = Math.min(minStartTarifa, start);
+        maxEndTarifa = Math.max(maxEndTarifa, end);
+        allowedRawTarifas.push({ start, end });
       }
 
-      if (minStart === Infinity) {
+      // ✅ Si no hay reglas, no hay tarifas => no hay slots
+      if (allowedRawTarifas.length === 0) {
         outDays.push({
           label: dayLabel(fecha, i),
           dateISO: fecha,
@@ -435,14 +488,47 @@ export async function GET(req: Request) {
         continue;
       }
 
-      minStart = roundDownToHalfHour(minStart);
-      maxEnd = roundUpToHalfHour(maxEnd);
+      // 2) Horario apertura (PRO)
+      const h = horarioByDow.get(dow) ?? null;
+
+      // Grilla (minStart/maxEnd):
+      // - si hay horario, manda el horario
+      // - si no hay horario, fallback a tarifas (comportamiento viejo)
+      let minStart: number;
+      let maxEnd: number;
+
+      if (h) {
+        const open = buildOpenInterval(h);
+        minStart = roundDownToHalfHour(open.start);
+        maxEnd = roundUpToHalfHour(open.end);
+      } else {
+        minStart = roundDownToHalfHour(minStartTarifa);
+        maxEnd = roundUpToHalfHour(maxEndTarifa);
+      }
+
       if (maxEnd <= minStart) {
         minStart = 8 * 60;
         maxEnd = 26 * 60;
       }
 
-      const allowed = mergeIntervals(allowedRaw);
+      // Allowed final:
+      // - si hay horario => apertura ∩ tarifas
+      // - si no hay horario => solo tarifas
+      const allowedTarifas = mergeIntervals(allowedRawTarifas);
+      const allowed = h ? intersectIntervals([buildOpenInterval(h)], allowedTarifas) : allowedTarifas;
+
+      // Si la intersección queda vacía, el club está cerrado o no hay precios en ese horario
+      if (!allowed.length) {
+        outDays.push({
+          label: dayLabel(fecha, i),
+          dateISO: fecha,
+          id_tarifario,
+          slots: [],
+          durations_allowed: durations_allowed.length ? durations_allowed : [60, 90, 120],
+          segmento,
+        });
+        continue;
+      }
 
       const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
       const dayOffsetRel = i * 1440;
@@ -451,7 +537,6 @@ export async function GET(req: Request) {
       const busyIntervals: Busy[] = [...busyFromReservas, ...busyFromCierres];
 
       // ✅ Agregamos “past” SOLO para el día de HOY
-      // Bloquea [00:00 .. cutoffNextHour)
       const isToday = fecha === today;
       if (isToday) {
         const startMs = dayStartMs + 0 * 60_000;
@@ -504,9 +589,7 @@ export async function GET(req: Request) {
         const canStart = !!nextSegFreeBusy && !nextSegClosed;
         const canEnd = !!prevSegFreeBusy && !prevSegClosed;
 
-        // reason (UI):
-        // - cierre => bloqueado/cierre
-        // - sino busy strict (reserva/hold/past)
+        // reason (UI)
         let reason: SlotPoint["reason"] = null;
         let block_kind: SlotPoint["block_kind"] = undefined;
 
