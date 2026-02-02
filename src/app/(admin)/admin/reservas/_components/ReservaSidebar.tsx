@@ -2,6 +2,8 @@
 
 import { X, Calendar, Copy, Clock, Loader2, Printer } from "lucide-react";
 import { useState, useEffect } from "react";
+import { createBrowserClient } from "@supabase/ssr";
+import { printReservaTicket } from "@/lib/printTicket"; // ✅ Importamos la función compartida
 import {
   useReservaSidebar,
   type ReservaSidebarProps,
@@ -13,55 +15,110 @@ import CobroModal from "./sidebar/CobroModal";
 import EditReservaMoveForm from "./sidebar/EditReservaMoveForm";
 
 export default function ReservaSidebar(props: ReservaSidebarProps) {
+  // 1. Instancia de Supabase para buscar datos del club
+  const [supabase] = useState(() =>
+    createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    ),
+  );
+
   const {
-  formData,
-  setFormData,
-  reserva,
-  showCobro,
-  setShowCobro,
-  cobroMonto,
-  setCobroMonto,
-  cobroMetodo,
-  setCobroMetodo,
-  cobroNota,
-  setCobroNota,
-  priceLoading,
-  priceError,
-  createLoading,
-  createError,
-  cobroLoading,
-  cobroError,
-  availableTimes,
+    formData,
+    setFormData,
+    reserva,
+    showCobro,
+    setShowCobro,
+    cobroMonto,
+    setCobroMonto,
+    cobroMetodo,
+    setCobroMetodo,
+    cobroNota,
+    setCobroNota,
+    priceLoading,
+    priceError,
+    createLoading,
+    createError,
+    cobroLoading,
+    cobroError,
+    availableTimes,
+    manualDesdeOptions,
+    manualHastaOptions,
+    duracionManualCalculada,
+    canchaDisplay,
+    fechaDisplay,
+    horaFinCalculada,
+    handleCreate,
+    handleCancelar,
+    openCobro,
+    handleCobrar,
+    getWhatsappLink,
+  } = useReservaSidebar(props);
 
-  // ✅ AGREGAR ESTO (si no está, no existe la variable)
-  manualDesdeOptions,
-  manualHastaOptions,
-  duracionManualCalculada,
-
-  canchaDisplay,
-  fechaDisplay,
-  horaFinCalculada,
-  handleCreate,
-  handleCancelar,
-  openCobro,
-  handleCobrar,
-  getWhatsappLink,
-} = useReservaSidebar(props);
-
-
-  // ✅ Destructuramos idClub de las props principales
   const { isOpen, onClose, isCreating, onCreated, idClub } = props;
   const [isEditingMove, setIsEditingMove] = useState(false);
 
-  // --- SINCRONIZACIÓN DE DATOS DESDE EL CALENDARIO ---
+  // 2. Estado para guardar info del club real
+  const [clubData, setClubData] = useState<{
+    nombre: string;
+    direccion: string;
+  }>({
+    nombre: "",
+    direccion: "",
+  });
+
+  // 3. Efecto para cargar datos del club al montar
+  useEffect(() => {
+    async function fetchClubInfo() {
+      if (!idClub) return;
+
+      try {
+        const { data: club } = await supabase
+          .from("clubes")
+          .select("nombre")
+          .eq("id_club", idClub)
+          .single();
+
+        const { data: contacto } = await supabase
+          .from("contacto")
+          .select("id_contacto")
+          .eq("id_club", idClub)
+          .single();
+
+        let direccionStr = "";
+        if (contacto) {
+          const { data: dir } = await supabase
+            .from("direccion")
+            .select("calle, altura_calle, barrio, id_localidad(nombre)")
+            .eq("id_contacto", contacto.id_contacto)
+            .single();
+
+          if (dir) {
+            // @ts-ignore
+            const loc = dir.id_localidad?.nombre || "";
+            direccionStr = `${dir.calle || ""} ${dir.altura_calle || ""} ${dir.barrio ? `- ${dir.barrio}` : ""} ${loc ? `(${loc})` : ""}`;
+          }
+        }
+
+        setClubData({
+          nombre: club?.nombre || "Club Deportivo",
+          direccion: direccionStr || "",
+        });
+      } catch (err) {
+        console.error("Error cargando datos del club", err);
+      }
+    }
+
+    if (isOpen) fetchClubInfo();
+  }, [idClub, isOpen, supabase]);
+
+  // Sincronización de datos
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawTime = (props as any).inicio || (props as any).selectedStart || "";
   const incomingTime = rawTime.length > 5 ? rawTime.slice(0, 5) : rawTime;
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const incomingCanchaId = (props as any).preSelectedCanchaId;
 
-  // ✅ EFFECT: Actualizar formData cuando el usuario hace clic en el calendario
   useEffect(() => {
     if (isOpen && isCreating) {
       setFormData((prev) => {
@@ -84,71 +141,28 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     if (!isOpen) setIsEditingMove(false);
   }, [isOpen, isCreating, incomingTime, incomingCanchaId, setFormData]);
 
-  // --- TICKET DE IMPRESIÓN ---
+  // --- FUNCIÓN DE IMPRESIÓN ---
   const handlePrintTicket = () => {
     if (!reserva) return;
-    const printWindow = window.open("", "PRINT", "height=650,width=450");
-    if (printWindow) {
-      const fechaImpresion = new Date().toLocaleString("es-AR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
 
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Ticket #${reserva.id_reserva}</title>
-            <style>
-              @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
-              body { font-family: 'Roboto Mono', monospace; padding: 10px; margin: 0; background: #fff; color: #000; font-size: 12px; }
-              .ticket { width: 100%; max-width: 300px; margin: 0 auto; }
-              @media print { @page { margin: 0; } body { padding: 0; } button { display: none; } }
-              .text-center { text-align: center; } .text-right { text-align: right; } .font-bold { font-weight: 700; }
-              .text-lg { font-size: 16px; } .text-xl { font-size: 18px; } .uppercase { text-transform: uppercase; }
-              .divider { border-top: 1px dashed #000; margin: 10px 0; }
-              .double-divider { border-top: 3px double #000; margin: 10px 0; }
-              .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-              .box { border: 1px solid #000; padding: 5px; margin: 10px 0; text-align: center; }
-            </style>
-          </head>
-          <body>
-            <div class="ticket">
-              <div class="text-center">
-                <div class="font-bold text-xl uppercase">COMPROBANTE</div>
-                <div>Reserva #${reserva.id_reserva}</div>
-                <div style="font-size: 10px; margin-top: 5px;">${fechaImpresion}</div>
-              </div>
-              <div class="double-divider"></div>
-              <div class="row"><span>CLIENTE:</span><span class="font-bold text-right">${reserva.cliente_nombre || "Consumidor Final"}</span></div>
-              <div class="row"><span>CANCHA:</span><span class="text-right">${canchaDisplay}</span></div>
-              <div class="row"><span>FECHA:</span><span class="text-right">${fechaDisplay}</span></div>
-              <div class="row"><span>HORARIO:</span><span class="font-bold text-right">${reserva.horaInicio} - ${reserva.horaFin}</span></div>
-              <div class="divider"></div>
-              <div class="row"><span>Concepto</span><span class="text-right">Alquiler Cancha</span></div>
-              <div class="row font-bold text-lg" style="margin-top: 5px;"><span>TOTAL:</span><span>$${reserva.precio_total.toLocaleString("es-AR")}</span></div>
-              <div class="divider"></div>
-              <div class="row"><span>Pagado / Seña:</span><span>$${reserva.pagos_aprobados_total.toLocaleString("es-AR")}</span></div>
-              <div class="box">
-                <div style="font-size: 10px;">SALDO PENDIENTE</div>
-                <div class="font-bold text-xl">$${reserva.saldo_pendiente.toLocaleString("es-AR")}</div>
-              </div>
-              <div class="text-center" style="margin-top: 20px; font-size: 10px;">
-                <p>GRACIAS POR SU VISITA</p>
-                <p>No válido como factura fiscal.</p>
-              </div>
-            </div>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => {
-        printWindow.print();
-      }, 250);
-    }
+    // Casteamos 'as any' para acceder a props que vienen del backend
+    // aunque no estén en la interfaz estricta del frontend
+    const r = reserva as any;
+
+    printReservaTicket({
+      id_reserva: reserva.id_reserva,
+      club_nombre: clubData.nombre,
+      club_direccion: clubData.direccion,
+      cliente_nombre: r.cliente_nombre,
+      cancha_nombre: canchaDisplay,
+      fecha: reserva.fecha,
+      inicio: reserva.horaInicio,
+      fin: reserva.horaFin,
+      fin_dia_offset: 0,
+      precio_total: r.precio_total,
+      pagado: r.pagos_aprobados_total,
+      saldo: r.saldo_pendiente,
+    });
   };
 
   if (!isOpen) return null;
@@ -191,6 +205,12 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                     className="text-gray-400 hover:text-gray-600"
                     type="button"
                     title="Copiar ID"
+                    onClick={() => {
+                      if (reserva?.id_reserva)
+                        navigator.clipboard.writeText(
+                          String(reserva.id_reserva),
+                        );
+                    }}
                   >
                     <Copy className="w-3.5 h-3.5" />
                   </button>
@@ -278,14 +298,13 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                 onClick={handleCreate}
                 className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
                 disabled={
-                createLoading ||
+                  createLoading ||
                   !formData.horaInicio ||
                   (!formData.esTurnoFijo &&
                     (!formData.precioManual
-                      ? (priceLoading || !formData.precio)
-                      : (!formData.precio || Number(formData.precio) <= 0)))
+                      ? priceLoading || !formData.precio
+                      : !formData.precio || Number(formData.precio) <= 0))
                 }
-
               >
                 {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
                 Crear
