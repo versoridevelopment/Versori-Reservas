@@ -5,7 +5,6 @@ import {
   Search,
   Phone,
   Mail,
-  User,
   History,
   ArrowUpDown,
   ChevronDown,
@@ -13,13 +12,14 @@ import {
   Clock,
   Frown,
   MoreVertical,
-  Edit2,
-  Power,
-  Ban,
-  Loader2,
   ExternalLink,
   DollarSign,
   Calendar,
+  Power,
+  Ban,
+  StickyNote, // Nuevo Icono
+  X,
+  Save,
 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 import { motion, AnimatePresence } from "framer-motion";
@@ -27,7 +27,7 @@ import { useRouter } from "next/navigation";
 
 // --- TIPOS ---
 type ClienteManual = {
-  id: string;
+  id: string; // Es el identificador (tel o nombre)
   nombre: string;
   telefono: string;
   email: string;
@@ -35,6 +35,7 @@ type ClienteManual = {
   total_gastado: number;
   ultima_reserva: string;
   activo: boolean;
+  notas: string; // ✅ Nuevo campo
 };
 
 type SortField = "reciente" | "frecuente" | "gastador";
@@ -51,6 +52,14 @@ export default function UsuariosManualesPage() {
   const [sortBy, setSortBy] = useState<SortField>("reciente");
   const [showFilters, setShowFilters] = useState(false);
 
+  // --- ESTADOS PARA MODAL DE NOTAS ---
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [editingCliente, setEditingCliente] = useState<ClienteManual | null>(
+    null,
+  );
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
   const [supabase] = useState(() =>
     createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,7 +75,7 @@ export default function UsuariosManualesPage() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      let currentClubId = 9;
+      let currentClubId = 9; // Default fallback
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
         const subdomain = hostname.split(".")[0];
@@ -162,6 +171,49 @@ export default function UsuariosManualesPage() {
     }
   };
 
+  // --- LOGICA NOTAS ---
+  const openNoteModal = (cliente: ClienteManual, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setActiveMenuId(null);
+    setEditingCliente(cliente);
+    setNoteText(cliente.notas || "");
+    setIsNoteModalOpen(true);
+  };
+
+  const handleSaveNote = async () => {
+    if (!editingCliente || !idClub) return;
+    setSavingNote(true);
+
+    try {
+      const res = await fetch("/api/admin/usuarios/manuales/notas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id_club: idClub,
+          identificador: editingCliente.id, // ID es el key (tel o nombre)
+          notas: noteText,
+        }),
+      });
+
+      if (res.ok) {
+        // Actualizar estado local
+        setClientes((prev) =>
+          prev.map((c) =>
+            c.id === editingCliente.id ? { ...c, notas: noteText } : c,
+          ),
+        );
+        setIsNoteModalOpen(false);
+      } else {
+        alert("Error al guardar la nota");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error de conexión");
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
   // --- FILTRADO ---
   const filteredAndSorted = useMemo(() => {
     let result = [...clientes];
@@ -171,7 +223,8 @@ export default function UsuariosManualesPage() {
         (c) =>
           c.nombre.toLowerCase().includes(q) ||
           c.telefono.includes(q) ||
-          c.email?.toLowerCase().includes(q),
+          c.email?.toLowerCase().includes(q) ||
+          c.notas?.toLowerCase().includes(q), // Buscar también en notas
       );
     }
     result.sort((a, b) => {
@@ -200,7 +253,7 @@ export default function UsuariosManualesPage() {
 
   return (
     <div
-      className="flex-1 w-full bg-slate-50 min-h-screen pb-20 font-sans"
+      className="flex-1 w-full bg-slate-50 min-h-screen pb-20 font-sans relative"
       onClick={() => setActiveMenuId(null)}
     >
       {/* HEADER */}
@@ -220,7 +273,7 @@ export default function UsuariosManualesPage() {
             </p>
           </div>
 
-          {/* STATS RÁPIDOS (Resumidos en móvil) */}
+          {/* STATS RÁPIDOS */}
           {!loading && clientes.length > 0 && (
             <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100 w-full md:w-auto">
               <div
@@ -335,10 +388,10 @@ export default function UsuariosManualesPage() {
           </div>
         </div>
 
-        {/* CONTENIDO PRINCIPAL */}
+        {/* LISTA */}
         {loading ? (
           <div className="p-20 flex flex-col items-center justify-center gap-4">
-            <Loader2 className="animate-spin h-8 w-8 text-orange-500" />
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
             <p className="text-slate-400 font-medium text-sm">Cargando...</p>
           </div>
         ) : filteredAndSorted.length === 0 ? (
@@ -351,7 +404,7 @@ export default function UsuariosManualesPage() {
           </div>
         ) : (
           <>
-            {/* --- VISTA MÓVIL: CARDS --- */}
+            {/* VISTA MÓVIL */}
             <div className="grid grid-cols-1 gap-3 md:hidden">
               {filteredAndSorted.map((cliente) => {
                 const esActivo = cliente.activo !== false;
@@ -379,9 +432,14 @@ export default function UsuariosManualesPage() {
                           {cliente.nombre.charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <h3 className="font-bold text-slate-800 text-sm">
-                            {cliente.nombre}
-                          </h3>
+                          <div className="flex items-center gap-1">
+                            <h3 className="font-bold text-slate-800 text-sm">
+                              {cliente.nombre}
+                            </h3>
+                            {cliente.notas && (
+                              <StickyNote className="w-3 h-3 text-yellow-500 fill-yellow-500/20" />
+                            )}
+                          </div>
                           {!esActivo && (
                             <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase">
                               Desactivado
@@ -390,7 +448,6 @@ export default function UsuariosManualesPage() {
                         </div>
                       </div>
 
-                      {/* Menú de Acciones Móvil */}
                       {userRole === "admin" && (
                         <div className="relative">
                           <button
@@ -420,6 +477,13 @@ export default function UsuariosManualesPage() {
                                 Ver / Editar
                               </button>
                               <button
+                                onClick={(e) => openNoteModal(cliente, e)}
+                                className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
+                              >
+                                <StickyNote className="w-3.5 h-3.5 text-yellow-500" />
+                                {cliente.notas ? "Editar Nota" : "Crear Nota"}
+                              </button>
+                              <button
                                 onClick={(e) => handleToggleStatus(cliente, e)}
                                 className={`w-full text-left px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-2 ${esActivo ? "text-red-600 hover:bg-red-50" : "text-green-600 hover:bg-green-50"}`}
                               >
@@ -439,6 +503,7 @@ export default function UsuariosManualesPage() {
                       )}
                     </div>
 
+                    {/* Stats Mobile */}
                     <div className="grid grid-cols-2 gap-3 mb-3">
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="block text-[9px] font-bold text-slate-400 uppercase">
@@ -459,26 +524,12 @@ export default function UsuariosManualesPage() {
                         </div>
                       )}
                     </div>
-
-                    <div className="flex items-center gap-3 text-xs text-slate-500 pt-2 border-t border-slate-50">
-                      <div className="flex items-center gap-1 truncate max-w-[50%]">
-                        <Phone className="w-3 h-3 text-slate-400" />
-                        {cliente.telefono || "Sin tel"}
-                      </div>
-                      <div className="flex items-center gap-1 truncate max-w-[50%]">
-                        <Calendar className="w-3 h-3 text-slate-400" />
-                        {new Date(cliente.ultima_reserva).toLocaleDateString(
-                          "es-AR",
-                          { day: "numeric", month: "short" },
-                        )}
-                      </div>
-                    </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* --- VISTA ESCRITORIO: TABLA --- */}
+            {/* VISTA ESCRITORIO */}
             <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-200 overflow-visible">
               <div className="overflow-x-auto min-h-[400px]">
                 <table className="w-full text-left border-collapse">
@@ -538,6 +589,12 @@ export default function UsuariosManualesPage() {
                               <div>
                                 <p className="font-bold text-slate-800 text-base flex items-center gap-2">
                                   {cliente.nombre}
+                                  {/* Icono de Nota */}
+                                  {cliente.notas && (
+                                    <span title="Ver notas">
+                                      <StickyNote className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500/20" />
+                                    </span>
+                                  )}
                                   {!esActivo && (
                                     <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black uppercase">
                                       Desactivado
@@ -615,7 +672,7 @@ export default function UsuariosManualesPage() {
                                 <MoreVertical className="w-4 h-4" />
                               </button>
 
-                              {/* Menú Dropdown Controlado */}
+                              {/* MENÚ DROPDOWN ESCRITORIO */}
                               {activeMenuId === cliente.id && (
                                 <div className="absolute right-8 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-100 z-50 p-1 animate-in fade-in zoom-in-95 duration-100">
                                   <button
@@ -630,6 +687,18 @@ export default function UsuariosManualesPage() {
                                     <ExternalLink className="w-3.5 h-3.5 text-blue-500" />{" "}
                                     Ver / Editar
                                   </button>
+
+                                  {/* BOTÓN NOTAS */}
+                                  <button
+                                    onClick={(e) => openNoteModal(cliente, e)}
+                                    className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
+                                  >
+                                    <StickyNote className="w-3.5 h-3.5 text-yellow-500" />
+                                    {cliente.notas
+                                      ? "Editar Nota"
+                                      : "Crear Nota"}
+                                  </button>
+
                                   <button
                                     onClick={(e) =>
                                       handleToggleStatus(cliente, e)
@@ -662,6 +731,78 @@ export default function UsuariosManualesPage() {
           </>
         )}
       </div>
+
+      {/* --- MODAL PARA EDITAR NOTAS --- */}
+      <AnimatePresence>
+        {isNoteModalOpen && editingCliente && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setIsNoteModalOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            >
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  <StickyNote className="w-5 h-5 text-yellow-500" />
+                  Notas de Usuario
+                </h3>
+                <button
+                  onClick={() => setIsNoteModalOpen(false)}
+                  className="p-1 hover:bg-slate-200 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="p-6">
+                <p className="text-sm text-slate-500 mb-2">
+                  Editando nota para:{" "}
+                  <span className="font-bold text-slate-700">
+                    {editingCliente.nombre}
+                  </span>
+                </p>
+                <textarea
+                  className="w-full h-32 p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none resize-none text-slate-700 text-sm bg-yellow-50/30"
+                  placeholder="Escribe aquí observaciones importantes sobre este cliente (ej: Preferencia de cancha, deudas, horarios...)"
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+                <button
+                  onClick={() => setIsNoteModalOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveNote}
+                  disabled={savingNote}
+                  className="px-4 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingNote ? (
+                    "Guardando..."
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" /> Guardar Nota
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -18,6 +18,7 @@ export async function GET(req: Request, { params }: Ctx) {
       return NextResponse.json({ error: "Falta id_club" }, { status: 400 });
 
     // 1. Buscar todas las reservas de este nombre exacto
+    // (Nota: Podrías usar .or() si quisieras buscar también por teléfono, pero mantenemos tu lógica original)
     const { data: reservas, error } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -34,28 +35,54 @@ export async function GET(req: Request, { params }: Ctx) {
 
     if (error) throw error;
 
-    // 2. Calcular Estadísticas
+    if (!reservas || reservas.length === 0) {
+      return NextResponse.json(
+        { error: "Usuario no encontrado" },
+        { status: 404 },
+      );
+    }
+
+    // 2. Calcular Estadísticas y Datos Recientes
     const totalReservas = reservas.length;
     const totalGastado = reservas.reduce(
       (acc, curr) => acc + Number(curr.precio_total),
       0,
     );
 
-    // Obtener datos de contacto más recientes (por si cambiaron)
-    const ultimoDato = reservas[0] || {};
+    // Obtener datos de contacto más recientes (el primero del array porque ordenamos descendente)
+    const ultimoDato = reservas[0];
+    const telefono = ultimoDato.cliente_telefono || "";
+    const email = ultimoDato.cliente_email || "";
+
+    // ---------------------------------------------------------
+    // ✅ PASO 3 (NUEVO): BUSCAR LA NOTA EN LA TABLA NUEVA
+    // ---------------------------------------------------------
+    // La "key" para buscar la nota debe ser idéntica a la lógica del listado:
+    // Si tiene teléfono, usamos el teléfono. Si no, el nombre en minúsculas.
+    const key = telefono ? telefono : decodedName.toLowerCase();
+
+    const { data: notaData } = await supabaseAdmin
+      .from("club_usuarios_manuales_info")
+      .select("notas")
+      .eq("id_club", id_club)
+      .eq("identificador", key)
+      .maybeSingle();
+    // ---------------------------------------------------------
 
     return NextResponse.json({
       ok: true,
       perfil: {
         nombre: decodedName,
-        telefono: ultimoDato.cliente_telefono || "Sin teléfono",
-        email: ultimoDato.cliente_email || "Sin email",
+        telefono: telefono || "Sin teléfono",
+        email: email || "Sin email",
         total_reservas: totalReservas,
         total_gastado: totalGastado,
+        notas: notaData?.notas || "", // ✅ Aquí inyectamos la nota recuperada
       },
       historial: reservas,
     });
   } catch (error: any) {
+    console.error(error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
