@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Lock, RefreshCw } from "lucide-react";
 import { CanchaUI, ReservaUI, THEME_COLORS } from "./types";
 
@@ -56,6 +57,25 @@ function tipoTurnoBadgeClass(tipo?: string | null) {
     return "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200";
   if (t.includes("escuela")) return "bg-cyan-100 text-cyan-700 border-cyan-200";
   return "bg-white/80 text-slate-600 border-slate-200";
+}
+
+function sameLocalDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function formatHHMMFromDecimal(dec: number) {
+  // dec puede venir > 24
+  let v = dec;
+  if (v >= 24) v -= 24;
+  const h = Math.floor(v);
+  const m = Math.round((v - h) * 60);
+  const hh = String(h).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
 
 export default function CompactView({
@@ -122,6 +142,36 @@ export default function CompactView({
   const totalHeight =
     (endHour - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET + 50;
 
+  // =========================
+  // ✅ BARRA "HORA ACTUAL"
+  // =========================
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const nowLine = useMemo(() => {
+    const now = new Date();
+
+    // Solo mostrar si estamos viendo HOY (local)
+    if (!sameLocalDay(now, date)) return null;
+
+    const dec = now.getHours() + now.getMinutes() / 60;
+
+    // Tu grilla puede ir a 26 (cruza medianoche). Elegimos la representación que caiga dentro del rango.
+    const candidates = [dec, dec + 24];
+    const picked = candidates.find((x) => x >= startHour && x <= endHour);
+
+    if (picked == null) return null;
+
+    const top = (picked - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
+    const label = formatHHMMFromDecimal(picked);
+
+    return { top, label };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, date, startHour, endHour]);
+
   return (
     <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden select-none ring-1 ring-slate-100">
       <div className="flex-1 overflow-auto relative custom-scrollbar bg-slate-50/30">
@@ -141,6 +191,7 @@ export default function CompactView({
                 <RefreshCw size={16} />
               </button>
             </div>
+
             <div className="relative h-full">
               {timeSlots.map((time) => {
                 if (!Number.isInteger(time)) return null;
@@ -161,6 +212,26 @@ export default function CompactView({
               })}
             </div>
           </div>
+
+          {/* ✅ Overlay de barra "AHORA" sobre TODAS las canchas (no tapa la columna de horas) */}
+          {nowLine && (
+            <div
+              className="absolute left-16 right-0 z-[25] pointer-events-none"
+              style={{ top: nowLine.top }}
+            >
+              {/* línea */}
+              <div className="relative">
+                <div className="h-[3px] bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" />
+                {/* etiqueta a la derecha, similar a tu screenshot */}
+                <div className="absolute right-3 -top-3">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 shadow-lg ring-2 ring-white/80">
+                    {nowLine.label}
+                    <span className="w-1.5 h-1.5 rounded-full bg-white/90" />
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* COLUMNAS CANCHAS */}
           {canchas.map((cancha) => {
@@ -218,10 +289,7 @@ export default function CompactView({
                     if (isSlotBlocked(cancha, time)) return null;
 
                     const isNextDay = time >= 24;
-                    const slotDateISO = getTargetDateISO(
-                      date,
-                      isNextDay ? 1 : 0,
-                    );
+                    const slotDateISO = getTargetDateISO(date, isNextDay ? 1 : 0);
 
                     return (
                       <div
@@ -240,8 +308,7 @@ export default function CompactView({
                         }`}
                         style={{
                           top:
-                            (time - startHour) * PIXELS_PER_HOUR +
-                            GRID_TOP_OFFSET,
+                            (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
                           height: PIXELS_PER_HOUR / 2,
                         }}
                       />
@@ -265,8 +332,7 @@ export default function CompactView({
                         className={`absolute left-1 right-1 rounded-xl border-l-[4px] shadow-sm cursor-pointer z-20 hover:shadow-md hover:-translate-y-0.5 transition-all p-2 pr-10 flex flex-col justify-between ${theme.bg} ${theme.border} bg-opacity-95 backdrop-blur-sm`}
                         style={{
                           top: getTopPosition(reserva.horaInicio),
-                          height:
-                            getHeight(reserva.horaInicio, reserva.horaFin) - 3,
+                          height: getHeight(reserva.horaInicio, reserva.horaFin) - 3,
                         }}
                       >
                         {/* ✅ DEBE centrado a la derecha */}
@@ -283,7 +349,7 @@ export default function CompactView({
                             {reserva.horaInicio} - {reserva.horaFin}
                           </span>
 
-                          {/* ✅ Punto verde SOLO cuando NO debe (cuando desaparece DEBE) */}
+                          {/* ✅ Punto verde SOLO cuando NO debe */}
                           {!debe && (
                             <div
                               className="w-2 h-2 rounded-full ring-2 ring-white bg-emerald-500"
@@ -306,10 +372,7 @@ export default function CompactView({
                           </span>
 
                           <span className="text-[10px] font-extrabold text-slate-700">
-                            $
-                            {Number(reserva.precio_total).toLocaleString(
-                              "es-AR",
-                            )}
+                            ${Number(reserva.precio_total).toLocaleString("es-AR")}
                           </span>
                         </div>
                       </div>
