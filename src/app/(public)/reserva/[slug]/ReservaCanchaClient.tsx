@@ -12,11 +12,17 @@ import {
   Lock,
   ArrowLeft,
   Loader2,
+  LogIn,
 } from "lucide-react";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"; // ✅ Importar cliente Supabase
 import type { Club } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
-import SingleCourtAgenda from "./SingleCourtAgenda"; // 👈 ajustá ruta
-import { useReservaCanchaLogic, type CanchaUI } from "./useReservaCancha"; // 👈 ajustá ruta
+import SingleCourtAgenda from "./SingleCourtAgenda";
+import { useReservaCanchaLogic, type CanchaUI } from "./useReservaCancha";
+
+// ⚠️ IMPORTANTE: Verifica que esta ruta coincida con el nombre de tu carpeta.
+// En tu código anterior era "confirmacion".
+const CONFIRMATION_URL = "/reserva/confirmacion";
 
 export default function ReservaCanchaClient({
   club,
@@ -26,14 +32,18 @@ export default function ReservaCanchaClient({
   cancha: CanchaUI;
 }) {
   const router = useRouter();
+  const supabase = createClientComponentClient(); // ✅ Instancia de Supabase
 
-  // loader navegación
+  // Loader para navegación y chequeo de auth
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(false);
+
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   useEffect(() => {
     setIsNavigating(false);
+    setIsCheckingAuth(false);
   }, [pathname, searchParams]);
 
   const {
@@ -44,29 +54,22 @@ export default function ReservaCanchaClient({
     showDays,
     setShowDays,
     segmentoActual,
-    durationsAllowed,
     fechaTexto,
-
     anchorAbs,
     selectedAbs,
     validEndAbsSet,
     warning,
     handleSelect,
-    resetSelection,
-
     hasAnySelection,
     durationMinutes,
     durationOk,
     startTime,
     endTime,
     requestFecha,
-
     priceLoading,
     pricePreview,
     etiquetaTarifa,
-
     canConfirm,
-
     selectDay,
   } = useReservaCanchaLogic({ club, cancha });
 
@@ -76,13 +79,62 @@ export default function ReservaCanchaClient({
     "--text-club": club.color_texto || "#ffffff",
   } as CSSProperties;
 
+  // --- LÓGICA MODIFICADA: Guardar Borrador -> Verificar Auth -> Redirigir ---
+  const handleConfirmarReserva = async () => {
+    if (!canConfirm || !startTime || !endTime) return;
+
+    setIsCheckingAuth(true); // Mostrar spinner en el botón
+
+    try {
+      // 1. Guardar la intención de reserva (Draft)
+      const res = await fetch("/api/reservas/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id_club: club.id_club,
+          id_cancha: cancha.id_cancha,
+          fecha: requestFecha,
+          inicio: startTime,
+          fin: endTime,
+        }),
+        cache: "no-store",
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setIsCheckingAuth(false);
+        alert(data?.error || "No se pudo preparar la reserva");
+        return;
+      }
+
+      // 2. Verificar Sesión con Supabase
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        // ❌ NO LOGUEADO: Redirigir al Login con 'next' apuntando a confirmación
+        const loginUrl = `/login?next=${encodeURIComponent(CONFIRMATION_URL)}`;
+        router.push(loginUrl);
+      } else {
+        // ✅ LOGUEADO: Ir directo a confirmación
+        router.push(CONFIRMATION_URL);
+      }
+    } catch (error) {
+      setIsCheckingAuth(false);
+      console.error(error);
+      alert("Error de conexión. Intente nuevamente.");
+    }
+  };
+
   return (
     <section
       style={customStyle}
       className="min-h-screen bg-gradient-to-br from-slate-950 via-[#0a0f1d] to-[var(--primary)]/40 flex flex-col items-center text-white px-3 pt-24 pb-10 sm:px-6 sm:pt-36 sm:pb-12 relative selection:bg-[var(--primary)] selection:text-white"
     >
-      {/* overlay de carga */}
-      {isNavigating && (
+      {/* Overlay de carga global */}
+      {(isNavigating || (isCheckingAuth && !hasAnySelection)) && (
         <div className="fixed inset-0 z-[100] bg-neutral-950/80 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 text-[var(--primary)] animate-spin" />
@@ -103,7 +155,7 @@ export default function ReservaCanchaClient({
         <ArrowLeft className="w-5 h-5 text-white group-hover:-translate-x-1 transition-transform" />
       </button>
 
-      {/* hero */}
+      {/* Hero */}
       <div className="w-full max-w-5xl relative z-10 mb-8">
         <div className="relative w-full h-48 sm:h-64 rounded-3xl overflow-hidden shadow-2xl border border-white/10">
           <Image
@@ -134,11 +186,11 @@ export default function ReservaCanchaClient({
         </div>
       </div>
 
-      {/* card */}
+      {/* Card Principal */}
       <div className="w-full max-w-5xl bg-[#111827]/60 backdrop-blur-xl border border-white/10 rounded-3xl p-4 sm:p-8 shadow-2xl relative overflow-hidden">
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-[var(--primary)] rounded-full blur-[100px] opacity-20 pointer-events-none" />
 
-        {/* selector fecha */}
+        {/* Selector Fecha */}
         <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 relative z-10">
           <button
             onClick={() => setShowDays((p) => !p)}
@@ -209,14 +261,16 @@ export default function ReservaCanchaClient({
           )}
         </AnimatePresence>
 
-        {/* ✅ agenda vertical */}
+        {/* Agenda */}
         {!openDay ? (
           <div className="h-40 flex items-center justify-center text-neutral-500 animate-pulse">
             Cargando disponibilidad...
           </div>
         ) : openDay.slots.length === 0 ? (
           <div className="p-8 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
-            <p className="text-neutral-400">No hay disponibilidad para esta fecha.</p>
+            <p className="text-neutral-400">
+              No hay disponibilidad para esta fecha.
+            </p>
           </div>
         ) : (
           <SingleCourtAgenda
@@ -230,7 +284,7 @@ export default function ReservaCanchaClient({
           />
         )}
 
-        {/* footer / warnings */}
+        {/* Footer / Resumen */}
         <div className="mt-8 space-y-4">
           <AnimatePresence>
             {warning && (
@@ -265,7 +319,9 @@ export default function ReservaCanchaClient({
                       {startTime} - {endTime}
                     </span>
                     <span className="w-1 h-1 bg-neutral-600 rounded-full" />
-                    <span className="text-neutral-300">{durationMinutes} min</span>
+                    <span className="text-neutral-300">
+                      {durationMinutes} min
+                    </span>
                   </div>
                 </div>
               </div>
@@ -287,48 +343,18 @@ export default function ReservaCanchaClient({
                     </span>
                   </>
                 ) : (
-                  <span className="text-rose-400 text-sm">Error al cotizar</span>
+                  <span className="text-rose-400 text-sm">
+                    Error al cotizar
+                  </span>
                 )}
               </div>
             </motion.div>
           )}
 
+          {/* ✅ BOTÓN DE CONFIRMACIÓN CON LÓGICA DE SESIÓN */}
           <button
-            disabled={!canConfirm}
-            onClick={async () => {
-              if (!canConfirm || !startTime || !endTime) return;
-
-              setIsNavigating(true);
-
-              try {
-                const res = await fetch("/api/reservas/draft", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    id_club: club.id_club,
-                    id_cancha: cancha.id_cancha,
-                    fecha: requestFecha,
-                    inicio: startTime,
-                    fin: endTime,
-                  }),
-                  cache: "no-store",
-                });
-
-                const data = await res.json().catch(() => null);
-
-                if (!res.ok) {
-                  setIsNavigating(false);
-                  alert(data?.error || "No se pudo preparar la reserva");
-                  return;
-                }
-
-                router.push("/reserva/confirmacion");
-              } catch (error) {
-                setIsNavigating(false);
-                console.error(error);
-                alert("Error de conexión. Intente nuevamente.");
-              }
-            }}
+            disabled={!canConfirm || isCheckingAuth} // Se deshabilita mientras chequea auth
+            onClick={handleConfirmarReserva}
             className={`
               w-full py-4 rounded-xl font-bold text-lg shadow-xl transition-all flex items-center justify-center gap-3
               ${
@@ -338,8 +364,17 @@ export default function ReservaCanchaClient({
               }
             `}
           >
-            Confirmar Reserva
-            {canConfirm && <CheckCircle2 className="w-5 h-5" />}
+            {isCheckingAuth ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Procesando...
+              </>
+            ) : (
+              <>
+                Confirmar Reserva
+                <CheckCircle2 className="w-5 h-5" />
+              </>
+            )}
           </button>
         </div>
       </div>
