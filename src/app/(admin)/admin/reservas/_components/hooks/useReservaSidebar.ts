@@ -526,6 +526,11 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   // =========================================================
   // Precio Automático (solo si NO es manual)
   // =========================================================
+    // =========================================================
+  // Precio Automático (solo si NO es manual)
+  // - si tipoTurno === "profesor" => segmento profe
+  // - cualquier otro => segmento publico
+  // =========================================================
   useEffect(() => {
     let alive = true;
 
@@ -542,6 +547,10 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
       const fin = addMinutesHHMM(inicio, dur);
 
+      // ✅ segmento segun tipo de turno (admin override)
+      const segmento_override: Segmento =
+        formData.tipoTurno === "profesor" ? "profe" : "publico";
+
       setPriceLoading(true);
       setPriceError(null);
 
@@ -555,6 +564,8 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
             fecha: fechaISO,
             inicio,
             fin,
+            // ✅ NUEVO
+            segmento_override,
           }),
           cache: "no-store",
         });
@@ -565,6 +576,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         if (!res.ok || !json?.ok) {
           console.warn("Precio calc warn:", json?.error);
           setFormData((p) => ({ ...p, precio: 0 }));
+          setPriceError(json?.error || "No se pudo calcular el precio");
         } else {
           setFormData((p) => ({
             ...p,
@@ -592,6 +604,8 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     formData.horaInicio,
     formData.duracion,
     formData.precioManual,
+    // ✅ IMPORTANTE: si cambia el tipo de turno, recotiza
+    formData.tipoTurno,
   ]);
 
   // =========================================================

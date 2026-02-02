@@ -10,11 +10,7 @@ interface Props {
   date: Date; // ✅ RECIBIMOS LA FECHA BASE
   onReservaClick: (r: ReservaUI) => void;
   // ✅ AHORA DEVUELVE TAMBIÉN LA FECHA CALCULADA (YYYY-MM-DD)
-  onEmptySlotClick: (
-    canchaId: number,
-    timeStr: string,
-    dateStr: string,
-  ) => void;
+  onEmptySlotClick: (canchaId: number, timeStr: string, dateStr: string) => void;
 }
 
 const PIXELS_PER_HOUR = 140;
@@ -29,6 +25,59 @@ function getTargetDateISO(baseDate: Date, extraDays: number) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+// ---- Tipo turno helpers (UI) ----
+function normalizeTipoTurno(tipo?: string | null) {
+  return String(tipo || "normal")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_");
+}
+
+function prettyTipoTurno(tipo?: string | null) {
+  const t = normalizeTipoTurno(tipo);
+
+  switch (t) {
+    case "normal":
+      return "Normal";
+    case "profesor":
+      return "Profesor";
+    case "torneo":
+      return "Torneo";
+    case "escuela":
+      return "Escuela";
+    case "cumpleanos":
+    case "cumpleaños":
+      return "Cumpleaños";
+    case "abonado":
+      return "Abonado";
+    default:
+      // fallback: capitalize + reemplaza "_" por espacio
+      return t
+        .replace(/_/g, " ")
+        .replace(/^./, (c) => c.toUpperCase());
+  }
+}
+
+function tipoTurnoBadgeClass(tipo?: string | null) {
+  const t = normalizeTipoTurno(tipo);
+
+  switch (t) {
+    case "profesor":
+      return "bg-indigo-600 text-white";
+    case "torneo":
+      return "bg-fuchsia-600 text-white";
+    case "escuela":
+      return "bg-cyan-700 text-white";
+    case "cumpleanos":
+    case "cumpleaños":
+      return "bg-amber-500 text-white";
+    case "abonado":
+      return "bg-slate-900 text-white";
+    default:
+      return "bg-slate-200 text-slate-800";
+  }
 }
 
 export default function CompactView({
@@ -86,8 +135,7 @@ export default function CompactView({
                     key={time}
                     className="absolute w-full text-center -mt-3"
                     style={{
-                      top:
-                        (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
+                      top: (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
                     }}
                   >
                     <span className="text-xs font-black text-slate-400 block">
@@ -130,16 +178,12 @@ export default function CompactView({
                 <div className="relative w-full h-full bg-white">
                   {/* Slots Vacíos */}
                   {timeSlots.map((time) => {
-                    if (time === endHour && !Number.isInteger(time))
-                      return null;
+                    if (time === endHour && !Number.isInteger(time)) return null;
 
                     // ✅ LÓGICA DE DÍA SIGUIENTE
                     // Si la hora visual es >= 24 (ej. 00:00, 01:00), es mañana.
                     const isNextDay = time >= 24;
-                    const slotDateISO = getTargetDateISO(
-                      date,
-                      isNextDay ? 1 : 0,
-                    );
+                    const slotDateISO = getTargetDateISO(date, isNextDay ? 1 : 0);
 
                     return (
                       <div
@@ -157,9 +201,7 @@ export default function CompactView({
                             : "border-b border-gray-100 border-dashed"
                         }`}
                         style={{
-                          top:
-                            (time - startHour) * PIXELS_PER_HOUR +
-                            GRID_TOP_OFFSET,
+                          top: (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
                           height: PIXELS_PER_HOUR / 2,
                         }}
                       />
@@ -169,51 +211,81 @@ export default function CompactView({
                   {/* Reservas */}
                   {reservas
                     .filter((r) => r.id_cancha === cancha.id_cancha)
-                    .map((reserva) => (
-                      <div
-                        key={reserva.id_reserva}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onReservaClick(reserva);
-                        }}
-                        className={`absolute left-1 right-1 rounded-lg border-l-[6px] shadow-sm cursor-pointer
-                          hover:shadow-lg hover:z-20 hover:scale-[1.02] transition-all p-2 flex flex-col justify-center
-                          ${theme.bg} ${theme.border} bg-opacity-95 backdrop-blur-sm
-                        `}
-                        style={{
-                          top: getTopPosition(reserva.horaInicio),
-                          height:
-                            getHeight(reserva.horaInicio, reserva.horaFin) - 3,
-                        }}
-                      >
+                    .map((reserva) => {
+                      const tipoLabel = prettyTipoTurno(reserva.tipo_turno);
+
+                      return (
                         <div
-                          className={`absolute top-2 right-2 w-2 h-2 rounded-full ring-2 ring-white/50 ${
-                            reserva.estado === "confirmada"
-                              ? "bg-green-500"
-                              : "bg-orange-400"
-                          }`}
-                        />
-                        <span className="text-[10px] font-bold opacity-70 flex gap-1 mb-0.5">
-                          {reserva.horaInicio} - {reserva.horaFin}
-                        </span>
-                        <h4 className="font-bold text-xs md:text-sm text-slate-800 leading-tight truncate">
-                          {reserva.cliente_nombre}
-                        </h4>
+                          key={reserva.id_reserva}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onReservaClick(reserva);
+                          }}
+                          className={`absolute left-1 right-1 rounded-xl border-l-[6px] shadow-sm cursor-pointer
+                            hover:shadow-lg hover:z-20 hover:scale-[1.02] transition-all p-2.5 flex flex-col justify-center
+                            ${theme.bg} ${theme.border} bg-opacity-95 backdrop-blur-sm
+                          `}
+                          style={{
+                            top: getTopPosition(reserva.horaInicio),
+                            height: getHeight(reserva.horaInicio, reserva.horaFin) - 3,
+                          }}
+                        >
+                          {/* Estado dot */}
+                          <div
+                            className={`absolute top-2.5 right-2.5 w-2 h-2 rounded-full ring-2 ring-white/60 ${
+                              reserva.estado === "confirmada"
+                                ? "bg-green-500"
+                                : "bg-orange-400"
+                            }`}
+                            title={
+                              reserva.estado === "confirmada"
+                                ? "Confirmada"
+                                : "Pendiente de pago"
+                            }
+                          />
 
-                        <div className="mt-1 flex justify-between items-end">
-                          <span className="text-[10px] bg-white/60 px-1.5 rounded text-slate-700 font-bold tracking-tight">
-                            $
-                            {Number(reserva.precio_total || 0).toLocaleString()}
-                          </span>
-
-                          {Number(reserva.saldo_pendiente || 0) > 0 && (
-                            <span className="text-[8px] font-black text-white bg-red-500 px-1.5 py-0.5 rounded uppercase tracking-wider shadow-sm">
-                              DEBE
+                          {/* Tipo turno badge (arriba a la derecha) */}
+                          <div className="absolute top-2.5 right-6 flex items-center gap-1">
+                            <span
+                              className={`text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider shadow-sm ${tipoTurnoBadgeClass(
+                                reserva.tipo_turno,
+                              )}`}
+                              title={`Tipo de turno: ${tipoLabel}`}
+                            >
+                              {tipoLabel}
                             </span>
-                          )}
+                          </div>
+
+                          {/* Horario */}
+                          <div className="flex items-center justify-between gap-2 mb-0.5 pr-20">
+                            <span className="text-[10px] font-bold opacity-70">
+                              {reserva.horaInicio} - {reserva.horaFin}
+                            </span>
+                          </div>
+
+                          {/* Cliente */}
+                          <h4 className="font-bold text-xs md:text-sm text-slate-800 leading-tight truncate pr-2">
+                            {reserva.cliente_nombre}
+                          </h4>
+
+                          {/* Footer */}
+                          <div className="mt-1.5 flex justify-between items-end">
+                            <span className="text-[10px] bg-white/70 px-1.5 py-0.5 rounded-md text-slate-800 font-extrabold tracking-tight shadow-sm">
+                              $
+                              {Number(reserva.precio_total || 0).toLocaleString(
+                                "es-AR",
+                              )}
+                            </span>
+
+                            {Number(reserva.saldo_pendiente || 0) > 0 && (
+                              <span className="text-[8px] font-black text-white bg-red-500 px-1.5 py-0.5 rounded-md uppercase tracking-wider shadow-sm">
+                                DEBE
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                 </div>
               </div>
             );
