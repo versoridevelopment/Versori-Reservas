@@ -10,6 +10,9 @@ import {
   StickyNote,
   Globe,
   UserCog,
+  CreditCard,
+  CalendarDays,
+  Wallet,
 } from "lucide-react";
 import { formatMoney } from "../hooks/useReservaSidebar";
 import type { ReservaUI } from "../types";
@@ -25,155 +28,192 @@ export default function ReservaDetails({
   getWhatsappLink,
   onEdit,
 }: Props) {
-  // Aseguramos compatibilidad si el backend no manda nulls
+  // --- Lógica Segura (Sin cambios funcionales) ---
   const notas = reserva.notas || "";
   const email = reserva.cliente_email || "";
   const origen = reserva.origen || "web";
-  const telefono = reserva.cliente_telefono || "Sin teléfono";
+  const telefono = reserva.cliente_telefono || "";
+  const tieneTelefono = telefono && telefono !== "Sin teléfono";
+
+  const saldo = Number(reserva.saldo_pendiente || 0);
+  const total = Number(reserva.precio_total || 0);
+  const pagado = Number(reserva.pagos_aprobados_total || 0);
+
+  const estadoPago = saldo > 0 ? "pendiente" : "pagado";
 
   return (
-    <div className="space-y-6">
-      {/* Sección Jugador */}
-      <div className="relative">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-semibold text-gray-800">Jugador</h3>
+    <div className="space-y-6 font-sans">
+      {/* 1. Header: Perfil Jugador */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden group hover:border-slate-200 transition-colors">
+        <div className="p-4 flex justify-between items-start">
+          <div className="flex gap-3">
+            {/* Avatar Placeholder */}
+            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+              <User className="w-6 h-6" />
+            </div>
+
+            <div className="flex flex-col">
+              <h3 className="text-lg font-bold text-slate-800 leading-tight">
+                {reserva.cliente_nombre || "Cliente Anónimo"}
+              </h3>
+
+              {/* Datos de contacto */}
+              <div className="mt-1 space-y-1">
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>{telefono || "Sin teléfono"}</span>
+                </div>
+                {email && (
+                  <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <Mail className="w-3.5 h-3.5" />
+                    <span className="truncate max-w-[200px]" title={email}>
+                      {email}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <button
-            type="button"
             onClick={onEdit}
-            className="text-xs text-green-700 border border-green-700 px-2 py-0.5 rounded hover:bg-green-50 transition-colors"
+            className="text-xs font-semibold text-slate-500 hover:text-slate-800 border border-slate-200 px-3 py-1 rounded-full hover:bg-slate-50 transition-all"
           >
             Editar
           </button>
         </div>
 
-        <div className="space-y-3 text-sm">
-          {/* Nombre */}
-          <div className="flex items-center gap-2 text-gray-700">
-            <User className="w-4 h-4 text-gray-400 shrink-0" />
-            <span className="font-medium">{reserva.cliente_nombre}</span>
+        {/* Acciones Rápidas (Solo si tiene teléfono) */}
+        {tieneTelefono && (
+          <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 flex justify-end">
+            <a
+              href={getWhatsappLink(telefono)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Enviar WhatsApp
+            </a>
           </div>
+        )}
+      </div>
 
-          {/* Teléfono y WhatsApp */}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 text-gray-700">
-              <Phone className="w-4 h-4 text-gray-400 shrink-0" />
-              <span>{telefono}</span>
-            </div>
-            {telefono !== "Sin teléfono" && (
-              <a
-                href={getWhatsappLink(telefono)}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 text-green-600 font-medium hover:underline cursor-pointer ml-6 text-xs"
-              >
-                <MessageCircle className="w-3.5 h-3.5" />
-                Enviar WhatsApp
-              </a>
+      {/* 2. Detalles del Turno (Cards Grid) */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Horario */}
+        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+          <div className="flex items-center gap-2 text-slate-400 mb-1">
+            <Clock className="w-4 h-4" />
+            <span className="text-xs font-bold uppercase tracking-wider">
+              Horario
+            </span>
+          </div>
+          <div className="text-slate-800 font-bold text-lg">
+            {reserva.horaInicio}{" "}
+            <span className="text-slate-400 text-sm">a</span> {reserva.horaFin}
+          </div>
+        </div>
+
+        {/* Origen */}
+        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+          <div className="flex items-center gap-2 text-slate-400 mb-1">
+            <span className="text-xs font-bold uppercase tracking-wider">
+              Origen
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {origen === "admin" ? (
+              <div className="flex items-center gap-1.5 text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded text-sm">
+                <UserCog className="w-4 h-4" /> Admin
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-blue-700 font-semibold bg-blue-50 px-2 py-0.5 rounded text-sm">
+                <Globe className="w-4 h-4" /> Web/App
+              </div>
             )}
           </div>
-
-          {/* Email (Nuevo) */}
-          {email && (
-            <div className="flex items-center gap-2 text-gray-700 overflow-hidden">
-              <Mail className="w-4 h-4 text-gray-400 shrink-0" />
-              <span className="truncate" title={email}>
-                {email}
-              </span>
-            </div>
-          )}
         </div>
       </div>
 
-      <hr className="border-gray-100" />
-
-      {/* Sección Detalles Turno */}
-      <div>
-        <h3 className="text-base font-semibold text-gray-800 mb-3">Turno</h3>
-        <ul className="space-y-3 text-sm text-gray-600">
-          {/* Horario */}
-          <li className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-gray-400 shrink-0" />
-            <span>
-              {reserva.horaInicio} - {reserva.horaFin}
+      {/* 3. Sección Económica (Ticket style) */}
+      <div className="border border-slate-200 rounded-2xl overflow-hidden">
+        <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-slate-400" />
+            Detalle de Pago
+          </h4>
+          {estadoPago === "pagado" ? (
+            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold uppercase rounded-full tracking-wide">
+              Pagado
             </span>
-          </li>
-
-          {/* Origen (Nuevo) */}
-          <li className="flex items-center gap-2 capitalize">
-            {origen === "web" || origen === "app" ? (
-              <Globe className="w-4 h-4 text-blue-400 shrink-0" />
-            ) : (
-              <UserCog className="w-4 h-4 text-orange-400 shrink-0" />
-            )}
-            <span>
-              Reservado vía:{" "}
-              <strong>{origen === "admin" ? "Administración" : origen}</strong>
+          ) : (
+            <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-bold uppercase rounded-full tracking-wide">
+              Pendiente
             </span>
-          </li>
+          )}
+        </div>
 
-          {/* Precios */}
-          <li className="flex items-center gap-2">
-            <DollarSign className="w-4 h-4 text-gray-400 shrink-0" />
-            <span>
-              Precio:{" "}
-              <span className="text-green-600 font-bold">
-                {formatMoney(reserva.precio_total)}
-              </span>
+        <div className="p-4 space-y-3">
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-slate-500 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-slate-300" /> Precio Total
             </span>
-          </li>
+            <span className="font-bold text-slate-800 text-base">
+              {formatMoney(total)}
+            </span>
+          </div>
 
-          {/* Estado de Pagos */}
-          <li className="bg-gray-50 p-2 rounded-lg border border-gray-100">
-            <div className="flex justify-between items-center mb-1">
-              <span>Pagado:</span>
-              <span className="font-semibold text-gray-700">
-                {formatMoney(reserva.pagos_aprobados_total)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span>Saldo:</span>
-              <span
-                className={`font-bold ${
-                  reserva.saldo_pendiente > 0 ? "text-red-500" : "text-gray-400"
-                }`}
-              >
-                {formatMoney(reserva.saldo_pendiente)}
-              </span>
-            </div>
-          </li>
-        </ul>
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-slate-500 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-slate-300" /> Pagado
+            </span>
+            <span className="font-semibold text-emerald-600">
+              {formatMoney(pagado)}
+            </span>
+          </div>
+
+          <div className="h-px bg-slate-100 my-2" />
+
+          <div className="flex justify-between items-center">
+            <span className="text-sm font-bold text-slate-700 flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-slate-400" /> Resta Pagar
+            </span>
+            <span
+              className={`text-xl font-black ${saldo > 0 ? "text-rose-600" : "text-slate-400"}`}
+            >
+              {formatMoney(saldo)}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Sección Notas (Nueva) */}
+      {/* 4. Notas */}
       {notas && (
-        <>
-          <hr className="border-gray-100" />
-          <div>
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+        <div className="relative group">
+          <div className="absolute top-0 left-0 w-1 h-full bg-amber-400 rounded-l-md" />
+          <div className="bg-amber-50 p-4 rounded-r-md border border-amber-100 text-amber-900 text-sm">
+            <div className="flex items-center gap-2 mb-1 text-amber-700/60 font-bold text-xs uppercase tracking-wider">
               <StickyNote className="w-3 h-3" /> Notas Internas
-            </h3>
-            {/* CORRECCIÓN ESLINT: Usamos &quot; en lugar de " */}
-            <div className="bg-yellow-50 text-yellow-800 p-3 rounded-md text-sm border border-yellow-100 italic">
-              &quot;{notas}&quot;
             </div>
+            <p className="italic">"{notas}"</p>
           </div>
-        </>
+        </div>
       )}
 
-      <hr className="border-gray-100" />
-
-      {/* Sección Historial (Simplificada) */}
-      <div>
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
-          Historial Jugador
+      {/* 5. Historial (Static for now) */}
+      <div className="pt-2">
+        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">
+          Historial del Jugador
         </h3>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-sm text-gray-700">
-            <XCircle className="w-4 h-4 text-gray-400 shrink-0" /> No tiene
-            deudas
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            Sin deudas
           </div>
-          <div className="flex items-center gap-2 text-sm text-green-700">
-            <CheckCircle2 className="w-4 h-4 shrink-0" /> Asistencia perfecta
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
+            <CalendarDays className="w-4 h-4 text-blue-500" />
+            Asistencia perfecta
           </div>
         </div>
       </div>
