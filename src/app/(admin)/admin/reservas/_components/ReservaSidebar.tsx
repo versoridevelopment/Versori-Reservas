@@ -2,7 +2,8 @@
 
 import { X, Calendar, Copy, Clock, Loader2, Printer } from "lucide-react";
 import { useState, useEffect } from "react";
-import { createBrowserClient } from "@supabase/ssr"; // ✅ Importamos cliente Supabase
+import { createBrowserClient } from "@supabase/ssr";
+import { printReservaTicket } from "@/lib/printTicket"; // ✅ Importamos la función compartida
 import {
   useReservaSidebar,
   type ReservaSidebarProps,
@@ -72,15 +73,12 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
       if (!idClub) return;
 
       try {
-        // Buscamos nombre del club
         const { data: club } = await supabase
           .from("clubes")
           .select("nombre")
           .eq("id_club", idClub)
           .single();
 
-        // Intentamos buscar dirección (esto es complejo por las relaciones, simplificado aquí)
-        // Hacemos un intento de buscar la dirección a través de contacto -> direccion
         const { data: contacto } = await supabase
           .from("contacto")
           .select("id_contacto")
@@ -104,16 +102,17 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
 
         setClubData({
           nombre: club?.nombre || "Club Deportivo",
-          direccion: direccionStr || "", // Dirección vacía si no se encuentra
+          direccion: direccionStr || "",
         });
       } catch (err) {
-        console.error("Error cargando datos del club para ticket", err);
+        console.error("Error cargando datos del club", err);
       }
     }
 
     if (isOpen) fetchClubInfo();
   }, [idClub, isOpen, supabase]);
 
+  // Sincronización de datos
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawTime = (props as any).inicio || (props as any).selectedStart || "";
   const incomingTime = rawTime.length > 5 ? rawTime.slice(0, 5) : rawTime;
@@ -142,108 +141,28 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     if (!isOpen) setIsEditingMove(false);
   }, [isOpen, isCreating, incomingTime, incomingCanchaId, setFormData]);
 
-  // --- TICKET DE IMPRESIÓN ---
+  // --- FUNCIÓN DE IMPRESIÓN ---
   const handlePrintTicket = () => {
     if (!reserva) return;
 
-    // Usamos los datos reales cargados
-    const nombreClubReal = clubData.nombre || "Club";
-    const direccionClubReal = clubData.direccion || "";
-
+    // Casteamos 'as any' para acceder a props que vienen del backend
+    // aunque no estén en la interfaz estricta del frontend
     const r = reserva as any;
-    const pagado = r.pagos_aprobados_total || 0;
-    const saldo = r.saldo_pendiente || 0;
-    const total = r.precio_total || 0;
 
-    const printWindow = window.open("", "PRINT", "height=650,width=450");
-
-    if (printWindow) {
-      const fechaImpresion = new Date().toLocaleString("es-AR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Ticket #${reserva.id_reserva}</title>
-            <style>
-              @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
-              body { font-family: 'Roboto Mono', monospace; padding: 15px; margin: 0; background: #fff; color: #000; font-size: 12px; }
-              .ticket { width: 100%; max-width: 300px; margin: 0 auto; }
-              @media print { @page { margin: 0; } body { padding: 0; } button { display: none; } }
-              .text-center { text-align: center; } 
-              .text-right { text-align: right; } 
-              .font-bold { font-weight: 700; }
-              .text-lg { font-size: 16px; } 
-              .text-xl { font-size: 18px; } 
-              .uppercase { text-transform: uppercase; }
-              .divider { border-top: 1px dashed #000; margin: 12px 0; }
-              .double-divider { border-top: 3px double #000; margin: 12px 0; }
-              .row { display: flex; justify-content: space-between; margin-bottom: 6px; }
-              .box { border: 2px solid #000; padding: 8px; margin: 15px 0; text-align: center; }
-              
-              .club-header { margin-bottom: 15px; }
-              .club-name { font-size: 16px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; }
-              .club-address { font-size: 10px; color: #444; }
-            </style>
-          </head>
-          <body>
-            <div class="ticket">
-              
-              <div class="text-center club-header">
-                <div class="club-name">${nombreClubReal}</div>
-                <div class="club-address">${direccionClubReal}</div>
-              </div>
-
-              <div class="divider"></div>
-
-              <div class="text-center">
-                <div class="font-bold text-xl uppercase">COMPROBANTE</div>
-                <div style="font-size: 14px; margin-top: 4px;">Reserva #${reserva.id_reserva}</div>
-                <div style="font-size: 10px; margin-top: 4px;">${fechaImpresion}</div>
-              </div>
-
-              <div class="double-divider"></div>
-
-              <div class="row"><span>CLIENTE:</span><span class="font-bold text-right">${r.cliente_nombre || "Consumidor Final"}</span></div>
-              <div class="row"><span>CANCHA:</span><span class="text-right">${canchaDisplay}</span></div>
-              <div class="row"><span>FECHA:</span><span class="text-right">${fechaDisplay}</span></div>
-              <div class="row"><span>HORARIO:</span><span class="font-bold text-right">${reserva.horaInicio} - ${reserva.horaFin}</span></div>
-              
-              <div class="divider"></div>
-              
-              <div class="row"><span>Concepto</span><span class="text-right">Alquiler Cancha</span></div>
-              <div class="row font-bold text-lg" style="margin-top: 8px;"><span>TOTAL:</span><span>$${total.toLocaleString("es-AR")}</span></div>
-              
-              <div class="divider"></div>
-              
-              <div class="row"><span>Pagado / Seña:</span><span>$${pagado.toLocaleString("es-AR")}</span></div>
-              
-              <div class="box">
-                <div style="font-size: 10px; margin-bottom: 4px;">SALDO PENDIENTE</div>
-                <div class="font-bold text-xl">$${saldo.toLocaleString("es-AR")}</div>
-              </div>
-
-              <div class="text-center" style="margin-top: 25px; font-size: 10px; color: #666;">
-                <p style="margin:4px 0;">GRACIAS POR SU VISITA</p>
-                <p style="margin:4px 0;">No válido como factura fiscal.</p>
-              </div>
-            </div>
-          </body>
-        </html>
-      `);
-
-      printWindow.document.close();
-      printWindow.focus();
-
-      setTimeout(() => {
-        printWindow.print();
-      }, 500);
-    }
+    printReservaTicket({
+      id_reserva: reserva.id_reserva,
+      club_nombre: clubData.nombre,
+      club_direccion: clubData.direccion,
+      cliente_nombre: r.cliente_nombre,
+      cancha_nombre: canchaDisplay,
+      fecha: reserva.fecha,
+      inicio: reserva.horaInicio,
+      fin: reserva.horaFin,
+      fin_dia_offset: 0,
+      precio_total: r.precio_total,
+      pagado: r.pagos_aprobados_total,
+      saldo: r.saldo_pendiente,
+    });
   };
 
   if (!isOpen) return null;

@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   MapPin,
 } from "lucide-react";
+import { printReservaTicket } from "@/lib/printTicket"; // ✅ Importamos función compartida
 
 type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
 
@@ -38,7 +39,7 @@ type ReservaApi = {
 
   club_nombre?: string | null;
   club_subdominio?: string | null;
-  club_direccion?: string | null; // ✅ Necesario para el ticket
+  club_direccion?: string | null;
   cancha_nombre?: string | null;
 
   ultimo_pago?: {
@@ -80,112 +81,9 @@ function fmtMoney(n: any) {
 
 function formatDate(dateStr?: string | null) {
   if (!dateStr) return "-";
-  // Asumiendo formato YYYY-MM-DD
   const parts = dateStr.split("-");
   if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
   return dateStr;
-}
-
-// --- GENERADOR DE TICKET (HTML Print) ---
-function printTicket(r: ReservaApi) {
-  const printWindow = window.open("", "PRINT", "height=650,width=450");
-
-  if (printWindow) {
-    const fechaImpresion = new Date().toLocaleString("es-AR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    // Cálculos
-    const total = r.precio_total || 0;
-    const pagado = r.monto_anticipo || 0; // O r.ultimo_pago.amount si prefieres lo real pagado
-    const saldo = total - pagado;
-
-    // Horario
-    const horarioDisplay = `${r.inicio?.slice(0, 5)} - ${r.fin?.slice(0, 5)}${r.fin_dia_offset ? " (+1)" : ""}`;
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Ticket #${r.id_reserva}</title>
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
-            body { font-family: 'Roboto Mono', monospace; padding: 15px; margin: 0; background: #fff; color: #000; font-size: 12px; }
-            .ticket { width: 100%; max-width: 300px; margin: 0 auto; }
-            @media print { @page { margin: 0; } body { padding: 0; } button { display: none; } }
-            .text-center { text-align: center; } 
-            .text-right { text-align: right; } 
-            .font-bold { font-weight: 700; }
-            .text-lg { font-size: 16px; } 
-            .text-xl { font-size: 18px; } 
-            .uppercase { text-transform: uppercase; }
-            .divider { border-top: 1px dashed #000; margin: 12px 0; }
-            .double-divider { border-top: 3px double #000; margin: 12px 0; }
-            .row { display: flex; justify-content: space-between; margin-bottom: 6px; }
-            .box { border: 2px solid #000; padding: 8px; margin: 15px 0; text-align: center; }
-            
-            /* Header Club */
-            .club-header { margin-bottom: 15px; }
-            .club-name { font-size: 16px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; }
-            .club-address { font-size: 10px; color: #444; }
-          </style>
-        </head>
-        <body>
-          <div class="ticket">
-            
-            <div class="text-center club-header">
-              <div class="club-name">${r.club_nombre || "Club Deportivo"}</div>
-              <div class="club-address">${r.club_direccion || "Dirección no disponible"}</div>
-            </div>
-
-            <div class="divider"></div>
-
-            <div class="text-center">
-              <div class="font-bold text-xl uppercase">COMPROBANTE</div>
-              <div style="font-size: 14px; margin-top: 4px;">Reserva #${r.id_reserva}</div>
-              <div style="font-size: 10px; margin-top: 4px;">${fechaImpresion}</div>
-            </div>
-
-            <div class="double-divider"></div>
-
-            <div class="row"><span>CLIENTE:</span><span class="font-bold text-right">${r.cliente_nombre || "Consumidor Final"}</span></div>
-            <div class="row"><span>CANCHA:</span><span class="text-right">${r.cancha_nombre || "-"}</span></div>
-            <div class="row"><span>FECHA:</span><span class="text-right">${formatDate(r.fecha)}</span></div>
-            <div class="row"><span>HORARIO:</span><span class="font-bold text-right">${horarioDisplay}</span></div>
-            
-            <div class="divider"></div>
-            
-            <div class="row"><span>Concepto</span><span class="text-right">Alquiler Cancha</span></div>
-            <div class="row font-bold text-lg" style="margin-top: 8px;"><span>TOTAL:</span><span>${fmtMoney(total)}</span></div>
-            
-            <div class="divider"></div>
-            
-            <div class="row"><span>Pagado / Seña:</span><span>${fmtMoney(pagado)}</span></div>
-            
-            <div class="box">
-              <div style="font-size: 10px; margin-bottom: 4px;">SALDO PENDIENTE</div>
-              <div class="font-bold text-xl">${fmtMoney(saldo)}</div>
-            </div>
-
-            <div class="text-center" style="margin-top: 25px; font-size: 10px; color: #666;">
-              <p style="margin:4px 0;">GRACIAS POR SU VISITA</p>
-              <p style="margin:4px 0;">No válido como factura fiscal.</p>
-            </div>
-          </div>
-        </body>
-      </html>
-    `);
-
-    printWindow.document.close();
-    printWindow.focus();
-
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
-  }
 }
 
 export default function PagoResultadoPage() {
@@ -301,6 +199,31 @@ export default function PagoResultadoPage() {
     };
   }, [id_reserva]);
 
+  // --- BOTÓN IMPRIMIR ---
+  const handlePrint = () => {
+    if (!reserva) return;
+
+    // Calculamos saldo restante
+    const pagado = reserva.monto_anticipo || 0;
+    const total = reserva.precio_total || 0;
+    const saldo = total - pagado;
+
+    printReservaTicket({
+      id_reserva: reserva.id_reserva,
+      club_nombre: reserva.club_nombre,
+      club_direccion: reserva.club_direccion,
+      cliente_nombre: reserva.cliente_nombre,
+      cancha_nombre: reserva.cancha_nombre,
+      fecha: reserva.fecha || null,
+      inicio: reserva.inicio || null,
+      fin: reserva.fin || null,
+      fin_dia_offset: reserva.fin_dia_offset as 0 | 1,
+      precio_total: total,
+      pagado: pagado,
+      saldo: saldo,
+    });
+  };
+
   if (!id_reserva) {
     return <p className="text-white p-10 text-center">Reserva inválida</p>;
   }
@@ -353,7 +276,6 @@ export default function PagoResultadoPage() {
 
             {/* Comprobante Card */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl">
-              {/* Header Card */}
               <div className="bg-emerald-500/10 px-6 py-4 border-b border-emerald-500/20 flex justify-between items-center">
                 <span className="text-emerald-400 font-bold text-sm uppercase tracking-wider flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4" /> Confirmada
@@ -364,7 +286,6 @@ export default function PagoResultadoPage() {
               </div>
 
               <div className="p-6 space-y-6">
-                {/* Info Principal */}
                 <div className="text-center">
                   <h2 className="text-xl font-bold text-white">
                     {reserva?.club_nombre}
@@ -374,7 +295,6 @@ export default function PagoResultadoPage() {
                   </p>
                 </div>
 
-                {/* Detalles Grid */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800">
                     <p className="text-zinc-500 text-xs uppercase font-bold mb-1">
@@ -395,7 +315,6 @@ export default function PagoResultadoPage() {
                   </div>
                 </div>
 
-                {/* Desglose Pago */}
                 <div className="space-y-2 pt-2 border-t border-zinc-800">
                   <div className="flex justify-between text-sm">
                     <span className="text-zinc-400">Total</span>
@@ -415,7 +334,7 @@ export default function PagoResultadoPage() {
               {/* Botones */}
               <div className="bg-zinc-950 p-4 flex flex-col gap-3">
                 <button
-                  onClick={() => reserva && printTicket(reserva)}
+                  onClick={handlePrint}
                   className="w-full bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2"
                 >
                   <Printer className="w-4 h-4" /> Imprimir Comprobante
