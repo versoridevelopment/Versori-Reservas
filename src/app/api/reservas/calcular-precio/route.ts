@@ -12,7 +12,7 @@ type Body = {
   fecha: string; // YYYY-MM-DD (fecha REAL del request)
   inicio: string; // HH:MM
   fin: string; // HH:MM
-  segmento_override?: Segmento; // ✅ (para admin)
+  segmento_override?: Segmento; // ✅ (solo admin/cajero)
 };
 
 type Regla = {
@@ -36,8 +36,24 @@ const SUPPORTED_DURS = [30, 60, 90, 120, 150, 180, 210, 240] as const;
 type Dur = (typeof SUPPORTED_DURS)[number];
 
 // ✅ Duración canónica para detectar cambios de tarifario (clave)
-// (si un segmento no tiene 60, podés cambiar a 30, pero en padel normalmente existe 60)
 const CANON_DUR: Dur = 60;
+
+// ✅ Permisos: solo admin/cajero pueden usar segmento_override
+async function assertAdminOrCajero(id_club: number, userId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("club_usuarios")
+    .select("roles!inner(nombre)")
+    .eq("id_club", id_club)
+    .eq("id_usuario", userId)
+    .in("roles.nombre", ["admin", "cajero"])
+    .limit(1);
+
+  if (error) {
+    console.error("[assertAdminOrCajero] error:", error);
+    return false;
+  }
+  return (data || []).length > 0;
+}
 
 function emptyReglasMap(): Record<Dur, Regla[]> {
   return SUPPORTED_DURS.reduce((acc, d) => {
@@ -368,16 +384,30 @@ export async function POST(req: Request) {
 
     const duracion_min = endMin - startMin;
 
-    // ✅ auth + segmento (con override)
+    // ✅ auth (requester)
     const sb = await getSupabaseServerClient();
     const { data: auth } = await sb.auth.getUser();
-    const userId = auth?.user?.id ?? null;
+    const requesterId = auth?.user?.id ?? null;
+
+    // ✅ Resolve segmento con override (solo admin/cajero)
+    let segmento: Segmento;
 
     const segOverride = body?.segmento_override;
-    const segmento: Segmento =
-      segOverride === "publico" || segOverride === "profe"
-        ? segOverride
-        : await resolveSegmentoForUser({ userId, id_club });
+    if (segOverride === "publico" || segOverride === "profe") {
+      if (!requesterId) {
+        return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+      }
+      const ok = await assertAdminOrCajero(id_club, requesterId);
+      if (!ok) {
+        return NextResponse.json(
+          { error: "No autorizado para usar segmento_override" },
+          { status: 403 }
+        );
+      }
+      segmento = segOverride;
+    } else {
+      segmento = await resolveSegmentoForUser({ userId: requesterId, id_club });
+    }
 
     // tarifario
     const resolved = await resolveTarifarioId(id_club, id_cancha);
@@ -396,7 +426,6 @@ export async function POST(req: Request) {
     const dow1 = needsNextDay ? (dow0 + 1) % 7 : null;
 
     // ====== Duraciones disponibles (por vigencia) ======
-    // Unimos durs de prev/day0/day1 para no romper en cruces de medianoche
     const dursPrev = await fetchAvailableDurs({ id_tarifario, segmento, fechaISO: fechaPrev });
     const durs0 = await fetchAvailableDurs({ id_tarifario, segmento, fechaISO: fecha0 });
     const durs1 =
@@ -406,9 +435,6 @@ export async function POST(req: Request) {
 
     const availableSet = new Set<Dur>([...dursPrev, ...durs0, ...durs1]);
 
-    // ✅ Duraciones mínimas que SI o SI necesitamos:
-    // - CANON_DUR para detectar cambios
-    // - la duración solicitada (si está soportada por el motor)
     if (!availableSet.has(CANON_DUR)) {
       return NextResponse.json(
         {
@@ -434,13 +460,13 @@ export async function POST(req: Request) {
           error: `No hay tarifario para ${durReq} min en segmento=${segmento}.`,
           segmento,
           duracion_min,
-          sugerencia: "Cargá reglas para esa duración en el tarifario (mismo horario/prioridad) o limita reservas a duraciones existentes.",
+          sugerencia:
+            "Cargá reglas para esa duración en el tarifario (mismo horario/prioridad) o limita reservas a duraciones existentes.",
         },
         { status: 409 }
       );
     }
 
-    // Para DP fallback: solo usamos piezas disponibles
     const availablePieces = Array.from(availableSet).sort((a, b) => a - b);
 
     // ====== REGLAS: prev / day0 / day1 (solo duraciones disponibles) ======
@@ -476,12 +502,10 @@ export async function POST(req: Request) {
 
     const STEP_MIN = 30;
 
-    // ====== selector de reglas por tiempo absoluto (por duración) ======
     function getRuleAt(tAbs: number, dur: Dur) {
       const dayIndex = tAbs >= 1440 ? 1 : 0;
       const minInDay = ((tAbs % 1440) + 1440) % 1440;
 
-      // Caso A) day0 y cae en “madrugada del día anterior”
       if (dayIndex === 0 && prevCarry) {
         if (minInDay < prevCarry.cutoffEnd) {
           return pickBestRuleForStart({
@@ -497,7 +521,6 @@ export async function POST(req: Request) {
         });
       }
 
-      // Caso B) day1 (tAbs>=1440): puede seguir perteneciendo al day0 si day0 tiene regla cruzando (CANON_DUR)
       if (dayIndex === 1) {
         if (dow1 === null) return null;
 
@@ -530,7 +553,6 @@ export async function POST(req: Request) {
         });
       }
 
-      // Default: day0 normal
       return pickBestRuleForStart({
         reglas: reglas_0[dur],
         startMinInDay: minInDay,
@@ -538,15 +560,10 @@ export async function POST(req: Request) {
       });
     }
 
-    /**
-     * ✅ Clave de franja: SOLO depende de la regla CANON_DUR.
-     * Esto evita exigir 30/90/120/etc para segmento profe.
-     */
     const tariffKeyAt = (tAbs: number) => {
       const rCanon = getRuleAt(tAbs, CANON_DUR);
       if (!rCanon) return { ok: false as const, missingDur: CANON_DUR };
 
-      // En el grupo guardamos reglas solo para las duraciones disponibles (para cotizar)
       const rules: Partial<Record<Dur, Regla>> = {};
       for (const d of availablePieces) {
         const r = getRuleAt(tAbs, d);
@@ -558,7 +575,6 @@ export async function POST(req: Request) {
       return { ok: true as const, rules, key };
     };
 
-    // ====== grupos homogéneos por key ======
     type Group = {
       startAbs: number;
       endAbs: number;
@@ -572,11 +588,7 @@ export async function POST(req: Request) {
     const first = tariffKeyAt(t);
     if (!first.ok) {
       return NextResponse.json(
-        {
-          error: "Faltan reglas para cubrir el inicio",
-          segmento,
-          missing_duracion: first.missingDur,
-        },
+        { error: "Faltan reglas para cubrir el inicio", segmento, missing_duracion: first.missingDur },
         { status: 409 }
       );
     }
@@ -608,16 +620,12 @@ export async function POST(req: Request) {
     }
     groups.push({ startAbs: curStart, endAbs: endMin, rules: curRules, key: curKey });
 
-    // ====== si es 1 grupo: directo (exacto por duracion_min) ======
+    // ====== si es 1 grupo: directo ======
     if (groups.length === 1) {
       const direct = getRuleAt(startMin, durReq);
       if (!direct) {
         return NextResponse.json(
-          {
-            error: "No hay regla directa para esa duración que cubra el inicio",
-            segmento,
-            duracion_min,
-          },
+          { error: "No hay regla directa para esa duración que cubra el inicio", segmento, duracion_min },
           { status: 409 }
         );
       }
@@ -628,7 +636,7 @@ export async function POST(req: Request) {
         id_cancha,
         id_tarifario,
         id_regla: direct.id_regla,
-        user_id: userId,
+        user_id: requesterId,
         segmento,
         fecha,
         inicio,
@@ -668,13 +676,11 @@ export async function POST(req: Request) {
       let duracion_usada = minutes;
       let composition: number[] | undefined;
 
-      // Caso exacto: el largo del grupo coincide con una duración disponible
       if (SUPPORTED_DURS.includes(minutes as Dur) && availableSet.has(minutes as Dur)) {
         const d = minutes as Dur;
         subtotal = pricesByDur[d] as number;
         id_regla_aplicada = (g.rules[d] as Regla).id_regla;
       } else {
-        // Fallback DP: componer con piezas disponibles (si se puede)
         const dp = dpComposeCost({
           minutes,
           pricesByDur,
@@ -727,7 +733,7 @@ export async function POST(req: Request) {
       id_cancha,
       id_tarifario,
       id_regla: null,
-      user_id: userId,
+      user_id: requesterId,
       segmento,
       fecha,
       inicio,
