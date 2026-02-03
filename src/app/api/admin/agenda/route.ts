@@ -18,6 +18,26 @@ type CanchaRow = {
   theme?: string;
 };
 
+type HorarioDb = {
+  id_club: number;
+  dow: number;
+  abre: string;
+  cierra: string;
+  cruza_medianoche: boolean;
+  activo: boolean;
+};
+
+/** Horario de apertura → intervalo en minutos (igual que en slots). Cierra 00:00 sin cruce = 24:00. */
+function buildOpenInterval(h: HorarioDb): { start: number; end: number } {
+  const start = toMin(h.abre);
+  const endBase = toMin(h.cierra);
+  const endBaseFixed =
+    !h.cruza_medianoche && endBase === 0 && start > 0 ? 1440 : endBase;
+  const crosses = !!h.cruza_medianoche || endBaseFixed <= start;
+  const end = crosses ? endBaseFixed + 1440 : endBaseFixed;
+  return { start, end };
+}
+
 // --- HELPERS ---
 function arDateISO(date: Date) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -191,11 +211,30 @@ export async function GET(req: Request) {
       }
     });
 
+    const dow = weekday0Sun(fecha);
+
+    // 5.1 Horarios de apertura del club (misma fuente que slots) → prioridad para la grilla
+    const { data: horariosRaw } = await supabaseAdmin
+      .from("club_horarios")
+      .select("id_club,dow,abre,cierra,cruza_medianoche,activo")
+      .eq("id_club", id_club)
+      .eq("activo", true);
+
+    const horarios = (horariosRaw || []) as HorarioDb[];
+    const horarioDelDia = horarios.find((h) => Number(h.dow) === dow);
+
     let minStart = 8 * 60,
       maxEnd = 26 * 60;
 
-    if (tarifariosSet.size > 0) {
-      const dow = weekday0Sun(fecha);
+    if (horarioDelDia) {
+      const open = buildOpenInterval(horarioDelDia);
+      minStart = roundDownToHalfHour(open.start);
+      maxEnd = roundUpToHalfHour(open.end);
+      if (maxEnd <= minStart) {
+        minStart = 8 * 60;
+        maxEnd = 26 * 60;
+      }
+    } else if (tarifariosSet.size > 0) {
       const { data: reglas } = await supabaseAdmin
         .from("canchas_tarifas_reglas")
         .select(
