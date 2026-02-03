@@ -586,25 +586,6 @@ export default function UsuariosManualesPage() {
                               >
                                 {cliente.nombre.charAt(0).toUpperCase()}
                               </div>
-                              <div>
-                                <p className="font-bold text-slate-800 text-base flex items-center gap-2">
-                                  {cliente.nombre}
-                                  {/* Icono de Nota */}
-                                  {cliente.notas && (
-                                    <span title="Ver notas">
-                                      <StickyNote className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500/20" />
-                                    </span>
-                                  )}
-                                  {!esActivo && (
-                                    <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black uppercase">
-                                      Desactivado
-                                    </span>
-                                  )}
-                                </p>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 mt-1">
-                                  MANUAL
-                                </span>
-                              </div>
                             </div>
                           </td>
 
@@ -689,15 +670,6 @@ export default function UsuariosManualesPage() {
                                   </button>
 
                                   {/* BOTÓN NOTAS */}
-                                  <button
-                                    onClick={(e) => openNoteModal(cliente, e)}
-                                    className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
-                                  >
-                                    <StickyNote className="w-3.5 h-3.5 text-yellow-500" />
-                                    {cliente.notas
-                                      ? "Editar Nota"
-                                      : "Crear Nota"}
-                                  </button>
 
                                   <button
                                     onClick={(e) =>
