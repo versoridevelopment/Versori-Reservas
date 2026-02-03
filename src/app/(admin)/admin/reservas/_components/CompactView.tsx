@@ -1,16 +1,8 @@
 "use client";
 
-import {
-  Lock,
-  RefreshCw,
-  Repeat,
-  Globe,
-  UserCog,
-  Phone,
-  StickyNote,
-  AlertCircle,
-} from "lucide-react";
-import { CanchaUI, ReservaUI, THEME_COLORS, getTipoTurnoConfig } from "./types";
+import { useState, useEffect, useMemo } from "react"; // ✅ Imports de React agregados
+import { Lock, RefreshCw, Globe, UserCog } from "lucide-react"; // ✅ Iconos agregados
+import { CanchaUI, ReservaUI, THEME_COLORS } from "./types";
 
 interface Props {
   canchas: CanchaUI[];
@@ -30,6 +22,8 @@ interface Props {
 
 const PIXELS_PER_HOUR = 140;
 const GRID_TOP_OFFSET = 30;
+
+// --- FUNCIONES AUXILIARES (Internalizadas para evitar errores de importación) ---
 
 function getTargetDateISO(baseDate: Date, extraDays: number) {
   const d = new Date(baseDate);
@@ -52,6 +46,65 @@ const timeStringToDecimal = (
   let decimal = h + m / 60;
   if (decimal < startHour) decimal += 24;
   return decimal;
+};
+
+const sameLocalDay = (d1: Date, d2: Date) => {
+  return (
+    d1.getDate() === d2.getDate() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getFullYear() === d2.getFullYear()
+  );
+};
+
+const formatHHMMFromDecimal = (decimal: number) => {
+  let h = Math.floor(decimal);
+  const m = Math.floor((decimal - h) * 60);
+  if (h >= 24) h -= 24;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+};
+
+// Configuración visual según el tipo de turno
+const getTipoTurnoConfig = (tipo?: string | null) => {
+  const t = String(tipo || "normal").toLowerCase();
+  if (t === "fijo") {
+    return {
+      bg: "bg-indigo-50",
+      border: "border-indigo-200",
+      text: "text-indigo-700",
+      label: "Fijo",
+    };
+  }
+  if (t === "profesor" || t.includes("clase")) {
+    return {
+      bg: "bg-cyan-50",
+      border: "border-cyan-200",
+      text: "text-cyan-700",
+      label: "Clase",
+    };
+  }
+  if (t === "escuela") {
+    return {
+      bg: "bg-teal-50",
+      border: "border-teal-200",
+      text: "text-teal-700",
+      label: "Escuela",
+    };
+  }
+  if (t === "torneo") {
+    return {
+      bg: "bg-amber-50",
+      border: "border-amber-200",
+      text: "text-amber-700",
+      label: "Torneo",
+    };
+  }
+  // Normal / Default
+  return {
+    bg: "bg-white",
+    border: "border-slate-200",
+    text: "text-slate-600",
+    label: "Turno",
+  };
 };
 
 export default function CompactView({
@@ -116,12 +169,55 @@ export default function CompactView({
   const totalHeight =
     (endHour - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET + 50;
 
+  // =========================
+  // ✅ BARRA "HORA ACTUAL"
+  // =========================
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const nowLine = useMemo(() => {
+    const now = new Date();
+
+    // Solo mostrar si estamos viendo HOY (local)
+    if (!sameLocalDay(now, date)) return null;
+
+    const dec = now.getHours() + now.getMinutes() / 60;
+
+    // Tu grilla puede ir a 26 (cruza medianoche). Elegimos la representación que caiga dentro del rango.
+    const candidates = [dec, dec + 24];
+    const picked = candidates.find((x) => x >= startHour && x <= endHour);
+
+    if (picked == null) return null;
+
+    const top = (picked - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
+    const label = formatHHMMFromDecimal(picked);
+
+    return { top, label };
+  }, [tick, date, startHour, endHour]);
+
   return (
     <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden select-none ring-1 ring-slate-100">
       <div className="flex-1 overflow-auto relative custom-scrollbar bg-slate-50/30">
         <div className="flex min-w-max" style={{ height: totalHeight }}>
           {/* COLUMNA HORAS */}
           <div className="w-16 sticky left-0 z-30 bg-white border-r border-slate-200 flex-shrink-0">
+            <div className="h-12 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm sticky top-0 z-40 flex items-center justify-center p-1">
+              <button
+                onClick={onRefresh}
+                disabled={isLoading}
+                className={`p-1.5 rounded-lg transition-all ${
+                  isLoading
+                    ? "animate-spin text-blue-500"
+                    : "text-slate-400 hover:text-blue-600"
+                }`}
+              >
+                <RefreshCw size={16} />
+              </button>
+            </div>
             <div className="relative h-full">
               {timeSlots.map((time) => {
                 if (!Number.isInteger(time)) return null;
@@ -142,6 +238,24 @@ export default function CompactView({
               })}
             </div>
           </div>
+
+          {/* ✅ Overlay de barra "AHORA" */}
+          {nowLine && (
+            <div
+              className="absolute left-16 right-0 z-[25] pointer-events-none"
+              style={{ top: nowLine.top }}
+            >
+              <div className="relative">
+                <div className="h-[3px] bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" />
+                <div className="absolute right-3 -top-3">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 shadow-lg ring-2 ring-white/80">
+                    {nowLine.label}
+                    <span className="w-1.5 h-1.5 rounded-full bg-white/90" />
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* COLUMNAS CANCHAS */}
           {canchas.map((cancha) => {
@@ -232,11 +346,9 @@ export default function CompactView({
                   {/* RESERVAS (Cards Mejoradas) */}
                   {reservasCancha.map((reserva) => {
                     const saldo = Number(reserva.saldo_pendiente || 0);
-                    const precioTotal = Number(reserva.precio_total);
                     const debe = saldo > 0;
                     const isFijo = reserva.tipo_turno?.toLowerCase() === "fijo";
 
-                    // ✅ Configuración visual por tipo (Obtenida del types.ts actualizado)
                     const config = getTipoTurnoConfig(reserva.tipo_turno);
 
                     const origenIcon =
@@ -245,10 +357,6 @@ export default function CompactView({
                       ) : (
                         <UserCog size={12} />
                       );
-                    const hasPhone =
-                      reserva.cliente_telefono &&
-                      reserva.cliente_telefono.length > 5;
-                    const hasNotes = reserva.notas && reserva.notas.length > 0;
 
                     return (
                       <div
@@ -282,57 +390,35 @@ export default function CompactView({
                           </div>
                         </div>
 
-                        {/* --- BODY: Cliente + Iconos --- */}
-                        <div className="flex-1 flex flex-col justify-center min-h-0 pl-0.5">
-                          <h4
-                            className={`font-bold text-xs leading-tight truncate ${config.text}`}
-                          >
-                            {reserva.cliente_nombre}
-                          </h4>
+                        {/* --- BODY: Nombre + Estado --- */}
+                        <div className="flex justify-between items-start flex-1 min-h-0">
+                          <span className="text-xs font-bold text-slate-800 truncate leading-tight pr-1">
+                            {reserva.cliente_nombre || "Cliente Final"}
+                          </span>
 
-                          {/* Iconos de metadatos */}
-                          {(hasPhone || hasNotes || isFijo) && (
-                            <div className="flex items-center gap-2 mt-1">
-                              {isFijo && (
-                                <div className="flex items-center gap-0.5 text-[9px] font-black uppercase text-slate-700 bg-slate-300/50 px-1 rounded">
-                                  <Repeat size={10} /> Fijo
-                                </div>
-                              )}
-                              {hasPhone && (
-                                <Phone size={11} className="text-slate-500" />
-                              )}
-                              {hasNotes && (
-                                <StickyNote
-                                  size={11}
-                                  className="text-amber-600"
-                                />
-                              )}
-                            </div>
+                          {/* Punto verde SOLO si NO debe */}
+                          {!debe && (
+                            <div
+                              className="w-2 h-2 rounded-full ring-2 ring-white bg-emerald-500 shrink-0"
+                              title="Pagado"
+                            />
                           )}
                         </div>
 
-                        {/* --- FOOTER: Precio / Deuda --- */}
+                        {/* --- FOOTER: Tipo + Precio --- */}
                         <div className="flex justify-between items-end mt-1 pt-1 border-t border-black/5">
-                          {/* Etiqueta del tipo (si no es fijo, para no duplicar info visual) */}
                           <span
                             className={`text-[9px] font-bold uppercase tracking-wide opacity-80 ${config.text}`}
                           >
                             {!isFijo && config.label}
                           </span>
 
-                          {/* Precio / Deuda */}
-                          <div className="text-right">
-                            {debe ? (
-                              <div className="flex items-center gap-1 text-rose-700 font-black text-[11px] bg-rose-100/80 px-1.5 py-0.5 rounded shadow-sm border border-rose-200">
-                                <AlertCircle size={11} />$
-                                {saldo.toLocaleString("es-AR")}
-                              </div>
-                            ) : (
-                              <div className="font-bold text-slate-500 text-[10px]">
-                                ${precioTotal.toLocaleString("es-AR")}
-                              </div>
+                          <span className="text-[10px] font-extrabold text-slate-700">
+                            $
+                            {Number(reserva.precio_total).toLocaleString(
+                              "es-AR",
                             )}
-                          </div>
+                          </span>
                         </div>
                       </div>
                     );
