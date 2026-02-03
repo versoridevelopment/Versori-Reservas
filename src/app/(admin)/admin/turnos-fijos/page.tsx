@@ -69,13 +69,6 @@ export default async function TurnosFijosPage() {
             Gestioná templates semanales y sus reservas generadas.
           </p>
         </div>
-
-        <Link
-          className="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-bold hover:bg-slate-800"
-          href={`/admin/reservas/nueva`}
-        >
-          Crear reserva / turno fijo
-        </Link>
       </div>
 
       <div className="grid gap-3">

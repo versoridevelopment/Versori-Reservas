@@ -160,12 +160,6 @@ export default async function TurnoFijoDetallePage({
                 <div className="font-black text-slate-900">
                   ${Number(r.precio_total || 0).toLocaleString("es-AR")}
                 </div>
-                <Link
-                  href={`/admin/reservas/${r.id_reserva}`}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2"
-                >
-                  Ver detalle
-                </Link>
               </div>
             </div>
           ))}

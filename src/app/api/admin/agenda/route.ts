@@ -302,7 +302,10 @@ export async function GET(req: Request) {
             id_cierre: cie.id_cierre,
             inicio: inicioHHMM,
             fin: finHHMM,
-            motivo: cie.motivo,
+            motivo:
+              typeof cie.motivo === "string" && cie.motivo.trim().length > 0
+                ? cie.motivo.trim()
+                : null,
           };
         }),
     }));

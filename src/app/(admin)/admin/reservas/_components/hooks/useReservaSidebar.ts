@@ -23,7 +23,6 @@ export type ReservaSidebarProps = {
   selectedDate: Date;
 
   // ✅ Prop opcional para recibir la fecha exacta (ej: "2024-01-02")
-  // útil cuando clicas un turno de madrugada que corresponde al día siguiente
   fecha?: string;
 
   preSelectedCanchaId?: number | null;
@@ -41,7 +40,6 @@ export type ReservaSidebarProps = {
 
 type Segmento = "publico" | "profe";
 
-// ===== Helpers exportables =====
 export const formatMoney = (val: number) =>
   new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -49,7 +47,6 @@ export const formatMoney = (val: number) =>
     maximumFractionDigits: 0,
   }).format(Number(val || 0));
 
-// ✅ Helper blindado para fechas
 function toISODateLocal(d: Date | string | undefined | null) {
   if (!d) return new Date().toISOString().split("T")[0];
 
@@ -89,7 +86,7 @@ function diffMinutesHHMM(startHHMM: string, endHHMM: string) {
   const [eh, em] = endHHMM.slice(0, 5).split(":").map(Number);
   const s = (sh || 0) * 60 + (sm || 0);
   let e = (eh || 0) * 60 + (em || 0);
-  if (e <= s) e += 1440; // cruza medianoche
+  if (e <= s) e += 1440;
   return e - s;
 }
 
@@ -109,11 +106,7 @@ function unitsToHHMM(u: number) {
   return `${pad2(hh)}:${pad2(mm)}`;
 }
 
-function buildFreeBlocks(
-  dayStartU: number,
-  dayEndU: number,
-  occupiedU: IntervalU[],
-): FreeBlockU[] {
+function buildFreeBlocks(dayStartU: number, dayEndU: number, occupiedU: IntervalU[]): FreeBlockU[] {
   if (dayEndU <= dayStartU) return [];
 
   const occ = occupiedU
@@ -162,10 +155,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     initialData,
   } = props;
 
-  const fechaISO = useMemo(
-    () => toISODateLocal(fecha || selectedDate),
-    [fecha, selectedDate],
-  );
+  const fechaISO = useMemo(() => toISODateLocal(fecha || selectedDate), [fecha, selectedDate]);
 
   // Reserva “full”
   const [reservaFull, setReservaFull] = useState<ReservaUI | null>(null);
@@ -175,14 +165,26 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     if (initialData) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setReservaFull((prev) =>
-        prev?.id_reserva === initialData.id_reserva
-          ? prev
-          : (initialData as any),
+        prev?.id_reserva === initialData.id_reserva ? prev : (initialData as any)
       );
     } else {
       setReservaFull(null);
     }
   }, [isOpen, isCreating, initialData]);
+
+  // ✅ helper: recargar reserva completa
+  async function reloadFull() {
+    if (!isOpen || isCreating || !reservaId) return;
+    try {
+      const res = await fetch(`/api/admin/reservas/${reservaId}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json().catch(() => null);
+      const full = (json?.data ?? json) as ReservaUI | null;
+      if (full) setReservaFull(full);
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
   // Fetch full por id (Solo en modo ver/editar)
   useEffect(() => {
@@ -190,9 +192,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     async function loadFull() {
       if (!isOpen || isCreating || !reservaId) return;
       try {
-        const res = await fetch(`/api/admin/reservas/${reservaId}`, {
-          cache: "no-store",
-        });
+        const res = await fetch(`/api/admin/reservas/${reservaId}`, { cache: "no-store" });
         if (!res.ok) return;
         const json = await res.json().catch(() => null);
         if (!alive) return;
@@ -231,8 +231,8 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
     // manual
     precioManual: boolean;
-    horaInicioManual: string; // "desde"
-    horaFinManual: string; // "hasta"
+    horaInicioManual: string;
+    horaFinManual: string;
 
     precio: number;
     notas: string;
@@ -292,15 +292,16 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         startU: toUnits30(o.start),
         endU: toUnits30(o.end),
       })),
-    [occupiedIntervals],
+    [occupiedIntervals]
   );
 
-  const freeBlocks = useMemo(
-    () => buildFreeBlocks(dayStartU, dayEndU, occupiedU),
-    [dayStartU, dayEndU, occupiedU],
-  );
+  const freeBlocks = useMemo(() => buildFreeBlocks(dayStartU, dayEndU, occupiedU), [
+    dayStartU,
+    dayEndU,
+    occupiedU,
+  ]);
 
-  // 2) Available times (AUTO: depende de duracion) ✅ SIN regla "30 colgados"
+  // 2) Available times (AUTO)
   const availableTimes = useMemo(() => {
     if (!isOpen || !isCreating) return [];
     if (formData.precioManual) return [];
@@ -311,18 +312,11 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
     const durU = Math.round(durMin / 30);
 
-    const out: {
-      value: string;
-      label: string;
-      decimal: number;
-      finLabel: string;
-    }[] = [];
+    const out: { value: string; label: string; decimal: number; finLabel: string }[] = [];
 
     for (let startU = dayStartU; startU + durU <= dayEndU; startU += 1) {
       const endU = startU + durU;
-      const block = freeBlocks.find(
-        (b) => startU >= b.startU && endU <= b.endU,
-      );
+      const block = freeBlocks.find((b) => startU >= b.startU && endU <= b.endU);
       if (!block) continue;
 
       const inicioHHMM = unitsToHHMM(startU);
@@ -336,29 +330,16 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
       });
     }
 
-    // dedupe por wrap medianoche (por si endHour > 24)
     const seen = new Set<string>();
-    return out.filter((x) =>
-      seen.has(x.value) ? false : (seen.add(x.value), true),
-    );
-  }, [
-    isOpen,
-    isCreating,
-    formData.duracion,
-    formData.precioManual,
-    freeBlocks,
-    dayStartU,
-    dayEndU,
-  ]);
+    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
+  }, [isOpen, isCreating, formData.duracion, formData.precioManual, freeBlocks, dayStartU, dayEndU]);
 
-  // 2B) Options MANUAL: "desde" ✅ SIN regla "30 colgados"
+  // 2B) Options MANUAL: "desde"
   const manualDesdeOptions = useMemo(() => {
     if (!isOpen || !isCreating) return [];
     if (!formData.precioManual) return [];
 
     const out: { value: string; label: string }[] = [];
-
-    // "desde" válido si existe al menos 1 "hasta" dentro del bloque
     for (const b of freeBlocks) {
       for (let startU = b.startU; startU + 1 <= b.endU; startU += 1) {
         const hhmm = unitsToHHMM(startU);
@@ -367,12 +348,10 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     }
 
     const seen = new Set<string>();
-    return out.filter((x) =>
-      seen.has(x.value) ? false : (seen.add(x.value), true),
-    );
+    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
   }, [isOpen, isCreating, formData.precioManual, freeBlocks]);
 
-  // 2C) Options MANUAL: "hasta" depende de "desde" ✅ SIN regla "30 colgados"
+  // 2C) Options MANUAL: "hasta"
   const manualHastaOptions = useMemo(() => {
     if (!isOpen || !isCreating) return [];
     if (!formData.precioManual) return [];
@@ -383,9 +362,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     const startDec = hhmmToDecimal(desde, startHour);
     const startU = toUnits30(startDec);
 
-    const block = freeBlocks.find(
-      (b) => startU >= b.startU && startU < b.endU,
-    );
+    const block = freeBlocks.find((b) => startU >= b.startU && startU < b.endU);
     if (!block) return [];
 
     const out: { value: string; label: string }[] = [];
@@ -395,19 +372,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     }
 
     const seen = new Set<string>();
-    return out.filter((x) =>
-      seen.has(x.value) ? false : (seen.add(x.value), true),
-    );
-  }, [
-    isOpen,
-    isCreating,
-    formData.precioManual,
-    formData.horaInicioManual,
-    freeBlocks,
-    startHour,
-  ]);
+    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
+  }, [isOpen, isCreating, formData.precioManual, formData.horaInicioManual, freeBlocks, startHour]);
 
-  // ✅ duración calculada en manual (desde/hasta)
   const duracionManualCalculada = useMemo(() => {
     if (!formData.precioManual) return 0;
     const desde = String(formData.horaInicioManual || "");
@@ -420,45 +387,36 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     return mins;
   }, [formData.precioManual, formData.horaInicioManual, formData.horaFinManual]);
 
-  // ✅ sincronizar "duracion" interna cuando es manual
   useEffect(() => {
     if (!isOpen || !isCreating) return;
     if (!formData.precioManual) return;
     if (!duracionManualCalculada) return;
 
     setFormData((p) =>
-      p.duracion === duracionManualCalculada
-        ? p
-        : { ...p, duracion: duracionManualCalculada },
+      p.duracion === duracionManualCalculada ? p : { ...p, duracion: duracionManualCalculada }
     );
   }, [isOpen, isCreating, formData.precioManual, duracionManualCalculada]);
 
-  // ✅ 3) Sincronización al abrir: cancha + hora (AUTO) y defaults (MANUAL)
+  // Sync abrir: cancha + hora
   useEffect(() => {
     if (!isOpen || !isCreating) return;
 
     const defaultCancha =
-      preSelectedCanchaId?.toString() ||
-      (canchas[0]?.id_cancha?.toString() ?? "");
+      preSelectedCanchaId?.toString() || (canchas[0]?.id_cancha?.toString() ?? "");
 
     let defaultHoraAuto = preSelectedTime || "";
-    if (!defaultHoraAuto && availableTimes.length > 0) {
-      defaultHoraAuto = availableTimes[0].value;
-    }
+    if (!defaultHoraAuto && availableTimes.length > 0) defaultHoraAuto = availableTimes[0].value;
 
     setFormData((prev) => {
       const canchaChanged = prev.canchaId !== defaultCancha;
-
-      const horaAutoChanged =
-        defaultHoraAuto && prev.horaInicio !== defaultHoraAuto;
+      const horaAutoChanged = defaultHoraAuto && prev.horaInicio !== defaultHoraAuto;
 
       const needsManualDefaults =
         prev.precioManual &&
         (!prev.horaInicioManual || !prev.horaFinManual) &&
         (defaultHoraAuto || prev.horaInicio);
 
-      if (!canchaChanged && !horaAutoChanged && !needsManualDefaults)
-        return prev;
+      if (!canchaChanged && !horaAutoChanged && !needsManualDefaults) return prev;
 
       const baseHora = defaultHoraAuto || prev.horaInicio;
 
@@ -478,14 +436,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
     setPriceError(null);
     setCreateError(null);
-  }, [
-    isOpen,
-    isCreating,
-    preSelectedCanchaId,
-    preSelectedTime,
-    canchas,
-    availableTimes,
-  ]);
+  }, [isOpen, isCreating, preSelectedCanchaId, preSelectedTime, canchas, availableTimes]);
 
   // ESC Key
   useEffect(() => {
@@ -511,25 +462,13 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   }, [fechaISO]);
 
   const horaFinCalculada = useMemo(() => {
-    if (formData.precioManual) {
-      return formData.horaFinManual || "";
-    }
+    if (formData.precioManual) return formData.horaFinManual || "";
     if (!formData.horaInicio) return "";
     return addMinutesHHMM(formData.horaInicio, Number(formData.duracion || 0));
-  }, [
-    formData.precioManual,
-    formData.horaInicio,
-    formData.horaFinManual,
-    formData.duracion,
-  ]);
+  }, [formData.precioManual, formData.horaInicio, formData.horaFinManual, formData.duracion]);
 
   // =========================================================
-  // Precio Automático (solo si NO es manual)
-  // =========================================================
-    // =========================================================
-  // Precio Automático (solo si NO es manual)
-  // - si tipoTurno === "profesor" => segmento profe
-  // - cualquier otro => segmento publico
+  // Precio Automático
   // =========================================================
   useEffect(() => {
     let alive = true;
@@ -547,9 +486,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
       const fin = addMinutesHHMM(inicio, dur);
 
-      // ✅ segmento segun tipo de turno (admin override)
-      const segmento_override: Segmento =
-        formData.tipoTurno === "profesor" ? "profe" : "publico";
+      const segmento_override: Segmento = formData.tipoTurno === "profesor" ? "profe" : "publico";
 
       setPriceLoading(true);
       setPriceError(null);
@@ -564,7 +501,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
             fecha: fechaISO,
             inicio,
             fin,
-            // ✅ NUEVO
             segmento_override,
           }),
           cache: "no-store",
@@ -574,16 +510,12 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         if (!alive) return;
 
         if (!res.ok || !json?.ok) {
-          console.warn("Precio calc warn:", json?.error);
           setFormData((p) => ({ ...p, precio: 0 }));
           setPriceError(json?.error || "No se pudo calcular el precio");
         } else {
-          setFormData((p) => ({
-            ...p,
-            precio: Number(json.precio_total || 0),
-          }));
+          setFormData((p) => ({ ...p, precio: Number(json.precio_total || 0) }));
         }
-      } catch (e: any) {
+      } catch {
         if (alive) setPriceError("Error calc precio");
       } finally {
         if (alive) setPriceLoading(false);
@@ -604,7 +536,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     formData.horaInicio,
     formData.duracion,
     formData.precioManual,
-    // ✅ IMPORTANTE: si cambia el tipo de turno, recotiza
     formData.tipoTurno,
   ]);
 
@@ -620,9 +551,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     const id_cancha = Number(formData.canchaId);
     const precioManual = !!formData.precioManual;
 
-    const inicio = precioManual
-      ? formData.horaInicioManual
-      : formData.horaInicio;
+    const inicio = precioManual ? formData.horaInicioManual : formData.horaInicio;
 
     let fin = "";
     let dur = 0;
@@ -656,9 +585,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     setCreateLoading(true);
 
     try {
-      const url = formData.esTurnoFijo
-        ? "/api/admin/turnos-fijos"
-        : "/api/admin/reservas";
+      const url = formData.esTurnoFijo ? "/api/admin/turnos-fijos" : "/api/admin/reservas";
 
       const payload: any = {
         id_club: idClub,
@@ -696,13 +623,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
       if (onCreated) onCreated();
       onClose();
 
-      setFormData((prev) => ({
-        ...prev,
-        nombre: "",
-        telefono: "",
-        email: "",
-        notas: "",
-      }));
+      setFormData((prev) => ({ ...prev, nombre: "", telefono: "", email: "", notas: "" }));
     } catch (e: any) {
       setCreateError(e.message);
     } finally {
@@ -710,21 +631,40 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     }
   }
 
-  async function handleCancelar() {
-    if (!reservaFull || !confirm("¿Cancelar reserva?")) return;
-    try {
-      await fetch(`/api/admin/reservas/${reservaFull.id_reserva}/cancelar`, {
+  // ✅ Cancelación auditada (motivo + cancelado_por/at lo hace backend)
+  async function handleCancelar(motivo?: string | null) {
+  if (!reservaFull) return;
+
+  const estado = (reservaFull as any).estado;
+  if (estado === "cancelada") return;
+
+  try {
+    const res = await fetch(
+      `/api/admin/reservas/${reservaFull.id_reserva}/cancelar`,
+      {
         method: "POST",
-      });
-      if (onCreated) onCreated();
-      onClose();
-    } catch {
-      alert("Error al cancelar");
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          motivo_cancelacion: motivo || null,
+        }),
+      },
+    );
+
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) {
+      throw new Error(json?.error || "Error al cancelar");
     }
+
+    if (onCreated) onCreated();
+    await reloadFull();
+  } catch (e: any) {
+    alert(e?.message || "Error al cancelar");
   }
+}
 
   function openCobro() {
     if (reservaFull) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deuda = Number((reservaFull as any).saldo_pendiente || 0);
       setCobroMonto(deuda > 0 ? deuda : 0);
       setShowCobro(true);
@@ -735,23 +675,21 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     if (!reservaFull) return;
     setCobroLoading(true);
     try {
-      const res = await fetch(
-        `/api/admin/reservas/${reservaFull.id_reserva}/cobrar`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            amount: cobroMonto,
-            currency: "ARS",
-            provider: cobroMetodo,
-            status: "approved",
-            note: cobroNota,
-          }),
-        },
-      );
+      const res = await fetch(`/api/admin/reservas/${reservaFull.id_reserva}/cobrar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: cobroMonto,
+          currency: "ARS",
+          provider: cobroMetodo,
+          status: "approved",
+          note: cobroNota,
+        }),
+      });
       if (!res.ok) throw new Error("Error cobrando");
       if (onCreated) onCreated();
       setShowCobro(false);
+      await reloadFull();
     } catch (e: any) {
       setCobroError(e.message);
     } finally {
@@ -792,5 +730,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     openCobro,
     handleCobrar,
     getWhatsappLink,
+
+    reloadFull, // ✅ export
   };
 }

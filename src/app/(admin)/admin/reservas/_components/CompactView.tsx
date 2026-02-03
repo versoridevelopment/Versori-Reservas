@@ -1,8 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Lock, RefreshCw } from "lucide-react";
-import { CanchaUI, ReservaUI, THEME_COLORS } from "./types";
+import { useState, useEffect, useMemo } from "react";
+import {
+  Lock,
+  RefreshCw,
+  Globe,
+  UserCog,
+  StickyNote,
+  Phone,
+  CheckCircle2,
+  AlertCircle,
+  CircleDollarSign,
+} from "lucide-react";
+import { CanchaUI, ReservaUI, THEME_COLORS, getTipoTurnoConfig } from "./types";
 
 interface Props {
   canchas: CanchaUI[];
@@ -13,11 +23,17 @@ interface Props {
   isLoading?: boolean;
   onRefresh?: () => void;
   onReservaClick: (r: ReservaUI) => void;
-  onEmptySlotClick: (canchaId: number, timeStr: string, dateStr: string) => void;
+  onEmptySlotClick: (
+    canchaId: number,
+    timeStr: string,
+    dateStr: string,
+  ) => void;
 }
 
 const PIXELS_PER_HOUR = 140;
 const GRID_TOP_OFFSET = 30;
+
+// --- FUNCIONES AUXILIARES ---
 
 function getTargetDateISO(baseDate: Date, extraDays: number) {
   const d = new Date(baseDate);
@@ -28,7 +44,6 @@ function getTargetDateISO(baseDate: Date, extraDays: number) {
   return `${y}-${m}-${day}`;
 }
 
-// ✅ FUNCIÓN CORREGIDA: Maneja errores de formato y evita NaN
 const timeStringToDecimal = (
   timeStr: string | null | undefined,
   startHour: number,
@@ -38,44 +53,29 @@ const timeStringToDecimal = (
   const h = Number(hStr);
   const m = Number(mStr);
   if (isNaN(h) || isNaN(m)) return NaN;
-
   let decimal = h + m / 60;
   if (decimal < startHour) decimal += 24;
   return decimal;
 };
 
+const sameLocalDay = (d1: Date, d2: Date) => {
+  return (
+    d1.getDate() === d2.getDate() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getFullYear() === d2.getFullYear()
+  );
+};
+
+const formatHHMMFromDecimal = (decimal: number) => {
+  let h = Math.floor(decimal);
+  const m = Math.round((decimal - h) * 60);
+  if (h >= 24) h -= 24;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+};
+
 function prettyTipoTurno(tipo?: string | null) {
   const t = String(tipo || "normal").toLowerCase();
   return t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, " ");
-}
-
-function tipoTurnoBadgeClass(tipo?: string | null) {
-  const t = String(tipo || "normal").toLowerCase();
-  if (t.includes("profesor"))
-    return "bg-indigo-100 text-indigo-700 border-indigo-200";
-  if (t.includes("torneo"))
-    return "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200";
-  if (t.includes("escuela")) return "bg-cyan-100 text-cyan-700 border-cyan-200";
-  return "bg-white/80 text-slate-600 border-slate-200";
-}
-
-function sameLocalDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-function formatHHMMFromDecimal(dec: number) {
-  // dec puede venir > 24
-  let v = dec;
-  if (v >= 24) v -= 24;
-  const h = Math.floor(v);
-  const m = Math.round((v - h) * 60);
-  const hh = String(h).padStart(2, "0");
-  const mm = String(m).padStart(2, "0");
-  return `${hh}:${mm}`;
 }
 
 export default function CompactView({
@@ -110,12 +110,10 @@ export default function CompactView({
     const e = timeStringToDecimal(finStr, startHour);
     if (isNaN(s) || isNaN(e)) return null;
     if (e <= startHour || s >= endHour) return null;
-
     const visibleStart = Math.max(s, startHour);
     const visibleEnd = Math.min(e, endHour);
     const duration = visibleEnd - visibleStart;
     if (duration <= 0) return null;
-
     return {
       top: (visibleStart - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
       height: duration * PIXELS_PER_HOUR,
@@ -153,13 +151,9 @@ export default function CompactView({
 
   const nowLine = useMemo(() => {
     const now = new Date();
-
-    // Solo mostrar si estamos viendo HOY (local)
     if (!sameLocalDay(now, date)) return null;
 
     const dec = now.getHours() + now.getMinutes() / 60;
-
-    // Tu grilla puede ir a 26 (cruza medianoche). Elegimos la representación que caiga dentro del rango.
     const candidates = [dec, dec + 24];
     const picked = candidates.find((x) => x >= startHour && x <= endHour);
 
@@ -169,29 +163,28 @@ export default function CompactView({
     const label = formatHHMMFromDecimal(picked);
 
     return { top, label };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, date, startHour, endHour]);
 
   return (
     <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden select-none ring-1 ring-slate-100">
       <div className="flex-1 overflow-auto relative custom-scrollbar bg-slate-50/30">
         <div className="flex min-w-max" style={{ height: totalHeight }}>
+          
           {/* COLUMNA HORAS */}
           <div className="w-16 sticky left-0 z-30 bg-white border-r border-slate-200 flex-shrink-0">
             <div className="h-12 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm sticky top-0 z-40 flex items-center justify-center p-1">
-              <button
+               <button
                 onClick={onRefresh}
                 disabled={isLoading}
-                className={`p-1.5 rounded-lg transition-all ${
+                className={`p-1.5 rounded-lg transition-colors ${
                   isLoading
                     ? "animate-spin text-blue-500"
-                    : "text-slate-400 hover:text-blue-600"
+                    : "text-slate-400 hover:text-blue-600 hover:bg-blue-50"
                 }`}
               >
                 <RefreshCw size={16} />
               </button>
             </div>
-
             <div className="relative h-full">
               {timeSlots.map((time) => {
                 if (!Number.isInteger(time)) return null;
@@ -213,16 +206,14 @@ export default function CompactView({
             </div>
           </div>
 
-          {/* ✅ Overlay de barra "AHORA" sobre TODAS las canchas (no tapa la columna de horas) */}
+          {/* LINEA DE TIEMPO ACTUAL */}
           {nowLine && (
             <div
               className="absolute left-16 right-0 z-[25] pointer-events-none"
               style={{ top: nowLine.top }}
             >
-              {/* línea */}
               <div className="relative">
                 <div className="h-[3px] bg-emerald-500 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" />
-                {/* etiqueta a la derecha, similar a tu screenshot */}
                 <div className="absolute right-3 -top-3">
                   <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 shadow-lg ring-2 ring-white/80">
                     {nowLine.label}
@@ -236,7 +227,6 @@ export default function CompactView({
           {/* COLUMNAS CANCHAS */}
           {canchas.map((cancha) => {
             const theme = THEME_COLORS[cancha.theme] || THEME_COLORS.blue;
-
             const reservasCancha =
               cancha.reservas && cancha.reservas.length > 0
                 ? cancha.reservas
@@ -245,8 +235,9 @@ export default function CompactView({
             return (
               <div
                 key={cancha.id_cancha}
-                className="flex-1 min-w-[180px] md:min-w-[220px] border-r border-slate-100 relative group/col"
+                className="flex-1 min-w-[200px] md:min-w-[240px] border-r border-slate-100 relative group/col"
               >
+                {/* Header Cancha */}
                 <div
                   className={`h-12 sticky top-0 z-20 flex items-center justify-center border-b border-slate-200/80 shadow-sm backdrop-blur-md ${theme.header}`}
                 >
@@ -262,6 +253,8 @@ export default function CompactView({
                   {cancha.cierres?.map((cierre) => {
                     const style = getCierreStyle(cierre.inicio, cierre.fin);
                     if (!style) return null;
+                    const cierreLabel = typeof cierre.motivo === "string" && cierre.motivo.trim() ? cierre.motivo : "CERRADO";
+                    
                     return (
                       <div
                         key={cierre.id_cierre}
@@ -275,8 +268,8 @@ export default function CompactView({
                       >
                         <div className="bg-white/90 px-2 py-1 rounded shadow-sm flex items-center gap-1 border border-slate-300">
                           <Lock size={12} className="text-slate-500" />
-                          <span className="text-[10px] font-bold text-slate-600 uppercase">
-                            {cierre.motivo || "CERRADO"}
+                          <span className="text-[10px] font-bold text-slate-600 uppercase truncate max-w-[150px]">
+                            {cierreLabel}
                           </span>
                         </div>
                       </div>
@@ -285,11 +278,14 @@ export default function CompactView({
 
                   {/* SLOTS VACÍOS */}
                   {timeSlots.map((time) => {
-                    if (time === endHour && !Number.isInteger(time)) return null;
+                    if (time === endHour && !Number.isInteger(time))
+                      return null;
                     if (isSlotBlocked(cancha, time)) return null;
-
                     const isNextDay = time >= 24;
-                    const slotDateISO = getTargetDateISO(date, isNextDay ? 1 : 0);
+                    const slotDateISO = getTargetDateISO(
+                      date,
+                      isNextDay ? 1 : 0,
+                    );
 
                     return (
                       <div
@@ -308,7 +304,8 @@ export default function CompactView({
                         }`}
                         style={{
                           top:
-                            (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
+                            (time - startHour) * PIXELS_PER_HOUR +
+                            GRID_TOP_OFFSET,
                           height: PIXELS_PER_HOUR / 2,
                         }}
                       />
@@ -317,10 +314,24 @@ export default function CompactView({
 
                   {/* RESERVAS */}
                   {reservasCancha.map((reserva) => {
-                    const tipoLabel = prettyTipoTurno(reserva.tipo_turno);
+                    const saldo = Number(reserva.saldo_pendiente || 0);
+                    const precio = Number(reserva.precio_total || 0);
+                    const pagadoTotalmente = saldo <= 0;
+                    const seña = saldo > 0 && saldo < precio;
 
-                    const saldo = Number((reserva as any).saldo_pendiente || 0);
-                    const debe = saldo > 0;
+                    const config = getTipoTurnoConfig(reserva.tipo_turno);
+
+                    const origenIcon =
+                      reserva.origen === "web" ? (
+                        <Globe size={11} className="text-blue-500" />
+                      ) : (
+                        <UserCog size={11} className="text-amber-600" />
+                      );
+
+                    const hasNotes = reserva.notas && reserva.notas.length > 0;
+                    const hasPhone =
+                      reserva.cliente_telefono &&
+                      reserva.cliente_telefono.length > 5;
 
                     return (
                       <div
@@ -329,51 +340,81 @@ export default function CompactView({
                           e.stopPropagation();
                           onReservaClick(reserva);
                         }}
-                        className={`absolute left-1 right-1 rounded-xl border-l-[4px] shadow-sm cursor-pointer z-20 hover:shadow-md hover:-translate-y-0.5 transition-all p-2 pr-10 flex flex-col justify-between ${theme.bg} ${theme.border} bg-opacity-95 backdrop-blur-sm`}
+                        className={`
+                          absolute left-1 right-1 rounded-lg shadow-sm cursor-pointer z-20 
+                          hover:shadow-md hover:scale-[1.01] hover:z-30 transition-all 
+                          p-2 flex flex-col justify-between overflow-hidden group
+                          ${config.bg} ${config.border} border-l-[4px] border-t border-r border-b border-gray-200/60
+                        `}
                         style={{
                           top: getTopPosition(reserva.horaInicio),
-                          height: getHeight(reserva.horaInicio, reserva.horaFin) - 3,
+                          height:
+                            getHeight(reserva.horaInicio, reserva.horaFin) - 3,
                         }}
+                        title={`${reserva.cliente_nombre} - ${config.label}${hasNotes ? " - Ver notas" : ""}`}
                       >
-                        {/* ✅ DEBE centrado a la derecha */}
-                        {debe && (
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2 z-30 pointer-events-none">
-                            <span className="inline-flex items-center rounded-full bg-red-600 text-white text-[9px] font-black px-2.5 py-1 shadow-lg ring-2 ring-white/80">
-                              DEBE
-                            </span>
-                          </div>
-                        )}
-
-                        <div className="flex justify-between items-start">
-                          <span className="text-[10px] font-bold opacity-80 bg-white/50 px-1.5 py-0.5 rounded">
+                        {/* --- HEADER: Rango Horario + Iconos --- */}
+                        <div className="flex justify-between items-start text-[10px] leading-none mb-1">
+                          <span className="font-mono font-bold text-slate-700 bg-white/60 px-1.5 py-0.5 rounded border border-black/5">
                             {reserva.horaInicio} - {reserva.horaFin}
                           </span>
 
-                          {/* ✅ Punto verde SOLO cuando NO debe */}
-                          {!debe && (
-                            <div
-                              className="w-2 h-2 rounded-full ring-2 ring-white bg-emerald-500"
-                              title="Pagado"
-                            />
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {hasPhone && (
+                              <Phone size={10} className="text-slate-400" />
+                            )}
+                            {hasNotes && (
+                              <StickyNote
+                                size={10}
+                                className="text-amber-500 animate-pulse"
+                              />
+                            )}
+                            <span className="text-slate-300">|</span>
+                            {origenIcon}
+                          </div>
                         </div>
 
-                        <h4 className="font-bold text-xs text-slate-800 truncate my-1">
-                          {reserva.cliente_nombre}
-                        </h4>
-
-                        <div className="flex justify-between items-end">
+                        {/* --- BODY: Nombre Cliente --- */}
+                        <div className="flex-1 min-h-0 flex flex-col justify-center">
+                          <span className="text-xs font-extrabold text-slate-800 truncate leading-tight w-full">
+                            {reserva.cliente_nombre || "Cliente Final"}
+                          </span>
                           <span
-                            className={`text-[8px] px-1 rounded border uppercase ${tipoTurnoBadgeClass(
-                              reserva.tipo_turno,
-                            )}`}
+                            className={`text-[9px] uppercase font-bold tracking-tight opacity-70 ${config.text}`}
                           >
-                            {tipoLabel}
+                            {prettyTipoTurno(reserva.tipo_turno)}
                           </span>
+                        </div>
 
-                          <span className="text-[10px] font-extrabold text-slate-700">
-                            ${Number(reserva.precio_total).toLocaleString("es-AR")}
-                          </span>
+                        {/* --- FOOTER: Estado de Pago --- */}
+                        <div className="flex justify-between items-end mt-1 pt-1.5 border-t border-black/5">
+                          <div className="flex items-center gap-1">
+                            {pagadoTotalmente ? (
+                              <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-sm">
+                                <CheckCircle2 size={10} /> Pagado
+                              </span>
+                            ) : seña ? (
+                              <span className="flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-sm">
+                                <CircleDollarSign size={10} /> Seña
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-[9px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-sm">
+                                <AlertCircle size={10} /> Impago
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-right">
+                            {saldo > 0 ? (
+                              <span className="text-[10px] font-black text-red-600 block leading-none">
+                                -{saldo.toLocaleString("es-AR")}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-slate-400 block leading-none decoration-slate-300">
+                                ${precio.toLocaleString("es-AR")}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

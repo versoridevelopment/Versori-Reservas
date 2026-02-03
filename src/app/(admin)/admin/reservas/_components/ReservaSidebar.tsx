@@ -3,12 +3,14 @@
 import {
   X,
   Calendar,
-  Copy,
   Clock,
   Loader2,
   Printer,
   MapPin,
-  Hash,
+  Edit3,
+  Save,
+  AlertTriangle,
+  DollarSign,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { createBrowserClient } from "@supabase/ssr";
@@ -23,7 +25,6 @@ import ReservaDetails from "./sidebar/ReservaDetails";
 import CobroModal from "./sidebar/CobroModal";
 import EditReservaMoveForm from "./sidebar/EditReservaMoveForm";
 
-// Helper de normalización local
 const normalizeReserva = (r: any) => {
   if (!r) return null;
   return {
@@ -33,14 +34,93 @@ const normalizeReserva = (r: any) => {
     cliente_nombre: r.cliente_nombre || r.titulo || "Cliente sin nombre",
     precio_total: Number(r.precio_total || r.precio || 0),
     saldo_pendiente: Number(r.saldo_pendiente || r.saldo || 0),
-    pagos_aprobados_total: Number(
-      r.pagos_aprobados_total ||
-        Number(r.precio || 0) - Number(r.saldo || 0) ||
-        0,
-    ),
+    pagos_aprobados_total: Number(r.pagos_aprobados_total || 0),
     fecha: r.fecha || new Date().toISOString().split("T")[0],
+    origen: r.origen || "admin",
+    notas: r.notas || "",
   };
 };
+
+/** ✅ Modal confirmación cancelación (ventanita) */
+function ConfirmCancelModal({
+  open,
+  onClose,
+  onConfirm,
+  loading,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (motivo?: string | null) => void;
+  loading?: boolean;
+}) {
+  const [motivo, setMotivo] = useState("");
+
+  useEffect(() => {
+    if (!open) setMotivo("");
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      <div
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      <div className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 p-6 animate-in fade-in zoom-in-95">
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 p-1 rounded-full hover:bg-slate-100 text-slate-400"
+          title="Cerrar"
+          disabled={!!loading}
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div className="bg-rose-100 text-rose-600 p-2 rounded-full">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-800">Cancelar reserva</h3>
+        </div>
+
+        <p className="text-sm text-slate-600 mb-4">
+          ¿Estás seguro de que querés cancelar esta reserva?
+          <br />
+          Esta acción <b>no se puede deshacer</b>.
+        </p>
+
+        <textarea
+          placeholder="Motivo (opcional)"
+          className="w-full border border-slate-200 rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 outline-none"
+          rows={3}
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          disabled={!!loading}
+        />
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 rounded-xl border border-slate-300 text-slate-700 font-bold hover:bg-slate-50"
+            disabled={!!loading}
+          >
+            Volver
+          </button>
+
+          <button
+            onClick={() => onConfirm(motivo.trim() || null)}
+            disabled={!!loading}
+            className="flex-1 py-3 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700 disabled:opacity-60"
+          >
+            {loading ? "Cancelando..." : "Sí, cancelar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ReservaSidebar(props: ReservaSidebarProps) {
   const [supabase] = useState(() =>
@@ -74,9 +154,9 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     duracionManualCalculada,
     canchaDisplay,
     fechaDisplay,
-    horaFinCalculada, // ✅ Usamos esto para el título
+    horaFinCalculada,
     handleCreate,
-    handleCancelar,
+    handleCancelar, // ✅ ahora lo usamos con motivo opcional
     openCobro,
     handleCobrar,
     getWhatsappLink,
@@ -85,8 +165,28 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
   const { isOpen, onClose, isCreating, onCreated, idClub } = props;
   const [isEditingMove, setIsEditingMove] = useState(false);
 
-  // Reserva Segura
+  // Gestión de Notas
+  const [editNotas, setEditNotas] = useState("");
+  const [isSavingNotas, setIsSavingNotas] = useState(false);
+
+  // ✅ modal cancelar
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+
   const reserva = useMemo(() => normalizeReserva(rawReserva), [rawReserva]);
+
+  useEffect(() => {
+    if (reserva) setEditNotas(reserva.notas);
+  }, [reserva]);
+
+  // Reset UI al cerrar
+  useEffect(() => {
+    if (!isOpen) {
+      setIsEditingMove(false);
+      setShowCancelModal(false);
+      setCancelLoading(false);
+    }
+  }, [isOpen]);
 
   const [clubData, setClubData] = useState<{
     nombre: string;
@@ -96,33 +196,40 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     direccion: "",
   });
 
+  // Recuperar info del club para el ticket
   useEffect(() => {
     async function fetchClubInfo() {
-      if (!idClub) return;
+      if (!idClub || !isOpen) return;
       try {
         const { data: club } = await supabase
           .from("clubes")
           .select("nombre")
           .eq("id_club", idClub)
           .single();
+
         const { data: contacto } = await supabase
           .from("contacto")
           .select("id_contacto")
           .eq("id_club", idClub)
-          .single();
+          .maybeSingle();
+
         let direccionStr = "";
         if (contacto) {
           const { data: dir } = await supabase
             .from("direccion")
             .select("calle, altura_calle, barrio, id_localidad(nombre)")
             .eq("id_contacto", contacto.id_contacto)
-            .single();
+            .maybeSingle();
+
           if (dir) {
             // @ts-ignore
             const loc = dir.id_localidad?.nombre || "";
-            direccionStr = `${dir.calle || ""} ${dir.altura_calle || ""} ${dir.barrio ? `- ${dir.barrio}` : ""} ${loc ? `(${loc})` : ""}`;
+            direccionStr = `${dir.calle || ""} ${dir.altura_calle || ""} ${
+              dir.barrio ? `- ${dir.barrio}` : ""
+            } ${loc ? `(${loc})` : ""}`;
           }
         }
+
         setClubData({
           nombre: club?.nombre || "Club Deportivo",
           direccion: direccionStr || "",
@@ -131,37 +238,10 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         console.error("Error cargando datos del club", err);
       }
     }
-    if (isOpen) fetchClubInfo();
+    fetchClubInfo();
   }, [idClub, isOpen, supabase]);
 
-  // Sync Form Data
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawTime = (props as any).inicio || (props as any).selectedStart || "";
-  const incomingTime = rawTime.length > 5 ? rawTime.slice(0, 5) : rawTime;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const incomingCanchaId = (props as any).preSelectedCanchaId;
-
-  useEffect(() => {
-    if (isOpen && isCreating) {
-      setFormData((prev) => {
-        const timeChanged = incomingTime && prev.horaInicio !== incomingTime;
-        const canchaChanged =
-          incomingCanchaId && prev.canchaId !== incomingCanchaId.toString();
-        if (timeChanged || canchaChanged) {
-          return {
-            ...prev,
-            horaInicio: incomingTime || prev.horaInicio,
-            canchaId: incomingCanchaId
-              ? incomingCanchaId.toString()
-              : prev.canchaId,
-          };
-        }
-        return prev;
-      });
-    }
-    if (!isOpen) setIsEditingMove(false);
-  }, [isOpen, isCreating, incomingTime, incomingCanchaId, setFormData]);
-
+  // ✅ Función de impresión
   const handlePrintTicket = () => {
     if (!reserva) return;
     printReservaTicket({
@@ -180,146 +260,113 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     });
   };
 
+  const handleUpdateNotas = async () => {
+    if (!reserva?.id_reserva) return;
+    setIsSavingNotas(true);
+    try {
+      const { error } = await supabase
+        .from("reservas")
+        .update({ notas: editNotas })
+        .eq("id_reserva", reserva.id_reserva);
+
+      if (error) throw error;
+      if (onCreated) onCreated();
+    } catch (err) {
+      console.error("Error actualizando notas", err);
+    } finally {
+      setIsSavingNotas(false);
+    }
+  };
+
+  // ✅ confirmación cancelación con motivo opcional
+  async function confirmCancelar(motivo?: string | null) {
+    if (!reserva) return;
+    setCancelLoading(true);
+    try {
+      await handleCancelar(motivo);
+      setShowCancelModal(false);
+    } finally {
+      setCancelLoading(false);
+    }
+  }
+
   if (!isOpen) return null;
 
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px] transition-opacity duration-300"
+        className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
 
-      <div className="fixed inset-y-0 right-0 w-full md:w-[500px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col border-l border-slate-100">
-        {/* --- HEADER ESTILIZADO --- */}
-        <div className="px-6 py-5 bg-white border-b border-slate-100 flex justify-between items-start sticky top-0 z-10 shrink-0">
+      <div className="fixed inset-y-0 right-0 w-full md:w-[500px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-100 font-sans">
+        {/* HEADER */}
+        <div className="px-6 py-5 bg-white border-b border-slate-100 flex justify-between items-start sticky top-0 z-10">
           <div>
-            {isCreating ? (
-              <>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border border-blue-100">
-                    Nueva Reserva
-                  </span>
-                </div>
-
-                {/* ✅ TITULO DE HORA CORREGIDO */}
-                <h2 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
-                  {formData.horaInicio ? (
-                    <>
-                      <span>{formData.horaInicio}</span>
-                      <span className="text-slate-300 font-light">-</span>
-                      <span>{horaFinCalculada || "--:--"}</span>
-                      <span className="text-sm font-normal text-slate-400 ml-1">
-                        hs
-                      </span>
-                    </>
-                  ) : (
-                    "Seleccionar horario"
-                  )}
-                </h2>
-
-                <div className="flex items-center gap-3 text-sm text-slate-500 mt-1 font-medium">
-                  <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400" />{" "}
-                    {canchaDisplay}
-                  </span>
-                  <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 capitalize">
-                    <Calendar className="w-3.5 h-3.5 text-slate-400" />{" "}
-                    {fechaDisplay}
-                  </span>
-                </div>
-              </>
-            ) : (
-              // MODO VER / EDITAR
-              <>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border border-emerald-100 flex items-center gap-1">
-                    <Hash className="w-3 h-3" /> ID: {reserva?.id_reserva}
-                  </span>
-                  <button
-                    className="text-slate-400 hover:text-slate-600 transition-colors"
-                    onClick={() =>
-                      reserva?.id_reserva &&
-                      navigator.clipboard.writeText(String(reserva.id_reserva))
-                    }
-                    title="Copiar ID"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <h2 className="text-xl font-bold text-slate-800 tracking-tight">
-                  {isEditingMove ? (
-                    "Modificar Turno"
-                  ) : (
-                    <>
-                      {reserva?.horaInicio}{" "}
-                      <span className="text-slate-300 font-light">-</span>{" "}
-                      {reserva?.horaFin}{" "}
-                      <span className="text-sm font-normal text-slate-400">
-                        hs
-                      </span>
-                    </>
-                  )}
-                </h2>
-
-                <div className="flex items-center gap-3 text-sm text-slate-500 mt-1 font-medium">
-                  <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />{" "}
-                    {canchaDisplay}
-                  </span>
-                  <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 capitalize">
-                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                    {reserva?.fecha
-                      ? new Date(
-                          reserva.fecha + "T12:00:00",
-                        ).toLocaleDateString("es-AR", {
-                          weekday: "short",
-                          day: "numeric",
-                        })
-                      : "-"}
-                  </span>
-                </div>
-              </>
+            {!isCreating && reserva && !isEditingMove && (
+              <button
+                onClick={() => setIsEditingMove(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 mb-2 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-all active:scale-95"
+              >
+                <Edit3 className="w-3.5 h-3.5" /> Editar Turno
+              </button>
             )}
+
+            <h2 className="text-xl font-bold text-slate-800 tracking-tight">
+              {isCreating
+                ? formData.horaInicio
+                  ? `${formData.horaInicio} - ${horaFinCalculada}`
+                  : "Nuevo Turno"
+                : isEditingMove
+                  ? "Mover Turno"
+                  : `${reserva?.horaInicio} - ${reserva?.horaFin}`}
+            </h2>
+
+            <div className="flex items-center gap-3 text-sm text-slate-500 mt-1 font-medium">
+              <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                <MapPin className="w-3.5 h-3.5 text-slate-400" /> {canchaDisplay}
+              </span>
+              <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />{" "}
+                {isCreating ? fechaDisplay : reserva?.fecha}
+              </span>
+            </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors border border-slate-100"
-            title="Cerrar"
+            className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* --- BODY CON SCROLL --- */}
+        {/* BODY */}
         <div className="flex-1 overflow-y-auto p-6 bg-white custom-scrollbar">
           {isCreating ? (
-            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-              <CreateReservaForm
-                idClub={idClub}
-                formData={formData}
-                setFormData={setFormData}
-                canchas={props.canchas}
-                availableTimes={availableTimes}
-                manualDesdeOptions={manualDesdeOptions}
-                manualHastaOptions={manualHastaOptions}
-                duracionManualCalculada={duracionManualCalculada}
-                horaFinCalculada={horaFinCalculada}
-                priceLoading={priceLoading}
-                priceError={priceError}
-                createError={createError}
-              />
-            </div>
+            <CreateReservaForm
+              {...{
+                idClub,
+                formData,
+                setFormData,
+                canchas: props.canchas,
+                availableTimes,
+                manualDesdeOptions,
+                manualHastaOptions,
+                duracionManualCalculada,
+                horaFinCalculada,
+                priceLoading,
+                priceError,
+                createError,
+              }}
+            />
           ) : reserva ? (
             isEditingMove ? (
               <EditReservaMoveForm
                 reserva={reserva}
-                idClub={props.idClub}
+                idClub={idClub}
                 canchas={props.canchas}
                 reservas={props.reservas || []}
-                startHour={props.startHour ?? 8}
-                endHour={props.endHour ?? 26}
                 onCancel={() => setIsEditingMove(false)}
                 onSaved={() => {
                   setIsEditingMove(false);
@@ -327,78 +374,100 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                 }}
               />
             ) : (
-              <ReservaDetails
-                reserva={reserva}
-                getWhatsappLink={getWhatsappLink}
-                onEdit={() => setIsEditingMove(true)}
-              />
+              <div className="space-y-6">
+                <ReservaDetails reserva={reserva} getWhatsappLink={getWhatsappLink} />
+
+                <div className="space-y-2 pt-4 border-t border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      Notas Internas
+                    </label>
+                    {editNotas !== (reserva.notas || "") && (
+                      <button
+                        onClick={handleUpdateNotas}
+                        disabled={isSavingNotas}
+                        className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-1 rounded transition-colors"
+                      >
+                        {isSavingNotas ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Save className="w-3 h-3" />
+                        )}
+                        Guardar Notas
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    value={editNotas}
+                    onChange={(e) => setEditNotas(e.target.value)}
+                    placeholder="Sin notas adicionales..."
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-200 focus:bg-white transition-all resize-none min-h-[100px]"
+                  />
+                </div>
+              </div>
             )
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-2">
+            <div className="flex justify-center mt-20">
               <Loader2 className="w-8 h-8 animate-spin text-slate-300" />
-              <p className="text-sm font-medium">Cargando información...</p>
             </div>
           )}
         </div>
 
-        {/* --- FOOTER DE ACCIONES --- */}
+        {/* FOOTER ACCIONES */}
         <div className="p-5 bg-slate-50 border-t border-slate-200 shrink-0">
           {isCreating ? (
             <div className="flex gap-3">
               <button
                 onClick={onClose}
-                className="flex-1 py-3 border border-slate-300 text-slate-700 bg-white rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors shadow-sm"
-                disabled={createLoading}
+                className="flex-1 py-3 border bg-white rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleCreate}
-                className="flex-[2] py-3 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md shadow-slate-900/10 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
-                disabled={
-                  createLoading ||
-                  !formData.horaInicio ||
-                  (!formData.esTurnoFijo &&
-                    (!formData.precioManual
-                      ? priceLoading || !formData.precio
-                      : !formData.precio || Number(formData.precio) <= 0))
-                }
+                disabled={createLoading}
+                className="flex-[2] py-3 bg-slate-900 text-white rounded-xl text-sm font-bold flex justify-center items-center gap-2 active:scale-95 transition-all"
               >
-                {createLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Clock className="w-4 h-4" />
-                )}
-                Confirmar Reserva
+                {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
+                Confirmar Turno
               </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={handlePrintTicket}
-                className="py-3 border border-slate-200 bg-white text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 hover:border-slate-300 shadow-sm flex items-center justify-center gap-2 transition-all"
-                disabled={!reserva}
+                className="py-3 border bg-white rounded-xl text-sm font-bold flex justify-center items-center gap-2 hover:bg-slate-50 transition-colors"
               >
                 <Printer className="w-4 h-4 text-slate-400" /> Ticket
               </button>
+
+              {/* ✅ Cancelar ahora abre modal con motivo */}
               <button
-                onClick={handleCancelar}
-                className="py-3 border border-rose-100 bg-rose-50 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 disabled:opacity-60 transition-colors"
+                onClick={() => setShowCancelModal(true)}
+                className="py-3 border border-rose-100 bg-rose-50 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors"
                 disabled={!reserva}
               >
                 Cancelar
               </button>
+
               <button
                 onClick={openCobro}
-                className="col-span-2 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 shadow-md shadow-emerald-600/20 disabled:opacity-60 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                disabled={!reserva}
+                className="col-span-2 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold flex justify-center items-center gap-2 shadow-lg shadow-emerald-200 active:scale-[0.98] transition-all"
               >
-                <DollarSignIcon className="w-4 h-4" /> Registrar Cobro
+                <DollarSign className="w-4 h-4" /> Registrar Cobro
               </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* ✅ Modal cancelación */}
+      <ConfirmCancelModal
+        open={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        loading={cancelLoading}
+        onConfirm={confirmCancelar}
+      />
 
       <CobroModal
         isOpen={showCobro}
@@ -407,8 +476,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         monto={cobroMonto}
         setMonto={setCobroMonto}
         metodo={cobroMetodo}
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setMetodo={setCobroMetodo as any}
+        setMetodo={setCobroMetodo}
         nota={cobroNota}
         setNota={setCobroNota}
         loading={cobroLoading}
@@ -416,26 +484,5 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         onConfirm={handleCobrar}
       />
     </>
-  );
-}
-
-// Icono local simple
-function DollarSignIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <line x1="12" x2="12" y1="1" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
   );
 }
