@@ -60,24 +60,25 @@ export const TIPO_TURNO_CONFIG: Record<
     text: "text-orange-900",
     label: "Torneo",
   },
-  escuela: {
-    border: "border-l-cyan-600",
-    bg: "bg-cyan-100",
-    text: "text-cyan-900",
-    label: "Escuela",
-  },
-  cumpleanos: {
-    border: "border-l-pink-600",
-    bg: "bg-pink-100",
-    text: "text-pink-900",
-    label: "Cumpleaños",
-  },
-  abonado: {
-    border: "border-l-emerald-700",
-    bg: "bg-emerald-100",
-    text: "text-emerald-900",
-    label: "Abonado",
-  },
+
+  // escuela: {
+  //   border: "border-l-cyan-600",
+  //   bg: "bg-cyan-100",
+  //   text: "text-cyan-900",
+  //   label: "Escuela",
+  // },
+  // cumpleanos: {
+  //   border: "border-l-pink-600",
+  //   bg: "bg-pink-100",
+  //   text: "text-pink-900",
+  //   label: "Cumpleaños",
+  // },
+  // abonado: {
+  //   border: "border-l-emerald-700",
+  //   bg: "bg-emerald-100",
+  //   text: "text-emerald-900",
+  //   label: "Abonado",
+  // },
 };
 
 // Helper para obtener la configuración garantizando un fallback
