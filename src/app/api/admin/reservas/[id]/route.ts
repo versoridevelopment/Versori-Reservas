@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Helper de permisos (copiado para que sea standalone)
+// Helper de permisos (standalone)
 async function assertAdminOrStaff(id_club: number, userId: string) {
   const { data, error } = await supabaseAdmin
     .from("club_usuarios")
@@ -20,16 +20,19 @@ async function assertAdminOrStaff(id_club: number, userId: string) {
   return true;
 }
 
+// ===============================
+// GET (tu full de reserva)
+// ===============================
 export async function GET(req: Request, { params }: Ctx) {
   try {
-    const { id } = await params; // ✅ Next 15: params es Promise
+    const { id } = await params;
     const id_reserva = Number(id);
 
     if (!id_reserva || Number.isNaN(id_reserva)) {
       return NextResponse.json({ error: "ID inválido" }, { status: 400 });
     }
 
-    // 1. Auth (Seguridad básica)
+    // 1) Auth
     const supabase = await getSupabaseServerClient();
     const { data: authRes } = await supabase.auth.getUser();
     if (!authRes?.user?.id) {
@@ -37,7 +40,7 @@ export async function GET(req: Request, { params }: Ctx) {
     }
     const userId = authRes.user.id;
 
-    // 2. Fetch Full Data
+    // 2) Fetch full
     const { data: reserva, error } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -46,7 +49,7 @@ export async function GET(req: Request, { params }: Ctx) {
         cancha:canchas(nombre),
         profile:profiles(id_usuario, nombre, apellido, telefono, email),
         pagos:reservas_pagos(*)
-      `,
+      `
       )
       .eq("id_reserva", id_reserva)
       .single();
@@ -54,18 +57,17 @@ export async function GET(req: Request, { params }: Ctx) {
     if (error || !reserva) {
       return NextResponse.json(
         { error: "Reserva no encontrada" },
-        { status: 404 },
+        { status: 404 }
       );
     }
 
-    // 3. Verificar permisos sobre el club de la reserva
+    // 3) Permisos
     const hasAccess = await assertAdminOrStaff(reserva.id_club, userId);
     if (!hasAccess) {
       return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
     }
 
-    // 4. Normalizar Datos
-    // Prioridad: Datos en reserva (invitado) > Datos en perfil (registrado)
+    // 4) Normalizar
     const cliente_nombre =
       (
         reserva.cliente_nombre ||
@@ -78,7 +80,6 @@ export async function GET(req: Request, { params }: Ctx) {
       reserva.cliente_telefono || reserva.profile?.telefono || "";
     const cliente_email = reserva.cliente_email || reserva.profile?.email || "";
 
-    // Calcular totales financieros
     const pagosAprobados = (reserva.pagos || [])
       .filter((p: any) => p.status === "approved")
       .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
@@ -96,7 +97,7 @@ export async function GET(req: Request, { params }: Ctx) {
         cliente_email,
         pagos_aprobados_total: pagosAprobados,
         saldo_pendiente: saldo,
-        pagado_total, // ✅ NUEVO
+        pagado_total,
         pagos_historial: reserva.pagos,
       },
     });
@@ -106,30 +107,15 @@ export async function GET(req: Request, { params }: Ctx) {
   }
 }
 
-function isISODate(s: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-function isHHMM(s: string) {
-  return /^\d{2}:\d{2}$/.test(s);
-}
-
-type PatchBody = {
-  id_cancha: number;
-  fecha: string; // YYYY-MM-DD
-  inicio: string; // HH:MM
-  fin: string; // HH:MM
-  fin_dia_offset: 0 | 1;
-};
-
-// ---- TU GET EXISTENTE ACÁ (lo dejás como está) ----
-// export async function GET(...) { ... }
-
+// ===============================
+// PATCH (mover reserva)
+// ===============================
 export async function PATCH(req: Request, { params }: Ctx) {
   try {
     const { id } = await params;
     const id_reserva = Number(id);
     if (!id_reserva || Number.isNaN(id_reserva)) {
-      return NextResponse.json({ error: "ID inválido" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "ID inválido" }, { status: 400 });
     }
 
     const body = (await req.json().catch(() => null)) as any;
@@ -139,55 +125,41 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const inicio = String(body?.inicio || "");
 
     if (!Number.isFinite(id_cancha) || id_cancha <= 0) {
-      return NextResponse.json(
-        { error: "id_cancha inválido" },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: "id_cancha inválido" }, { status: 400 });
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-      return NextResponse.json(
-        { error: "fecha inválida (YYYY-MM-DD)" },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: "fecha inválida (YYYY-MM-DD)" }, { status: 400 });
     }
     if (!/^\d{2}:\d{2}$/.test(inicio)) {
-      return NextResponse.json(
-        { error: "inicio inválido (HH:MM)" },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: "inicio inválido (HH:MM)" }, { status: 400 });
     }
 
     // Auth
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr || !authRes?.user?.id) {
-      return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "LOGIN_REQUERIDO" }, { status: 401 });
     }
     const userId = authRes.user.id;
 
-    // Traer reserva actual para:
-    // - permisos por club
-    // - duración (con fin_dia_offset si existe)
-    // - segmento (para precio)
+    // Traer reserva actual (para permisos + duración + segmento)
     const { data: r0, error: r0Err } = await supabaseAdmin
       .from("reservas")
-      .select(
-        "id_reserva,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,segmento,estado",
-      )
+      .select("id_reserva,id_club,id_cancha,fecha,inicio,fin,fin_dia_offset,segmento,estado")
       .eq("id_reserva", id_reserva)
       .maybeSingle();
 
-    if (r0Err)
-      return NextResponse.json({ error: r0Err.message }, { status: 500 });
-    if (!r0?.id_club)
-      return NextResponse.json(
-        { error: "Reserva no encontrada" },
-        { status: 404 },
-      );
+    if (r0Err) {
+      return NextResponse.json({ ok: false, error: r0Err.message }, { status: 500 });
+    }
+    if (!r0?.id_club) {
+      return NextResponse.json({ ok: false, error: "Reserva no encontrada" }, { status: 404 });
+    }
 
     const okPerm = await assertAdminOrStaff(r0.id_club, userId);
-    if (!okPerm)
-      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+    if (!okPerm) {
+      return NextResponse.json({ ok: false, error: "Sin permisos" }, { status: 403 });
+    }
 
     // ----- duración snapshot -----
     const oldInicio = String(r0.inicio || "").slice(0, 5);
@@ -198,6 +170,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       const [h, m] = hhmm.slice(0, 5).split(":").map(Number);
       return (h || 0) * 60 + (m || 0);
     };
+
     const addMinutesHHMM = (hhmm: string, addMin: number) => {
       const [h, m] = hhmm.slice(0, 5).split(":").map(Number);
       let total = (h || 0) * 60 + (m || 0) + addMin;
@@ -220,34 +193,41 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const fin_dia_offset = endMin > 1440 ? 1 : 0;
 
     // ----- recalcular precio usando TU API -----
-    // usamos segmento de la reserva (si no hay, default "publico")
     const segmento_override =
-      r0.segmento === "profe" || r0.segmento === "publico"
-        ? r0.segmento
-        : "publico";
+      r0.segmento === "profe" || r0.segmento === "publico" ? r0.segmento : "publico";
 
-    const priceRes = await fetch(
-      new URL("/api/reservas/calcular-precio", req.url),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          id_club: r0.id_club,
-          id_cancha,
-          fecha,
-          inicio,
-          fin,
-          segmento_override,
-        }),
+    // ✅ CLAVE: reenviar cookies del request original
+    const cookie = req.headers.get("cookie") ?? "";
+
+    const priceRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie, // ✅
       },
-    );
+      cache: "no-store",
+      body: JSON.stringify({
+        id_club: r0.id_club,
+        id_cancha,
+        fecha,
+        inicio,
+        fin,
+        segmento_override,
+      }),
+    });
+
+    if (priceRes.status === 401) {
+      return NextResponse.json(
+        { ok: false, error: "SESSION_NO_ENVIADA_AL_CALCULO" },
+        { status: 401 }
+      );
+    }
 
     const priceJson = await priceRes.json().catch(() => null);
     if (!priceRes.ok || !priceJson?.ok) {
       return NextResponse.json(
-        { error: priceJson?.error || "No se pudo calcular el precio" },
-        { status: 409 },
+        { ok: false, error: priceJson?.error || "No se pudo calcular el precio" },
+        { status: 409 }
       );
     }
 
@@ -256,7 +236,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const id_regla = Number(priceJson.id_regla || 0) || null;
 
     if (!precio_total || precio_total <= 0) {
-      return NextResponse.json({ error: "PRECIO_INVALIDO" }, { status: 409 });
+      return NextResponse.json({ ok: false, error: "PRECIO_INVALIDO" }, { status: 409 });
     }
 
     // ----- move atómico (solape + timestamps + precio) -----
@@ -274,9 +254,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
     if (error) {
       const msg = error.message || "Error moviendo reserva";
-      if (msg.includes("SOLAPAMIENTO"))
-        return NextResponse.json({ error: "SOLAPAMIENTO" }, { status: 409 });
-      return NextResponse.json({ error: msg }, { status: 400 });
+      if (msg.includes("SOLAPAMIENTO")) {
+        return NextResponse.json({ ok: false, error: "SOLAPAMIENTO" }, { status: 409 });
+      }
+      return NextResponse.json({ ok: false, error: msg }, { status: 400 });
     }
 
     return NextResponse.json({
@@ -286,8 +267,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   } catch (e: any) {
     console.error("[PATCH /api/admin/reservas/[id]]", e);
     return NextResponse.json(
-      { error: e?.message || "Error interno" },
-      { status: 500 },
+      { ok: false, error: e?.message || "Error interno" },
+      { status: 500 }
     );
   }
 }
