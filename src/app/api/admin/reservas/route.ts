@@ -149,10 +149,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: perm.error }, { status: perm.status as number });
     }
 
-    // ✅ VALIDAR BLOQUEOS (CIERRES)
+    // ✅ VALIDAR BLOQUEOS (CIERRES) — no crear reserva en horario de cierre parcial/total
     const { data: cierres } = await supabaseAdmin
       .from("club_cierres")
-      .select("inicio, fin, motivo")
+      .select("inicio, fin, fin_dia_offset, motivo")
       .eq("id_club", id_club)
       .eq("fecha", fecha)
       .eq("activo", true)
@@ -160,8 +160,18 @@ export async function POST(req: Request) {
 
     if (cierres?.length) {
       for (const cierre of cierres) {
-        if (!cierre.inicio || !cierre.fin) continue;
-        if (startMin < toMin(cierre.fin) && endMinAbs > toMin(cierre.inicio)) {
+        let cierreStartMin: number;
+        let cierreEndMin: number;
+        if (!cierre.inicio || !cierre.fin) {
+          cierreStartMin = 0;
+          cierreEndMin = 1440 * 2;
+        } else {
+          cierreStartMin = toMin(cierre.inicio);
+          const finBase = toMin(cierre.fin);
+          const offset = Number((cierre as { fin_dia_offset?: number }).fin_dia_offset || 0);
+          cierreEndMin = offset === 1 ? finBase + 1440 : finBase;
+        }
+        if (startMin < cierreEndMin && endMinAbs > cierreStartMin) {
           return NextResponse.json(
             { error: `Horario bloqueado: ${cierre.motivo || "Cierre"}` },
             { status: 409 },

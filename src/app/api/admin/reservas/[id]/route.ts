@@ -239,6 +239,38 @@ export async function PATCH(req: Request, { params }: Ctx) {
       return NextResponse.json({ ok: false, error: "PRECIO_INVALIDO" }, { status: 409 });
     }
 
+    // ----- Validar que el nuevo horario no caiga en un cierre -----
+    const { data: cierres } = await supabaseAdmin
+      .from("club_cierres")
+      .select("inicio, fin, fin_dia_offset, motivo")
+      .eq("id_club", r0.id_club)
+      .eq("fecha", fecha)
+      .eq("activo", true)
+      .or(`id_cancha.is.null,id_cancha.eq.${id_cancha}`);
+
+    if (cierres?.length) {
+      const slotEndMin = startMin + duracion_min;
+      for (const cierre of cierres) {
+        let cierreStartMin: number;
+        let cierreEndMin: number;
+        if (!cierre.inicio || !cierre.fin) {
+          cierreStartMin = 0;
+          cierreEndMin = 1440 * 2;
+        } else {
+          cierreStartMin = toMin(cierre.inicio);
+          const finBase = toMin(cierre.fin);
+          const offset = Number((cierre as { fin_dia_offset?: number }).fin_dia_offset || 0);
+          cierreEndMin = offset === 1 ? finBase + 1440 : finBase;
+        }
+        if (startMin < cierreEndMin && slotEndMin > cierreStartMin) {
+          return NextResponse.json(
+            { ok: false, error: `Horario bloqueado: ${cierre.motivo || "Cierre"}` },
+            { status: 409 },
+          );
+        }
+      }
+    }
+
     // ----- move atómico (solape + timestamps + precio) -----
     const { data, error } = await supabaseAdmin.rpc("reservas_move", {
       p_id_reserva: id_reserva,

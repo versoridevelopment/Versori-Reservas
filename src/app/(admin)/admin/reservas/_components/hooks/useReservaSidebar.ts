@@ -265,24 +265,33 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // 1) Occupied intervals
+  // 1) Occupied intervals (reservas + cierres de la cancha seleccionada)
   const occupiedIntervals = useMemo(() => {
     if (!isCreating) return [];
     const id_cancha = Number(formData.canchaId);
     if (!id_cancha) return [];
 
-    return reservas
+    const fromReservas = reservas
       .filter((r) => Number(r.id_cancha) === id_cancha)
       .map((r) => {
         const s = hhmmToDecimal(r.horaInicio, startHour);
         let e = hhmmToDecimal(r.horaFin, startHour);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const offset = Number((r as any).fin_dia_offset || 0);
-        // Solo sumar 24 cuando fin < inicio (cruce sin offset). Con offset=1, e ya está en escala extendida (24=00:00, 25=01:00…)
         if (e <= s && offset !== 1) e += 24;
         return { start: s, end: e, id: r.id_reserva };
       });
-  }, [isCreating, reservas, formData.canchaId, startHour]);
+
+    const cancha = canchas.find((c) => Number(c.id_cancha) === id_cancha);
+    const fromCierres = (cancha?.cierres || []).map((c) => {
+      let s = hhmmToDecimal(c.inicio, startHour);
+      let e = hhmmToDecimal(c.fin, startHour);
+      if (e <= s) e += 24;
+      return { start: s, end: e, id: 0 };
+    });
+
+    return [...fromReservas, ...fromCierres];
+  }, [isCreating, reservas, formData.canchaId, startHour, canchas]);
 
   const dayStartU = useMemo(() => toUnits30(startHour), [startHour]);
   const dayEndU = useMemo(() => toUnits30(endHour), [endHour]);

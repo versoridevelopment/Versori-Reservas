@@ -132,29 +132,36 @@ export default function EditReservaMoveForm({
   const [inicio, setInicio] = useState<string>(reserva.horaInicio || "08:00");
   const finCalculado = useMemo(() => addMinutesHHMM(inicio, duracionMin), [inicio, duracionMin]);
 
-  // ---- occupiedIntervals (excluye la reserva actual) ----
+  // ---- occupiedIntervals (reservas + cierres; excluye la reserva actual) ----
   const occupiedIntervals = useMemo(() => {
     if (!idCancha) return [];
 
     const relevant = (reservas || []).filter((r) => {
       if (Number(r.id_cancha) !== Number(idCancha)) return false;
-      if (Number(r.id_reserva) === Number(reserva.id_reserva)) return false; // ✅ excluir la actual
+      if (Number(r.id_reserva) === Number(reserva.id_reserva)) return false;
       return true;
     });
 
-    return relevant
+    const fromReservas = relevant
       .map((r) => {
         const s = hhmmToDecimal(r.horaInicio, startHour);
         let e = hhmmToDecimal(r.horaFin, startHour);
-
         const offset = Number((r as any).fin_dia_offset || 0);
-        // Solo sumar 24 cuando fin < inicio (cruce sin offset). Con offset=1, e ya está en escala extendida (24=00:00, 25=01:00…)
         if (e <= s && offset !== 1) e += 24;
-
         return { start: s, end: e, id: r.id_reserva };
       })
       .filter((x) => Number.isFinite(x.start) && Number.isFinite(x.end));
-  }, [reservas, idCancha, reserva.id_reserva, startHour]);
+
+    const cancha = canchas.find((c) => Number(c.id_cancha) === Number(idCancha));
+    const fromCierres = (cancha?.cierres || []).map((c) => {
+      let s = hhmmToDecimal(c.inicio, startHour);
+      let e = hhmmToDecimal(c.fin, startHour);
+      if (e <= s) e += 24;
+      return { start: s, end: e, id: 0 };
+    });
+
+    return [...fromReservas, ...fromCierres];
+  }, [reservas, idCancha, reserva.id_reserva, startHour, canchas]);
 
   // ---- availableTimes (copiado) ----
   const availableTimes = useMemo(() => {
