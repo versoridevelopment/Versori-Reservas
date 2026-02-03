@@ -15,7 +15,6 @@ export default async function HomePage() {
     );
   }
 
-  // Traemos: contacto + direccion (hija) + telefono (hija)
   const { data: contactoFull } = await supabase
     .from("contacto")
     .select(
