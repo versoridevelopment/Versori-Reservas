@@ -166,19 +166,7 @@ export default function CompactView({
         <div className="flex min-w-max" style={{ height: totalHeight }}>
           {/* COLUMNA HORAS */}
           <div className="w-16 sticky left-0 z-30 bg-white border-r border-slate-200 flex-shrink-0">
-            <div className="h-12 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm sticky top-0 z-40 flex items-center justify-center p-1">
-              <button
-                onClick={onRefresh}
-                disabled={isLoading}
-                className={`p-1.5 rounded-lg transition-all ${
-                  isLoading
-                    ? "animate-spin text-blue-500"
-                    : "text-slate-400 hover:text-blue-600"
-                }`}
-              >
-                <RefreshCw size={16} />
-              </button>
-            </div>
+            <div className="h-12 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm sticky top-0 z-40 flex items-center justify-center p-1"></div>
             <div className="relative h-full">
               {timeSlots.map((time) => {
                 if (!Number.isInteger(time)) return null;
