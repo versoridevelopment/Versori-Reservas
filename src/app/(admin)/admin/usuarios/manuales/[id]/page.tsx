@@ -293,7 +293,7 @@ export default function DetalleUsuarioManualPage({
             </div>
           </div>
 
-          <div
+          {/* <div
             onClick={() => setIsNoteModalOpen(true)}
             className="bg-amber-50 rounded-2xl border border-amber-100 p-5 cursor-pointer hover:shadow-md transition-all group"
           >
@@ -308,7 +308,7 @@ export default function DetalleUsuarioManualPage({
             >
               {perfil.notas || "Agregar observaciones..."}
             </p>
-          </div>
+          </div> */}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
