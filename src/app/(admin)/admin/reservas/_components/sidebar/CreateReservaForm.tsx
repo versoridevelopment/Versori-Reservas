@@ -356,7 +356,7 @@ export default function CreateReservaForm({
               >
                 {availableTimes.map((t) => (
                   <option key={t.value} value={t.value}>
-                    {t.label}
+                    {t.label} inicio ({t.finLabel} fin)
                   </option>
                 ))}
               </select>

@@ -278,7 +278,8 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         let e = hhmmToDecimal(r.horaFin, startHour);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const offset = Number((r as any).fin_dia_offset || 0);
-        if (offset === 1 || e <= s) e += 24;
+        // Solo sumar 24 cuando fin < inicio (cruce sin offset). Con offset=1, e ya está en escala extendida (24=00:00, 25=01:00…)
+        if (e <= s && offset !== 1) e += 24;
         return { start: s, end: e, id: r.id_reserva };
       });
   }, [isCreating, reservas, formData.canchaId, startHour]);
