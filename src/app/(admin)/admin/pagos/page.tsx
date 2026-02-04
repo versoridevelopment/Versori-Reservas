@@ -30,14 +30,14 @@ type MPStatus =
 
 type PagoRow = {
   id_pago: number;
-  mp_payment_id: string;
+  mp_payment_id: string | null; // Puede venir nulo
   monto: number;
   estado: MPStatus;
   fecha: string;
   cliente: {
-    nombre: string;
-    apellido: string;
-    email: string;
+    nombre: string | null;
+    apellido: string | null;
+    email: string | null;
   };
   metodo_detalle: string;
 };
@@ -88,7 +88,11 @@ function DateRangeFilter({
     <div className="relative w-full sm:w-auto" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full sm:w-auto flex items-center justify-between gap-2 px-4 py-2 border rounded-lg text-sm transition-colors ${activeLabel !== "Fecha" ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+        className={`w-full sm:w-auto flex items-center justify-between gap-2 px-4 py-2 border rounded-lg text-sm transition-colors ${
+          activeLabel !== "Fecha"
+            ? "bg-blue-50 border-blue-200 text-blue-700"
+            : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+        }`}
       >
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4" />
@@ -222,7 +226,6 @@ export default function PagosPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
-  // ✅ CAMBIO: Inicializamos estrictamente en "approved" (Confirmados)
   const [filterStatus, setFilterStatus] = useState<string>("approved");
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
 
@@ -230,13 +233,29 @@ export default function PagosPage() {
     async function fetchPagos() {
       try {
         setLoading(true);
+        setError(null);
+
         const res = await fetch("/api/admin/pagos");
-        if (!res.ok) throw new Error("Error al cargar los pagos");
-        const data = await res.json();
+
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error(
+            `El servidor no devolvió una respuesta válida (${res.status})`,
+          );
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            data.error || `Error desconocido del servidor (${res.status})`,
+          );
+        }
+
         setPagos(data.pagos || []);
-      } catch (err) {
-        console.error(err);
-        setError("No se pudieron cargar los pagos.");
+      } catch (err: any) {
+        console.error("Error fetching pagos:", err);
+        setError(err.message || "No se pudieron cargar los pagos.");
       } finally {
         setLoading(false);
       }
@@ -244,22 +263,22 @@ export default function PagosPage() {
     fetchPagos();
   }, []);
 
-  // FILTRADO
+  // --- FILTRADO A PRUEBA DE FALLOS ---
   const filteredPagos = useMemo(() => {
     return pagos.filter((p) => {
-      // 1. Búsqueda Texto
       const searchString = q.toLowerCase();
-      const matchesText =
-        p.mp_payment_id.toLowerCase().includes(searchString) ||
-        p.cliente.nombre.toLowerCase().includes(searchString) ||
-        p.cliente.apellido.toLowerCase().includes(searchString) ||
-        p.cliente.email.toLowerCase().includes(searchString);
 
-      // 2. Filtro Estado Estricto
-      // Si el filtro es "all", mostramos todo. Si es algo específico (ej: approved), filtramos.
+      // ✅ CORRECCIÓN: Usamos (campo || "") para asegurar que siempre haya un string antes de toLowerCase()
+      const matchesText =
+        (p.mp_payment_id || "").toLowerCase().includes(searchString) ||
+        (p.cliente?.nombre || "").toLowerCase().includes(searchString) ||
+        (p.cliente?.apellido || "").toLowerCase().includes(searchString) ||
+        (p.cliente?.email || "").toLowerCase().includes(searchString);
+
+      // Filtro Estado
       const matchesStatus = filterStatus === "all" || p.estado === filterStatus;
 
-      // 3. Filtro Fecha
+      // Filtro Fecha
       let matchesDate = true;
       if (dateRange) {
         const itemDate = new Date(p.fecha).setHours(0, 0, 0, 0);
@@ -278,20 +297,12 @@ export default function PagosPage() {
     });
   }, [pagos, q, filterStatus, dateRange]);
 
-  // CÁLCULO ESTADÍSTICAS (Basado en la vista filtrada)
   const stats = useMemo(() => {
     const listToCalculate = filteredPagos;
-
-    // Suma total de lo visible (si solo vemos aprobados, suma solo aprobados)
     const total = listToCalculate.reduce((acc, curr) => acc + curr.monto, 0);
-
-    // Conteo de transacciones visibles
     const count = listToCalculate.length;
-
     return { total, count };
   }, [filteredPagos]);
-
-  const handleCopyId = (id: string) => navigator.clipboard.writeText(id);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 pb-20 sm:pb-6">
@@ -309,7 +320,7 @@ export default function PagosPage() {
           </button>
         </div>
 
-        {/* Stats - Simplificado para mostrar solo lo relevante de la vista actual */}
+        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <StatCard
             title="Total Ingresos (Vista)"
@@ -368,10 +379,27 @@ export default function PagosPage() {
               <p>Cargando...</p>
             </div>
           ) : error ? (
-            <div className="text-center py-20 text-red-500">{error}</div>
+            <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+              <div className="bg-red-50 p-4 rounded-full mb-3">
+                <AlertCircle className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-1">
+                Error al cargar datos
+              </h3>
+              <p className="text-sm text-gray-500 max-w-md">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Reintentar
+              </button>
+            </div>
           ) : filteredPagos.length === 0 ? (
-            <div className="text-center py-20 text-gray-500">
-              No se encontraron pagos con estos filtros.
+            <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+              <div className="bg-gray-50 p-4 rounded-full mb-3">
+                <Search className="w-8 h-8 text-gray-400" />
+              </div>
+              <p>No se encontraron pagos con estos filtros.</p>
             </div>
           ) : (
             <>
@@ -405,7 +433,7 @@ export default function PagosPage() {
                               title="ID Referencia"
                             >
                               <span className="font-medium text-gray-900 text-sm truncate w-24">
-                                {p.mp_payment_id}
+                                {p.mp_payment_id || "N/A"}
                               </span>
                             </div>
                           </div>
@@ -413,10 +441,11 @@ export default function PagosPage() {
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
                             <span className="font-medium text-gray-900 text-sm">
-                              {p.cliente.nombre} {p.cliente.apellido}
+                              {p.cliente.nombre || "Invitado"}{" "}
+                              {p.cliente.apellido}
                             </span>
                             <span className="text-xs text-gray-500 truncate w-32">
-                              {p.cliente.email}
+                              {p.cliente.email || "-"}
                             </span>
                           </div>
                         </td>
@@ -463,7 +492,7 @@ export default function PagosPage() {
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex flex-col">
                         <span className="font-bold text-gray-900">
-                          {p.cliente.nombre} {p.cliente.apellido}
+                          {p.cliente.nombre || "Invitado"} {p.cliente.apellido}
                         </span>
                         <span className="text-xs text-gray-500 font-mono">
                           #{p.id_pago} •{" "}
