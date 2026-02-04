@@ -31,6 +31,15 @@ export async function middleware(req: NextRequest) {
   } = await supabase.auth.getUser();
   const url = req.nextUrl;
 
+  if (url.pathname.startsWith("/reserva/confirmacion")) {
+    if (!user) {
+      const redirectUrl = url.clone();
+      redirectUrl.pathname = "/login";
+      redirectUrl.searchParams.set("next", url.pathname + url.search);
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
   // --- PROTECCIÓN RUTAS ADMIN ---
   if (url.pathname.startsWith("/admin")) {
     // 1. Si no hay usuario, fuera.
