@@ -1,6 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+function isAdminPath(pathname: string) {
+  return pathname === "/admin" || pathname.startsWith("/admin/");
+}
+
+function isSuperadminPath(pathname: string) {
+  return pathname === "/superadmin" || pathname.startsWith("/superadmin/");
+}
+
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next({
     request: {
@@ -29,8 +37,10 @@ export async function middleware(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
   const url = req.nextUrl;
 
+  // ✅ Confirmación: requiere login
   if (url.pathname.startsWith("/reserva/confirmacion")) {
     if (!user) {
       const redirectUrl = url.clone();
@@ -40,53 +50,74 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // --- PROTECCIÓN RUTAS ADMIN ---
-  if (url.pathname.startsWith("/admin")) {
-    // 1. Si no hay usuario, fuera.
+  const needsAdmin = isAdminPath(url.pathname);
+  const needsSuperadmin = isSuperadminPath(url.pathname);
+
+  // --- PROTECCIÓN ADMIN / SUPERADMIN ---
+  if (needsAdmin || needsSuperadmin) {
+    // 1) Si no hay usuario -> login
     if (!user) {
       const redirectUrl = url.clone();
       redirectUrl.pathname = "/login";
       return NextResponse.redirect(redirectUrl);
     }
 
-    // 2. Consultar Roles
+    // 2) Consultar roles
     const { data: rolesData, error } = await supabase
       .from("club_usuarios")
       .select("roles!inner(nombre)")
       .eq("id_usuario", user.id);
 
     if (error) {
-      // Por seguridad, si falla la BD, al home.
       const redirectUrl = url.clone();
       redirectUrl.pathname = "/";
       return NextResponse.redirect(redirectUrl);
     }
 
-    // 3. Aplanar array de roles
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const userRoles =
-      rolesData?.map((r: any) => r.roles?.nombre?.toLowerCase()) || [];
+      rolesData?.map((r: any) => String(r.roles?.nombre || "").toLowerCase()) ||
+      [];
 
-    // 🔴 4. LISTA BLANCA (WHITELIST)
-    // IMPORTANTE: Aquí NO debe estar 'profe' ni 'cliente'
-    const allowedRoles = ["admin", "cajero", "staff"];
+    // 3) Whitelists separadas
+    const allowedAdminRoles = ["admin", "cajero", "staff"];
+    const allowedSuperadminRoles = ["superadmin"];
 
-    const hasAccess = userRoles.some((role) => allowedRoles.includes(role));
+    const hasAdminAccess = userRoles.some((r) => allowedAdminRoles.includes(r));
+    const hasSuperadminAccess = userRoles.some((r) =>
+      allowedSuperadminRoles.includes(r),
+    );
 
-    if (!hasAccess) {
-      console.log(`⛔ Acceso denegado a ${user.email}. Roles: ${userRoles}`);
-      const redirectUrl = url.clone();
-      redirectUrl.pathname = "/"; // Lo mandamos al inicio
-      return NextResponse.redirect(redirectUrl);
+    // 4) Validación según ruta
+    if (needsSuperadmin) {
+      if (!hasSuperadminAccess) {
+        console.log(
+          `⛔ Acceso SUPERADMIN denegado a ${user.email}. Roles: ${userRoles.join(
+            ",",
+          )}`,
+        );
+        const redirectUrl = url.clone();
+        redirectUrl.pathname = "/";
+        return NextResponse.redirect(redirectUrl);
+      }
+    } else if (needsAdmin) {
+      // Nota: superadmin NO entra a /admin a menos que lo agregues acá
+      if (!hasAdminAccess) {
+        console.log(
+          `⛔ Acceso ADMIN denegado a ${user.email}. Roles: ${userRoles.join(
+            ",",
+          )}`,
+        );
+        const redirectUrl = url.clone();
+        redirectUrl.pathname = "/";
+        return NextResponse.redirect(redirectUrl);
+      }
     }
   }
 
-  // ... lógica recovery (sin cambios) ...
+  // --- Recovery (sin cambios) ---
   const recoveryCookie = req.cookies.get("recovery_pending")?.value;
-  if (
-    recoveryCookie === "true" &&
-    !url.pathname.startsWith("/reset-password")
-  ) {
+  if (recoveryCookie === "true" && !url.pathname.startsWith("/reset-password")) {
     const redirectUrl = url.clone();
     redirectUrl.pathname = "/reset-password";
     return NextResponse.redirect(redirectUrl);
