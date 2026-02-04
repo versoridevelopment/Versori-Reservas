@@ -18,12 +18,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 
 // --- TIPOS ---
-type Estado =
-  | "pendiente_pago"
-  | "confirmada"
-  | "expirada"
-  | "rechazada"
-  | "cancelada";
+type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada" | "cancelada";
 
 type ReservaRow = {
   id_reserva: number;
@@ -37,8 +32,6 @@ type ReservaRow = {
   confirmed_at: string | null;
   created_at: string | null;
   cancha_nombre: string | null;
-  // Si tu API devolviera imagen, la usaríamos aquí.
-  // Por ahora usaremos un placeholder visual.
 };
 
 type ApiResp = {
@@ -99,8 +92,8 @@ export default function MisReservasPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Filtros
-  const [estado, setEstado] = useState<string>("");
+  // ✅ Filtros (solo confirmada/cancelada o vacío = ambas)
+  const [estado, setEstado] = useState<string>(""); // "" | "confirmada" | "cancelada"
   const [desde, setDesde] = useState<string>("");
   const [hasta, setHasta] = useState<string>("");
 
@@ -112,15 +105,17 @@ export default function MisReservasPage() {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const inFlightRef = useRef(false);
 
-  // Estilos base (Si tienes el objeto 'club' disponible, úsalo aquí. Si no, usa defaults azules)
   const customStyle = {
-    "--primary": "#3b82f6", // Azul default
+    "--primary": "#3b82f6",
     "--secondary": "#1e40af",
   } as CSSProperties;
 
   const filtersQuery = useMemo(() => {
     const sp = new URLSearchParams();
-    if (estado) sp.set("estado", estado);
+
+    // ✅ Solo enviamos estado si es confirmada o cancelada
+    if (estado === "confirmada" || estado === "cancelada") sp.set("estado", estado);
+
     if (desde) sp.set("desde", desde);
     if (hasta) sp.set("hasta", hasta);
     return sp.toString();
@@ -152,8 +147,7 @@ export default function MisReservasPage() {
       const json = (await res.json().catch(() => null)) as ApiResp | null;
 
       if (!res.ok || !json?.ok) {
-        const msg =
-          (json as any)?.error || "No se pudieron cargar tus reservas.";
+        const msg = (json as any)?.error || "No se pudieron cargar tus reservas.";
         setErr(msg);
         if (mode === "reset") setRows([]);
         return;
@@ -168,11 +162,7 @@ export default function MisReservasPage() {
         setRows((prev) => {
           const incoming = json.reservas || [];
           const seen = new Set(prev.map((x) => x.id_reserva));
-          const merged = [
-            ...prev,
-            ...incoming.filter((x) => !seen.has(x.id_reserva)),
-          ];
-          return merged;
+          return [...prev, ...incoming.filter((x) => !seen.has(x.id_reserva))];
         });
       }
     } catch (e: any) {
@@ -211,7 +201,7 @@ export default function MisReservasPage() {
         setPage(next);
         fetchPage(next, "append");
       },
-      { root: null, rootMargin: "400px 0px", threshold: 0 },
+      { root: null, rootMargin: "400px 0px", threshold: 0 }
     );
 
     obs.observe(el);
@@ -224,7 +214,7 @@ export default function MisReservasPage() {
       style={customStyle}
       className="min-h-screen relative pt-32 pb-20 px-4 sm:px-6 overflow-hidden text-white font-sans"
     >
-      {/* --- FONDO DEGRADADO (Solución a la pantalla negra) --- */}
+      {/* Fondo */}
       <div className="fixed inset-0 pointer-events-none -z-10 bg-[#06090e]">
         <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-[var(--primary)]/20 blur-[120px] rounded-full mix-blend-screen" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[400px] bg-blue-900/10 blur-[100px] rounded-full" />
@@ -238,7 +228,7 @@ export default function MisReservasPage() {
               Mis Reservas
             </h1>
             <p className="text-slate-400 text-sm md:text-base">
-              Gestiona tu historial de turnos y revisa el estado de tus pagos.
+              Historial de turnos (confirmadas y canceladas).
             </p>
           </div>
 
@@ -246,14 +236,12 @@ export default function MisReservasPage() {
             onClick={() => fetchPage(1, "reset")}
             className="self-start md:self-auto bg-slate-800/50 hover:bg-slate-700/50 hover:text-white text-slate-300 border border-slate-700/50 px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm backdrop-blur-sm"
           >
-            <RefreshCw
-              className={`w-4 h-4 ${firstLoading ? "animate-spin" : ""}`}
-            />
+            <RefreshCw className={`w-4 h-4 ${firstLoading ? "animate-spin" : ""}`} />
             Actualizar
           </button>
         </div>
 
-        {/* FILTROS (Glassmorphism) */}
+        {/* FILTROS */}
         <div className="bg-[#0f141e]/60 border border-white/5 rounded-2xl p-5 mb-10 backdrop-blur-md shadow-xl">
           <div className="flex items-center gap-2 mb-4 text-slate-400 text-xs uppercase tracking-wider font-bold">
             <Filter className="w-3.5 h-3.5" />
@@ -261,25 +249,22 @@ export default function MisReservasPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Select Estado */}
+            {/* Select Estado (solo confirmada/cancelada) */}
             <div className="relative group">
               <select
                 value={estado}
                 onChange={(e) => setEstado(e.target.value)}
                 className="w-full bg-[#0b0f17] border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 focus:ring-2 focus:ring-[var(--primary)]/50 focus:border-[var(--primary)] outline-none appearance-none cursor-pointer transition-all"
               >
-                <option value="">Todos los estados</option>
+                <option value="">Confirmadas y canceladas</option>
                 <option value="confirmada">Confirmadas</option>
-                <option value="pendiente_pago">Pendientes de Pago</option>
-                <option value="rechazada">Rechazadas</option>
-                <option value="expirada">Expiradas</option>
+                <option value="cancelada">Canceladas</option>
               </select>
               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
                 ▼
               </div>
             </div>
 
-            {/* Input Desde */}
             <input
               type="date"
               value={desde}
@@ -288,7 +273,6 @@ export default function MisReservasPage() {
               placeholder="Desde"
             />
 
-            {/* Input Hasta */}
             <input
               type="date"
               value={hasta}
@@ -303,9 +287,7 @@ export default function MisReservasPage() {
         {firstLoading && (
           <div className="py-20 flex flex-col items-center justify-center text-slate-500">
             <Loader2 className="w-10 h-10 animate-spin mb-4 text-[var(--primary)]" />
-            <p className="text-sm font-medium animate-pulse">
-              Cargando reservas...
-            </p>
+            <p className="text-sm font-medium animate-pulse">Cargando reservas...</p>
           </div>
         )}
 
@@ -322,12 +304,9 @@ export default function MisReservasPage() {
             <div className="bg-slate-800/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-500">
               <CalendarDays className="w-8 h-8" />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">
-              No se encontraron reservas
-            </h3>
+            <h3 className="text-xl font-bold text-white mb-2">No se encontraron reservas</h3>
             <p className="text-slate-400 text-sm mb-6 max-w-xs mx-auto">
-              Intenta cambiar los filtros o realiza tu primera reserva hoy
-              mismo.
+              Intenta cambiar los filtros o realiza tu primera reserva hoy mismo.
             </p>
             <Link
               href="/reserva"
@@ -351,11 +330,9 @@ export default function MisReservasPage() {
                   href={`/mis-reservas/${r.id_reserva}`}
                   className="group relative block bg-[#0f141e]/80 border border-white/5 hover:border-[var(--primary)]/40 rounded-2xl p-5 transition-all duration-300 hover:bg-[#131b29]/90 hover:shadow-2xl hover:shadow-[var(--primary)]/5 backdrop-blur-md overflow-hidden"
                 >
-                  {/* Glow Effect */}
                   <div className="absolute inset-0 bg-gradient-to-br from-[var(--primary)]/0 to-[var(--primary)]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
                   <div className="relative z-10 flex gap-4">
-                    {/* Placeholder Imagen Cancha */}
                     <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-slate-800/50 shrink-0 border border-white/5 flex items-center justify-center text-slate-600 group-hover:text-[var(--primary)] group-hover:bg-[var(--primary)]/10 transition-colors">
                       <MapPin className="w-8 h-8" />
                     </div>
@@ -376,14 +353,11 @@ export default function MisReservasPage() {
                         <div className="flex items-center gap-2 text-sm text-slate-300">
                           <Calendar className="w-3.5 h-3.5 text-[var(--primary)]" />
                           <span className="capitalize">
-                            {new Date(r.fecha + "T12:00:00").toLocaleDateString(
-                              "es-AR",
-                              {
-                                weekday: "short",
-                                day: "numeric",
-                                month: "short",
-                              },
-                            )}
+                            {new Date(r.fecha + "T12:00:00").toLocaleDateString("es-AR", {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                            })}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-slate-300">
@@ -396,7 +370,6 @@ export default function MisReservasPage() {
                     </div>
                   </div>
 
-                  {/* Footer Card */}
                   <div className="relative z-10 mt-4 pt-3 border-t border-white/5 flex justify-between items-center">
                     <span className="text-xs text-slate-500 font-medium group-hover:text-slate-400 transition-colors">
                       Ver detalles
@@ -411,15 +384,10 @@ export default function MisReservasPage() {
           </div>
         )}
 
-        {/* Sentinel + Loader Paginación */}
-        <div
-          ref={sentinelRef}
-          className="h-20 mt-8 flex items-center justify-center"
-        >
+        <div ref={sentinelRef} className="h-20 mt-8 flex items-center justify-center">
           {loadingMore && (
             <div className="flex items-center gap-2 text-slate-500 text-sm bg-[#0f141e] px-4 py-2 rounded-full border border-white/5">
-              <Loader2 className="w-4 h-4 animate-spin" /> Cargando más
-              reservas...
+              <Loader2 className="w-4 h-4 animate-spin" /> Cargando más reservas...
             </div>
           )}
         </div>

@@ -12,6 +12,15 @@ function toInt(v: any) {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
+const ESTADOS_PERMITIDOS = ["confirmada", "cancelada"] as const;
+type EstadoPermitido = (typeof ESTADOS_PERMITIDOS)[number];
+
+function normalizeEstado(estadoRaw: string | null): EstadoPermitido | null {
+  if (!estadoRaw) return null;
+  const s = estadoRaw.trim();
+  return (ESTADOS_PERMITIDOS as readonly string[]).includes(s) ? (s as EstadoPermitido) : null;
+}
+
 export async function GET(req: Request) {
   try {
     // 1️⃣ Usuario logueado
@@ -49,9 +58,10 @@ export async function GET(req: Request) {
     // 3️⃣ Filtros + paginación
     const sp = url.searchParams;
 
-    const estado = sp.get("estado"); // confirmada|pendiente_pago|rechazada|expirada
-    const desde = sp.get("desde");   // YYYY-MM-DD
-    const hasta = sp.get("hasta");   // YYYY-MM-DD
+    // 👇 Solo permitimos confirmada o cancelada
+    const estado = normalizeEstado(sp.get("estado")); // confirmada|cancelada|null
+    const desde = sp.get("desde"); // YYYY-MM-DD
+    const hasta = sp.get("hasta"); // YYYY-MM-DD
 
     const page = Math.max(1, toInt(sp.get("page")) ?? 1);
     const pageSize = Math.min(50, Math.max(1, toInt(sp.get("page_size")) ?? 10));
@@ -80,10 +90,14 @@ export async function GET(req: Request) {
       )
       .eq("id_club", id_club)
       .eq("id_usuario", userId)
+      // ✅ por defecto: solo confirmada + cancelada
+      .in("estado", ESTADOS_PERMITIDOS as unknown as string[])
       .order("fecha", { ascending: false })
       .order("inicio", { ascending: false });
 
+    // Si el cliente manda estado válido, afinamos aún más
     if (estado) q = q.eq("estado", estado);
+
     if (desde) q = q.gte("fecha", desde);
     if (hasta) q = q.lte("fecha", hasta);
 

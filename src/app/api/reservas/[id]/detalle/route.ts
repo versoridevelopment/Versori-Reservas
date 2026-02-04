@@ -6,7 +6,12 @@ import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
 export const runtime = "nodejs";
 
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+const ESTADOS_PERMITIDOS = ["confirmada", "cancelada"] as const;
+
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const { id } = await params;
     const id_reserva = Number(id);
@@ -18,19 +23,29 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const supabase = await getSupabaseServerClient();
     const { data: userRes } = await supabase.auth.getUser();
     const userId = userRes?.user?.id ?? null;
-    if (!userId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    if (!userId)
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
     // ✅ club por subdominio (para evitar que veas reservas de otro club)
     const url = new URL(req.url);
-    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || url.host;
+    const host =
+      req.headers.get("x-forwarded-host") ||
+      req.headers.get("host") ||
+      url.host;
+
     const sub = getSubdomainFromHost(host);
-    if (!sub) return NextResponse.json({ error: "Club inválido (sin subdominio)" }, { status: 400 });
+    if (!sub)
+      return NextResponse.json(
+        { error: "Club inválido (sin subdominio)" },
+        { status: 400 }
+      );
 
     const club = await getClubBySubdomain(sub);
     const id_club = Number((club as any)?.id_club || (club as any)?.idClub || 0);
-    if (!id_club) return NextResponse.json({ error: "Club no encontrado" }, { status: 404 });
+    if (!id_club)
+      return NextResponse.json({ error: "Club no encontrado" }, { status: 404 });
 
-    // ✅ Traer reserva + pagos
+    // ✅ Traer reserva + pagos (SOLO confirmada/cancelada)
     const { data: r, error } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -69,12 +84,23 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       .eq("id_reserva", id_reserva)
       .eq("id_club", id_club)
       .eq("id_usuario", userId)
-      .order("created_at", { referencedTable: "reservas_pagos", ascending: false })
+      .in("estado", ESTADOS_PERMITIDOS as unknown as string[]) // ✅ clave
+      .order("created_at", {
+        referencedTable: "reservas_pagos",
+        ascending: false,
+      })
       .limit(1, { referencedTable: "reservas_pagos" })
       .maybeSingle();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!r) return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 });
+
+    // Si existe pero no es de estado permitido, acá va a venir null por el .in(...)
+    if (!r) {
+      return NextResponse.json(
+        { error: "Reserva no encontrada" },
+        { status: 404 }
+      );
+    }
 
     const ultimo_pago = (r as any).reservas_pagos?.[0] ?? null;
 
@@ -136,6 +162,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     });
   } catch (e: any) {
     console.error("[GET /api/reservas/:id/detalle] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }
