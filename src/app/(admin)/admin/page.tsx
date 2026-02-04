@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image"; // ✅ Importamos Image
+import Image from "next/image";
 import { format, subDays, startOfYear } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -111,7 +111,7 @@ export default function DashboardPage() {
   // Contexto
   const [clubId, setClubId] = useState<number | null>(null);
   const [clubName, setClubName] = useState<string>("");
-  const [clubLogo, setClubLogo] = useState<string | null>(null); // ✅ Estado para el Logo
+  const [clubLogo, setClubLogo] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [userRole, setUserRole] = useState<"admin" | "cajero" | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
@@ -167,14 +167,14 @@ export default function DashboardPage() {
         if (subdomain && subdomain !== "localhost") {
           const { data } = await supabase
             .from("clubes")
-            .select("id_club, nombre, logo_url") // ✅ Agregamos logo_url aquí
+            .select("id_club, nombre, logo_url")
             .eq("subdominio", subdomain)
             .single();
 
           if (data) {
             currentClubId = data.id_club;
             currentClubName = data.nombre;
-            currentClubLogo = data.logo_url; // ✅ Guardamos el logo
+            currentClubLogo = data.logo_url;
           }
         }
       }
@@ -259,7 +259,6 @@ export default function DashboardPage() {
           {/* Badge Club & Fecha */}
           <div className="flex flex-wrap items-center gap-3 mb-3">
             <span className="pl-1 pr-3 py-1 rounded-full bg-slate-200 text-slate-700 text-[11px] font-bold uppercase tracking-wide flex items-center gap-2 shadow-sm border border-slate-300">
-              {/* ✅ Renderizado Condicional del Logo */}
               {clubLogo ? (
                 <div className="relative w-5 h-5 rounded-full overflow-hidden bg-white">
                   <Image
@@ -404,7 +403,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2 animate-in slide-in-from-bottom-4 duration-700 delay-200">
         {/* Gráfico Financiero (SOLO ADMIN) */}
         {isAdmin ? (
-          <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
             <div className="flex justify-between items-center mb-8">
               <div>
                 <h3 className="text-lg font-bold text-slate-800">
@@ -423,7 +422,7 @@ export default function DashboardPage() {
             </div>
           </div>
         ) : (
-          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col relative z-0">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
               <div>
                 <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
@@ -447,10 +446,10 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Columna Derecha: Widgets */}
-        <div className="space-y-6">
+        {/* Columna Derecha: Widgets (CORREGIDO PARA EVITAR SUPERPOSICIÓN) */}
+        <div className="flex flex-col gap-6">
           {isAdmin && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
               <div className="mb-6 flex justify-between items-start">
                 <div>
                   <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
@@ -462,13 +461,14 @@ export default function DashboardPage() {
                   </p>
                 </div>
               </div>
-              <div className="h-[200px]">
+              <div className="h-[220px] w-full">
                 <PaymentStatusPie data={charts.payments} />
               </div>
             </div>
           )}
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-full">
+          {/* Se eliminó h-full para evitar solapamiento */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
             <div className="mb-6">
               <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
                 <Zap className="w-4 h-4 text-yellow-500" /> Horarios de Mayor
@@ -478,75 +478,49 @@ export default function DashboardPage() {
                 Concentración de reservas por hora
               </p>
             </div>
-            <div className="h-[200px]">
+            {/* Aumentada altura para evitar recorte de etiquetas */}
+            <div className="h-[250px] w-full">
               <HourlyActivityChart data={charts.hourly} />
             </div>
           </div>
         </div>
       </div>
 
-      {/* --- 4. SECCIÓN INFERIOR --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {isAdmin && (
-          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
-              <div>
-                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                  <CalendarRange className="w-5 h-5 text-blue-600" /> Próximas
-                  Reservas
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Próximos turnos a disputarse
-                </p>
-              </div>
-
-              <Link
-                href="/admin/reservas"
-                className="flex items-center gap-1 text-xs font-bold text-slate-700 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 px-4 py-2 rounded-lg transition-colors"
-              >
-                Ir a Agenda <ArrowRight size={12} />
-              </Link>
-            </div>
-
-            <div className="flex-1 min-h-[300px]">
-              <RecentBookings data={tablaReservas} />
-            </div>
+      {/* --- 4. SECCIÓN INFERIOR (Rankings) --- */}
+      {/* - Grid ajustado a 2 columnas
+          - Eliminado el widget de reservas para Admin
+          - Agregado overflow-hidden para limpiar bordes
+      */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0 overflow-hidden">
+          <div className="mb-6 flex justify-between items-center">
+            <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-violet-600" /> Ranking de
+              Canchas
+            </h3>
           </div>
-        )}
-
-        <div
-          className={`space-y-6 ${!isAdmin ? "lg:col-span-3 grid lg:grid-cols-2 gap-6 space-y-0" : ""}`}
-        >
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="mb-6 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-violet-600" /> Ranking de
-                Canchas
-              </h3>
-            </div>
-            <div className="w-full min-h-[250px]">
-              <CourtRanking data={comparativaCanchas || []} />
-            </div>
+          <div className="w-full min-h-[250px]">
+            <CourtRanking data={comparativaCanchas || []} />
           </div>
+        </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-            <div className="mb-6 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                <PieChart className="w-4 h-4 text-indigo-600" /> Clientes
-                Frecuentes
-              </h3>
-            </div>
-            <div className="flex-1">
-              <ClientRanking data={charts.topClientes} />
-            </div>
-            <div className="mt-6 pt-4 border-t border-slate-50">
-              <Link
-                href="/admin/usuarios"
-                className="flex items-center justify-center gap-2 w-full py-2.5 text-xs text-slate-500 font-bold hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all"
-              >
-                Ver Base de Datos <ArrowRight size={12} />
-              </Link>
-            </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col relative z-0 overflow-hidden">
+          <div className="mb-6 flex justify-between items-center">
+            <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <PieChart className="w-4 h-4 text-indigo-600" /> Clientes
+              Frecuentes
+            </h3>
+          </div>
+          <div className="flex-1">
+            <ClientRanking data={charts.topClientes} />
+          </div>
+          <div className="mt-6 pt-4 border-t border-slate-50">
+            <Link
+              href="/admin/usuarios"
+              className="flex items-center justify-center gap-2 w-full py-2.5 text-xs text-slate-500 font-bold hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all"
+            >
+              Ver Base de Datos <ArrowRight size={12} />
+            </Link>
           </div>
         </div>
       </div>
