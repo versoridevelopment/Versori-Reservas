@@ -1,5 +1,5 @@
 // src/lib/getClubBySubdomain.ts
-import { supabase } from "../supabase/supabaseClient";
+import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export type Club = {
   id_club: number;
@@ -21,18 +21,29 @@ export type Club = {
 export async function getClubBySubdomain(
   subdomain: string
 ): Promise<Club | null> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("clubes")
     .select(
-      "id_club, nombre, subdominio, logo_url, color_primario, color_secundario, imagen_hero_url, color_texto, texto_bienvenida_titulo, texto_bienvenida_subtitulo"
+      `
+      id_club,
+      nombre,
+      subdominio,
+      logo_url,
+      color_primario,
+      color_secundario,
+      imagen_hero_url,
+      color_texto,
+      texto_bienvenida_titulo,
+      texto_bienvenida_subtitulo
+      `
     )
     .eq("subdominio", subdomain)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error("[getClubBySubdomain] error supabase:", error.message);
     return null;
   }
 
-  return data as Club;
+  return data ?? null;
 }
