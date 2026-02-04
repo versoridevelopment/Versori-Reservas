@@ -11,16 +11,8 @@ export type { Club } from "./getClubBySubdomain";
  */
 export async function getCurrentClub(): Promise<Club | null> {
   const headersList = await headers();
-
-  const host =
-    headersList.get("x-forwarded-host") ??
-    headersList.get("host") ??
-    "";
-
-  const hostname = host
-    .split(":")[0]
-    .toLowerCase()
-    .replace(/\.$/, "");
+  const host = headersList.get("host") ?? ""; // ej: "padelcentral.localhost:3000"
+  const hostname = host.split(":")[0]; // "padelcentral.localhost"
 
   const subdomain = getSubdomainFromHost(hostname);
 
@@ -30,7 +22,7 @@ export async function getCurrentClub(): Promise<Club | null> {
 
   const club = await getClubBySubdomain(subdomain);
 
-  console.log("[getCurrentClub] club encontrado:", club?.subdominio);
+  console.log("[getCurrentClub] club encontrado:", club);
 
   return club;
 }
