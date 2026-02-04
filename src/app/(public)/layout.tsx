@@ -22,9 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
   const h = await headers();
   const host =
-    h.get("x-forwarded-host") ||
-    h.get("host") ||
-    "versorisports.com";
+    h.get("x-forwarded-host") || h.get("host") || "versorisports.com";
 
   const proto = h.get("x-forwarded-proto") || "https";
 
@@ -35,10 +33,9 @@ export async function generateMetadata(): Promise<Metadata> {
     ? `${club.logo_url}?v=${timestamp}`
     : "/icon.png";
 
-  const nombreClub =
-    club?.nombre?.trim() || host.split(".")[0] || "Reservas";
+  const nombreClub = club?.nombre?.trim() || host.split(".")[0] || "Reservas";
 
-  const title = `${nombreClub} | Reservas de canchas online`;
+  const title = `${nombreClub}`;
 
   const description = `Reservá tu cancha en ${nombreClub} de forma online. Turnos disponibles en tiempo real.`;
 
@@ -166,9 +163,7 @@ export default async function RootLayout({
           initialUser={user}
         />
 
-        <main className="flex-grow w-full relative">
-          {children}
-        </main>
+        <main className="flex-grow w-full relative">{children}</main>
 
         <Footer />
       </body>
