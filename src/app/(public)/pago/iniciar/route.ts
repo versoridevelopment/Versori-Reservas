@@ -4,6 +4,8 @@ import { getClubMpAccessToken } from "@/lib/mercadopago/getClubMpToken";
 
 export const runtime = "nodejs";
 
+type MpEnv = "prod" | "test";
+
 function isExpired(expires_at: string) {
   const t = new Date(expires_at).getTime();
   return !Number.isFinite(t) || t <= Date.now();
@@ -138,9 +140,40 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Pago no encontrado" }, { status: 404 });
     }
 
-    // Reutilizar preference si existe
+    // ==========================================================
+    // ✅ FIX: Reutilizar preference de forma determinista
+    // - test = sandbox
+    // - prod = real
+    // - Nunca priorizar sandbox_init_point "porque existe"
+    // ==========================================================
+
+    // 2.A) Si ya guardamos checkout final, siempre usamos ese (reintentos/back)
+    const mp_checkout_url = (pago as any).mp_checkout_url as string | null | undefined;
+    if (mp_checkout_url) {
+      return NextResponse.redirect(String(mp_checkout_url), { status: 302 });
+    }
+
+    // 2.B) Si existe preference guardada, elegimos según mp_env (si está),
+    // y si no está, hacemos "prod-first" para evitar saltar a sandbox accidentalmente.
     if (pago.mp_init_point || pago.mp_sandbox_init_point) {
-      const redirectTo = pago.mp_sandbox_init_point || pago.mp_init_point;
+      const env = ((pago as any).mp_env as MpEnv | null | undefined) ?? null;
+      const isTest = env === "test";
+
+      const redirectTo =
+        (isTest ? pago.mp_sandbox_init_point : pago.mp_init_point) ||
+        pago.mp_init_point ||
+        pago.mp_sandbox_init_point;
+
+      // best-effort: persistimos mp_checkout_url para próximas veces
+      try {
+        await supabaseAdmin
+          .from("reservas_pagos")
+          .update({
+            mp_checkout_url: redirectTo,
+          })
+          .eq("id_pago", id_pago);
+      } catch {}
+
       return NextResponse.redirect(String(redirectTo), { status: 302 });
     }
 
@@ -221,7 +254,7 @@ export async function GET(req: Request) {
         fin: fin || null,
         fin_dia_offset: (reserva as any).fin_dia_offset ?? null,
         tipo: "anticipo",
-        modo,
+        modo, // sigue como lo tenías
       },
     };
 
@@ -247,6 +280,11 @@ export async function GET(req: Request) {
     const init_point = mpJson.init_point ? String(mpJson.init_point) : null;
     const sandbox_init_point = mpJson.sandbox_init_point ? String(mpJson.sandbox_init_point) : null;
 
+    // ✅ nuevo: definimos env y checkoutUrl determinista
+    const mp_env: MpEnv = modo === "test" ? "test" : "prod";
+    const checkoutUrl =
+      (mp_env === "test" ? sandbox_init_point : init_point) || init_point || sandbox_init_point;
+
     // 6) Guardar
     const { error: upErr } = await supabaseAdmin
       .from("reservas_pagos")
@@ -254,6 +292,11 @@ export async function GET(req: Request) {
         mp_preference_id,
         mp_init_point: init_point,
         mp_sandbox_init_point: sandbox_init_point,
+
+        // ✅ NUEVO
+        mp_env, // "prod" | "test"  (test = sandbox)
+        mp_checkout_url: checkoutUrl,
+
         status: "pending",
         last_event_at: new Date().toISOString(),
         raw: mpJson,
@@ -264,15 +307,12 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: `Error guardando preference: ${upErr.message}` }, { status: 500 });
     }
 
-    // 7) Redirect
-    const redirectUrl =
-      (modo === "test" ? sandbox_init_point : init_point) || sandbox_init_point || init_point;
-
-    if (!redirectUrl) {
+    // 7) Redirect (✅ ahora usamos checkoutUrl congelado)
+    if (!checkoutUrl) {
       return NextResponse.json({ error: "Mercado Pago no devolvió init_point" }, { status: 502 });
     }
 
-    return NextResponse.redirect(redirectUrl, { status: 302 });
+    return NextResponse.redirect(String(checkoutUrl), { status: 302 });
   } catch (e: any) {
     console.error("[GET /pago/iniciar] ex:", e);
     return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
