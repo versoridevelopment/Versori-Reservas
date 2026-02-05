@@ -13,18 +13,15 @@ import {
   Trophy,
   History,
   MapPin,
-  AlertCircle,
-  Activity,
-  CreditCard,
   Loader2,
   ShieldCheck,
   Clock,
-  Briefcase,
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  StickyNote, // Icono para notas
-  Save, // Icono para guardar
+  StickyNote,
+  Save,
+  CreditCard,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
@@ -37,6 +34,7 @@ type ReservaRaw = {
   fin: string;
   precio_total: number;
   estado: string;
+  motivo_cancelacion?: string | null; // ✅ AGREGADO
   canchas: {
     nombre: string;
     tipos_cancha: {
@@ -59,10 +57,10 @@ type UserProfile = {
   roles: string[];
   reservas: ReservaRaw[];
   bloqueado?: boolean;
-  notas_internas?: string; // Dato que viene de la API
+  notas_internas?: string;
 };
 
-// --- COMPONENTES AUXILIARES ---
+// ... (COMPONENTES AUXILIARES InfoItem, StatCard, StatusBadge SE MANTIENEN IGUAL) ...
 function InfoItem({ icon: Icon, label, value, isLink }: any) {
   return (
     <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
@@ -185,7 +183,7 @@ export default function UsuarioDetalleClient({
       if (!res.ok) throw new Error("Error cargando perfil");
       const data = await res.json();
       setUserData(data);
-      setNotes(data.notas_internas || ""); // Cargar notas de la DB
+      setNotes(data.notas_internas || "");
     } catch (err) {
       console.error(err);
     } finally {
@@ -214,7 +212,6 @@ export default function UsuarioDetalleClient({
         );
       });
 
-      console.log("Es admin?", isAdmin, rolesData); // Debug en consola
       setViewerIsAdmin(isAdmin || false);
     };
 
@@ -247,12 +244,9 @@ export default function UsuarioDetalleClient({
     }
   };
 
-  // Guardar Notas
   const handleSaveNotes = async () => {
     setSavingNotes(true);
     try {
-      // Usamos una ruta dedicada o la genérica de edición
-      // Asegúrate de tener una API que maneje esto, o usa /api/admin/usuarios/[id]/edit
       const res = await fetch(`/api/admin/usuarios/${idUsuario}/notas`, {
         method: "POST",
         body: JSON.stringify({ clubId, notas: notes }),
@@ -272,7 +266,6 @@ export default function UsuarioDetalleClient({
       .filter((r) => r.estado === "finalizada" || r.estado === "confirmada")
       .reduce((acc, curr) => acc + Number(curr.precio_total), 0);
 
-    // Cálculo de edad (simple)
     let edad = "-";
     if (userData.fecha_nacimiento) {
       const born = new Date(userData.fecha_nacimiento);
@@ -329,7 +322,7 @@ export default function UsuarioDetalleClient({
   return (
     <div className="min-h-screen bg-slate-50/50 p-4 md:p-10 animate-in fade-in duration-500 pb-20">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* HEADER & BACK BUTTON */}
+        {/* HEADER */}
         <div className="flex items-center gap-4">
           <Link
             href="/admin/usuarios"
@@ -345,10 +338,9 @@ export default function UsuarioDetalleClient({
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-          {/* COLUMNA IZQ: PERFIL, NOTAS Y PERMISOS */}
+          {/* COLUMNA IZQ: PERFIL */}
           <div className="space-y-6 xl:col-span-1">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              {/* Banner */}
               <div className="h-28 md:h-32 bg-gradient-to-r from-blue-900 to-slate-900 relative">
                 {userData.bloqueado && (
                   <div className="absolute inset-0 bg-red-900/50 flex items-center justify-center backdrop-blur-sm">
@@ -360,13 +352,10 @@ export default function UsuarioDetalleClient({
               </div>
 
               <div className="px-5 pb-6">
-                {/* Avatar y Badges */}
                 <div className="relative flex flex-col md:flex-row md:justify-between items-center md:items-end -mt-10 md:-mt-12 mb-4 gap-3">
                   <div className="w-20 h-20 md:w-24 md:h-24 rounded-full border-4 border-white bg-white text-slate-800 flex items-center justify-center text-2xl md:text-3xl font-bold shadow-md z-10 shrink-0">
                     {iniciales}
                   </div>
-
-                  {/* Badges de Roles */}
                   <div className="flex gap-1.5 flex-wrap justify-center md:justify-end md:mb-1">
                     {targetEsAdmin && (
                       <span className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase bg-purple-100 text-purple-700 border border-purple-200 shadow-sm">
@@ -413,14 +402,12 @@ export default function UsuarioDetalleClient({
                   </div>
                 </div>
 
-                {/* --- NOTAS INTERNAS (AHORA SÍ VISIBLE) --- */}
                 {viewerIsAdmin && (
                   <div className="mt-6 pt-6 border-t border-slate-100 bg-amber-50/50 -mx-5 px-5 py-4">
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
                         <StickyNote size={14} /> Notas Internas
                       </label>
-
                       <button
                         onClick={handleSaveNotes}
                         disabled={savingNotes}
@@ -437,15 +424,14 @@ export default function UsuarioDetalleClient({
                     <textarea
                       className="w-full bg-white border border-amber-200 rounded-xl p-3 text-sm text-slate-700 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 outline-none resize-none placeholder:text-amber-800/30 min-h-[100px]"
                       rows={3}
-                      placeholder="Escribe notas privadas (deudas, preferencias, comportamiento)..."
+                      placeholder="Escribe notas privadas (deudas, preferencias)..."
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
-                      onBlur={handleSaveNotes} // Auto-guardado al salir
+                      onBlur={handleSaveNotes}
                     />
                   </div>
                 )}
 
-                {/* ZONA DE PERMISOS (Solo Admin ve esto) */}
                 {viewerIsAdmin && (
                   <div className="mt-6 pt-6 border-t border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">
@@ -503,7 +489,6 @@ export default function UsuarioDetalleClient({
 
           {/* COLUMNA DERECHA: STATS Y LISTA */}
           <div className="xl:col-span-2 space-y-6">
-            {/* Grilla 2x2 en móvil, 3x1 en escritorio */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
               <StatCard
                 icon={Trophy}
@@ -527,7 +512,6 @@ export default function UsuarioDetalleClient({
               </div>
             </div>
 
-            {/* TABLA / LISTA DE HISTORIAL */}
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full min-h-[400px]">
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center sticky top-0 z-10 backdrop-blur-md">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
@@ -577,7 +561,19 @@ export default function UsuarioDetalleClient({
                               {res.canchas?.nombre}
                             </td>
                             <td className="px-6 py-4 text-center">
-                              <StatusBadge status={res.estado} />
+                              <div className="flex flex-col items-center gap-1">
+                                <StatusBadge status={res.estado} />
+                                {/* ✅ RENDERIZAR MOTIVO EN ESCRITORIO */}
+                                {res.estado === "cancelada" &&
+                                  res.motivo_cancelacion && (
+                                    <span
+                                      className="text-[10px] text-red-600 bg-red-50 px-2 py-1 rounded border border-red-100 max-w-[150px] truncate"
+                                      title={res.motivo_cancelacion}
+                                    >
+                                      {res.motivo_cancelacion}
+                                    </span>
+                                  )}
+                              </div>
                             </td>
                             <td className="px-6 py-4 text-right font-mono text-xs">
                               {formatMoney(res.precio_total)}
@@ -613,6 +609,13 @@ export default function UsuarioDetalleClient({
                               {formatMoney(res.precio_total)}
                             </p>
                             <StatusBadge status={res.estado} />
+                            {/* ✅ RENDERIZAR MOTIVO EN MÓVIL */}
+                            {res.estado === "cancelada" &&
+                              res.motivo_cancelacion && (
+                                <p className="text-[10px] text-red-600 mt-1 max-w-[120px] ml-auto leading-tight bg-red-50 p-1 rounded">
+                                  {res.motivo_cancelacion}
+                                </p>
+                              )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 mt-1">
