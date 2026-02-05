@@ -31,6 +31,7 @@ interface Props {
 
 const PIXELS_PER_HOUR = 140;
 const GRID_TOP_OFFSET = 30;
+const HEADER_HEIGHT = 48; // h-12
 
 // --- FUNCIONES AUXILIARES ---
 
@@ -191,7 +192,8 @@ export default function CompactView({
   };
 
   const totalHeight =
-    (endHour - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET + 50;
+  HEADER_HEIGHT + (endHour - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET + 50;
+
 
   // =========================
   // ✅ BARRA "HORA ACTUAL"
@@ -215,7 +217,9 @@ export default function CompactView({
 
     if (dec < startHour || dec > end) return null;
 
-    const top = (dec - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
+    const top =
+  HEADER_HEIGHT + (dec - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
+
     const label = formatHHMMFromDecimal(dec);
 
     return { top, label };
