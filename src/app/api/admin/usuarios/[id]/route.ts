@@ -35,7 +35,6 @@ export async function GET(
     }
 
     // 2. Datos del Club (Roles y NOTAS)
-    // Aquí traemos el campo 'notas' que agregaste a la base de datos
     const { data: memberData } = await supabaseAdmin
       .from("club_usuarios")
       .select("notas, roles ( nombre )")
@@ -44,7 +43,7 @@ export async function GET(
 
     const roles =
       memberData?.map((r: any) => r.roles?.nombre).filter(Boolean) || [];
-    // Tomamos la nota del primer registro encontrado (asumiendo 1 usuario x club)
+
     const notasInternas = memberData?.[0]?.notas || "";
 
     // 3. Historial de Reservas
@@ -53,8 +52,9 @@ export async function GET(
       .select(
         `
         id_reserva, fecha, inicio, fin, precio_total, estado, created_at,
+        motivo_cancelacion, 
         canchas ( nombre, tipos_cancha ( nombre, deportes ( nombre ) ) )
-      `,
+      `, // <--- ✅ AGREGADO: motivo_cancelacion
       )
       .eq("id_usuario", id)
       .eq("id_club", clubId)
@@ -64,7 +64,7 @@ export async function GET(
       ...profile,
       roles,
       reservas: reservas || [],
-      notas_internas: notasInternas, // <--- Esto conecta con el frontend
+      notas_internas: notasInternas,
     });
   } catch (error: any) {
     console.error("Error GET usuario:", error);
