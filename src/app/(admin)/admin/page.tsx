@@ -487,11 +487,7 @@ export default function DashboardPage() {
           <div className="flex-1">
             <ClientRanking data={charts.topClientes} />
           </div>
-          <div className="mt-6 pt-4 border-t border-slate-50">
-            <div className="flex items-center justify-center gap-2 w-full py-2.5 text-xs text-slate-500 font-bold hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all cursor-pointer">
-              Ver Base de Datos <ArrowRight size={12} />
-            </div>
-          </div>
+          <div className="mt-6 pt-4 border-t border-slate-50"></div>
         </div>
       </div>
     </div>
