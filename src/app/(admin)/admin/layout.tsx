@@ -2,19 +2,19 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "../../globals.css";
-
-// ✅ TOP LOADER
-import NextTopLoader from "nextjs-toploader";
-
 // Asegúrate de que la ruta apunte correctamente a tu Sidebar.
 // Si Sidebar está en src/app/(admin)/components/Sidebar.tsx:
 import { Sidebar } from "./components/Sidebar";
+
+// ✅ TOP LOADER
+import NextTopLoader from "nextjs-toploader";
 
 // ✅ Definimos la interfaz exacta que esperamos de la base de datos
 interface ClubData {
   id_club: number;
   nombre: string;
   logo_url: string | null;
+  color_primario: string | null; // ✅ agregado para color dinámico
 }
 
 // --- HELPER: Lógica centralizada para obtener el contexto del club ---
@@ -65,11 +65,12 @@ async function getClubContext() {
   if (subdomain) {
     const { data: clubData } = await supabase
       .from("clubes")
-      .select("id_club, nombre, logo_url")
+      .select("id_club, nombre, logo_url, color_primario") // ✅ trae color
       .eq("subdominio", subdomain)
       .single();
 
     if (clubData) {
+      // TypeScript casting seguro
       currentClub = clubData as ClubData;
     }
   }
@@ -78,12 +79,13 @@ async function getClubContext() {
   if (!currentClub) {
     const { data: defaultClub } = await supabase
       .from("club_usuarios")
-      .select("clubes(id_club, nombre, logo_url)")
+      .select("clubes(id_club, nombre, logo_url, color_primario)") // ✅ trae color
       .eq("id_usuario", user.id)
       .limit(1)
       .maybeSingle();
 
     if (defaultClub?.clubes) {
+      // Normalización de datos devueltos por join
       currentClub = Array.isArray(defaultClub.clubes)
         ? (defaultClub.clubes[0] as ClubData)
         : (defaultClub.clubes as unknown as ClubData);
@@ -96,6 +98,7 @@ async function getClubContext() {
     .select("roles!inner(nombre)")
     .eq("id_usuario", user.id);
 
+  // Verificación de acceso simplificada sin eslint-disable innecesario
   const hasAccess = rolesData?.some((r: any) =>
     ["admin", "cajero", "staff", "profe"].includes(r.roles?.nombre),
   );
@@ -134,9 +137,9 @@ export default async function AdminLayout({
   return (
     <html lang="es">
       <body className="bg-slate-50 antialiased">
-        {/* ✅ Barra de carga superior */}
+        {/* ✅ Barra de carga superior con color dinámico del club */}
         <NextTopLoader
-          color={"#3b82f6"}
+          color={club?.color_primario ?? "#3b82f6"}
           height={3}
           showSpinner={false}
           easing="ease"
@@ -145,6 +148,9 @@ export default async function AdminLayout({
         />
 
         <div className="flex h-screen text-gray-900 overflow-hidden">
+          {/* Si Sidebar.tsx está actualizado correctamente con `interface SidebarProps`,
+             estas líneas dejarán de marcar error.
+          */}
           <Sidebar
             clubName={club?.nombre || "Mi Club"}
             clubLogo={club?.logo_url}
