@@ -93,6 +93,17 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
   return { ok: true as const };
 }
 
+function parseTsAR(ts: string) {
+  const s = String(ts || "");
+  // Si ya trae Z o un offset, parse normal
+  if (/[zZ]$/.test(s) || /[+\-]\d{2}:\d{2}$/.test(s)) {
+    return new Date(s).getTime();
+  }
+  // Si NO trae zona, asumimos Argentina (-03:00)
+  return new Date(`${s}-03:00`).getTime();
+}
+
+
 // solape half-open
 function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number) {
   return aStart < bEnd && aEnd > bStart;
@@ -220,11 +231,13 @@ export async function GET(req: Request) {
     const rangeStart = base.plus({ minutes: minStart });
     const rangeEnd = base.plus({ minutes: maxEnd });
 
-    const reservas = (reservasRaw || []).map((r: any) => ({
+    const reservas = (reservasRaw || [])
+    .map((r: any) => ({
       id_cancha: Number(r.id_cancha),
-      inicio_ms: DateTime.fromISO(String(r.inicio_ts)).toMillis(),
-      fin_ms: DateTime.fromISO(String(r.fin_ts)).toMillis(),
-    }));
+      inicio_ms: parseTsAR(String(r.inicio_ts)),
+      fin_ms: parseTsAR(String(r.fin_ts)),
+    }))
+    .filter((r: any) => Number.isFinite(r.inicio_ms) && Number.isFinite(r.fin_ms) && r.fin_ms > r.inicio_ms);
 
     const slots: Record<number, string[]> = {};
     for (const cid of cancha_ids) slots[cid] = [];
