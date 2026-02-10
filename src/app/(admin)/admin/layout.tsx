@@ -2,6 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "../../globals.css";
+
+// ✅ TOP LOADER
+import NextTopLoader from "nextjs-toploader";
+
 // Asegúrate de que la ruta apunte correctamente a tu Sidebar.
 // Si Sidebar está en src/app/(admin)/components/Sidebar.tsx:
 import { Sidebar } from "./components/Sidebar";
@@ -66,7 +70,6 @@ async function getClubContext() {
       .single();
 
     if (clubData) {
-      // TypeScript casting seguro
       currentClub = clubData as ClubData;
     }
   }
@@ -81,7 +84,6 @@ async function getClubContext() {
       .maybeSingle();
 
     if (defaultClub?.clubes) {
-      // Normalización de datos devueltos por join
       currentClub = Array.isArray(defaultClub.clubes)
         ? (defaultClub.clubes[0] as ClubData)
         : (defaultClub.clubes as unknown as ClubData);
@@ -94,7 +96,6 @@ async function getClubContext() {
     .select("roles!inner(nombre)")
     .eq("id_usuario", user.id);
 
-  // Verificación de acceso simplificada sin eslint-disable innecesario
   const hasAccess = rolesData?.some((r: any) =>
     ["admin", "cajero", "staff", "profe"].includes(r.roles?.nombre),
   );
@@ -133,10 +134,17 @@ export default async function AdminLayout({
   return (
     <html lang="es">
       <body className="bg-slate-50 antialiased">
+        {/* ✅ Barra de carga superior */}
+        <NextTopLoader
+          color={"#3b82f6"}
+          height={3}
+          showSpinner={false}
+          easing="ease"
+          speed={200}
+          zIndex={99999}
+        />
+
         <div className="flex h-screen text-gray-900 overflow-hidden">
-          {/* Si Sidebar.tsx está actualizado correctamente con `interface SidebarProps`,
-             estas líneas dejarán de marcar error.
-          */}
           <Sidebar
             clubName={club?.nombre || "Mi Club"}
             clubLogo={club?.logo_url}

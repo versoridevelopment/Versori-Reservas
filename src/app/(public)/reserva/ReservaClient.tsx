@@ -1,9 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useState, CSSProperties } from "react"; // 👈 Agregamos hooks
-import { usePathname, useSearchParams } from "next/navigation"; // 👈 Agregamos hooks de navegación
-import { Loader2 } from "lucide-react"; // 👈 Importamos el icono
+import { CSSProperties } from "react";
 import CanchaCard from "@/app/(public)/components/reserva/CanchaCard";
 import type { Club } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
@@ -26,21 +24,6 @@ interface ReservaClientProps {
 }
 
 export default function ReservaClient({ club, canchas }: ReservaClientProps) {
-  // 🚀 ESTADO DE CARGA DE NAVEGACIÓN (Igual que en Navbar)
-  const [isNavigating, setIsNavigating] = useState(false);
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
-  // 1. Detectar fin de navegación para quitar el loader
-  useEffect(() => {
-    setIsNavigating(false);
-  }, [pathname, searchParams]);
-
-  // 2. Función para activar el loader
-  const handleCardClick = () => {
-    setIsNavigating(true);
-  };
-
   // 🔥 Variables CSS dinámicas
   const customStyle = {
     "--primary": club.color_primario || "#3b82f6",
@@ -53,16 +36,6 @@ export default function ReservaClient({ club, canchas }: ReservaClientProps) {
       style={customStyle}
       className="min-h-screen bg-gradient-to-br from-gray-950 via-[#020617] to-[var(--primary)]/30 pt-28 pb-12 px-4 sm:px-6 flex flex-col items-center relative selection:bg-[var(--primary)] selection:text-white"
     >
-      {/* 🌟 OVERLAY DE CARGA (Copiado del Navbar) 🌟 */}
-      {isNavigating && (
-        <div className="fixed inset-0 z-[100] bg-neutral-950/80 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="w-12 h-12 text-[var(--primary)] animate-spin" />
-            <p className="text-white font-medium text-lg animate-pulse">Preparando cancha...</p>
-          </div>
-        </div>
-      )}
-
       {/* Glow Effect */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-96 bg-[var(--primary)] rounded-full blur-[120px] opacity-15 pointer-events-none" />
 
@@ -78,7 +51,10 @@ export default function ReservaClient({ club, canchas }: ReservaClientProps) {
         </span>
 
         <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight text-white mb-4 drop-shadow-2xl">
-          Selecciona tu <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-[var(--primary)]">Cancha</span>
+          Selecciona tu{" "}
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-[var(--primary)]">
+            Cancha
+          </span>
         </h1>
 
         <p className="text-sm md:text-lg text-blue-200/70 max-w-2xl mx-auto leading-relaxed">
@@ -95,13 +71,7 @@ export default function ReservaClient({ club, canchas }: ReservaClientProps) {
         transition={{ duration: 0.5, delay: 0.2 }}
       >
         {canchas.map((cancha, index) => (
-          <CanchaCard
-            key={cancha.id}
-            {...cancha}
-            index={index}
-            // 👇 Pasamos la función al hijo
-            onClick={handleCardClick}
-          />
+          <CanchaCard key={cancha.id} {...cancha} index={index} />
         ))}
 
         {canchas.length === 0 && (

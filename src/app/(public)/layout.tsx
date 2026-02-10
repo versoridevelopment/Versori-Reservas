@@ -5,6 +5,8 @@ import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import { Montserrat } from "next/font/google";
 import { Metadata } from "next";
 import { supabase } from "@/lib/supabase/supabaseClient";
+import NextTopLoader from "nextjs-toploader";
+
 
 // --- AUTH SSR ---
 import { createServerClient } from "@supabase/ssr";
@@ -152,6 +154,14 @@ export default async function RootLayout({
       <body
         className={`relative min-h-screen flex flex-col overflow-x-hidden antialiased text-white bg-black ${montserrat.className}`}
       >
+        <NextTopLoader
+          color={club?.color_primario ?? "#3b82f6"}
+          height={3}
+          showSpinner={false}
+          easing="ease"
+          speed={200}
+          zIndex={99999}
+        />
         {/* Fondo Gradiente Global */}
         <div className="fixed inset-0 -z-50 bg-gradient-to-b from-[#06090e] via-[#0b1018] to-[#121a22]" />
 

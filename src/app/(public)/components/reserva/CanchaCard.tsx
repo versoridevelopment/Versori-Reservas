@@ -16,7 +16,6 @@ interface CanchaCardProps {
   precioHora?: number;
   esExterior?: boolean;
   index?: number;
-  onClick?: () => void; // 👈 1. Agregamos esta prop opcional
 }
 
 export default function CanchaCard({
@@ -30,7 +29,6 @@ export default function CanchaCard({
   precioHora,
   esExterior,
   index = 0,
-  onClick, // 👈 2. La desestructuramos
 }: CanchaCardProps) {
   const isPadel = deporte?.toLowerCase() === "padel";
   const isFutbol = deporte?.toLowerCase() === "futbol";
@@ -52,11 +50,7 @@ export default function CanchaCard({
       : "/reserva/cancha_interior.jpg";
 
   return (
-    <Link 
-      href={`/reserva/${slug}`} 
-      className="block group h-full"
-      onClick={onClick} // 👈 3. Conectamos el evento al Link
-    >
+    <Link href={`/reserva/${slug}`} className="block group h-full">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -66,7 +60,7 @@ export default function CanchaCard({
         {/* Imagen principal con efecto Zoom */}
         <div className="relative w-full h-56 overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-t from-[#111827] via-transparent to-transparent z-10 opacity-90" />
-          
+
           <Image
             src={safeImage}
             alt={nombre}
@@ -77,9 +71,13 @@ export default function CanchaCard({
 
           {/* Badges Flotantes */}
           <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 items-end">
-             {esExterior !== undefined && (
+            {esExterior !== undefined && (
               <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-[10px] font-bold uppercase tracking-wider text-white">
-                {esExterior ? <Sun className="w-3 h-3 text-amber-400" /> : <Cloud className="w-3 h-3 text-blue-400" />}
+                {esExterior ? (
+                  <Sun className="w-3 h-3 text-amber-400" />
+                ) : (
+                  <Cloud className="w-3 h-3 text-blue-400" />
+                )}
                 {esExterior ? "Exterior" : "Indoor"}
               </span>
             )}
@@ -92,19 +90,26 @@ export default function CanchaCard({
 
           {/* Nombre sobre la imagen */}
           <div className="absolute bottom-4 left-4 z-20">
-             <div className="flex items-center gap-2 mb-1">
-                {isPadel && <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">PADEL</span>}
-                {isFutbol && <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">FUTBOL</span>}
-             </div>
-             <h3 className="text-2xl font-extrabold text-white tracking-tight leading-none group-hover:text-[var(--primary)] transition-colors">
-                {nombre}
-             </h3>
+            <div className="flex items-center gap-2 mb-1">
+              {isPadel && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                  PADEL
+                </span>
+              )}
+              {isFutbol && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  FUTBOL
+                </span>
+              )}
+            </div>
+            <h3 className="text-2xl font-extrabold text-white tracking-tight leading-none group-hover:text-[var(--primary)] transition-colors">
+              {nombre}
+            </h3>
           </div>
         </div>
 
         {/* Contenido */}
         <div className="p-5 flex flex-col flex-grow">
-          
           {descripcion && (
             <p className="text-sm text-neutral-400 line-clamp-2 mb-4 flex-grow">
               {descripcion}
@@ -116,13 +121,12 @@ export default function CanchaCard({
 
           {/* Footer Card */}
           <div className="flex items-center justify-between pt-2 mt-auto">
-            
             <div className="flex items-center gap-3 text-neutral-400 text-xs font-medium">
               {capacidad && (
-                 <div className="flex items-center gap-1.5 bg-white/5 px-2 py-1 rounded-lg">
-                    <Users className="w-3.5 h-3.5" />
-                    <span>{capacidad}p</span>
-                 </div>
+                <div className="flex items-center gap-1.5 bg-white/5 px-2 py-1 rounded-lg">
+                  <Users className="w-3.5 h-3.5" />
+                  <span>{capacidad}p</span>
+                </div>
               )}
               <div className="flex items-center gap-1.5 bg-white/5 px-2 py-1 rounded-lg">
                 <Zap className="w-3.5 h-3.5" />
@@ -132,15 +136,17 @@ export default function CanchaCard({
 
             {formattedPrice ? (
               <div className="text-right">
-                <p className="text-[10px] uppercase text-neutral-500 font-bold tracking-wider">Precio hora</p>
+                <p className="text-[10px] uppercase text-neutral-500 font-bold tracking-wider">
+                  Precio hora
+                </p>
                 <p className="text-lg font-bold text-white group-hover:text-[var(--primary)] transition-colors">
                   {formattedPrice}
                 </p>
               </div>
             ) : (
-               <div className="flex items-center gap-1 text-[var(--primary)] text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-[-10px] group-hover:translate-x-0">
-                  Ver Disponibilidad <ArrowRight className="w-4 h-4"/>
-               </div>
+              <div className="flex items-center gap-1 text-[var(--primary)] text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-[-10px] group-hover:translate-x-0">
+                Ver Disponibilidad <ArrowRight className="w-4 h-4" />
+              </div>
             )}
           </div>
         </div>

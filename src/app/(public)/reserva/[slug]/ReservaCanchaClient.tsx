@@ -127,21 +127,6 @@ export default function ReservaCanchaClient({
       style={customStyle}
       className="min-h-screen bg-gradient-to-br from-slate-950 via-[#0a0f1d] to-[var(--primary)]/40 flex flex-col items-center text-white px-3 pt-24 pb-10 sm:px-6 sm:pt-36 sm:pb-12 relative selection:bg-[var(--primary)] selection:text-white font-sans"
     >
-      {/* Overlay de Carga */}
-      {(isNavigating || (isCheckingAuth && !hasAnySelection)) && (
-        <div className="fixed inset-0 z-[100] bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center transition-opacity duration-300">
-          <div className="flex flex-col items-center gap-6">
-            <div className="relative">
-              <div className="absolute inset-0 bg-[var(--primary)] blur-xl opacity-20 rounded-full animate-pulse" />
-              <Loader2 className="w-16 h-16 text-[var(--primary)] animate-spin relative z-10" />
-            </div>
-            <p className="text-white font-medium text-lg tracking-wide animate-pulse">
-              Procesando reserva...
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Botón Volver */}
       <button
         onClick={() => {
