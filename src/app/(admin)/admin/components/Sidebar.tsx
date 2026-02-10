@@ -472,6 +472,31 @@ export function Sidebar({
             </button>
           )}
 
+          {(userRole === "admin" ||
+            userRole === "staff" ||
+            userRole === "cajero") && (
+            <Link
+              href="/admin/turnos-disponibles"
+              onClick={closeMobileMenu}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group font-medium text-sm border border-transparent ${
+                isActive("/admin/turnos-disponibles")
+                  ? "bg-[#1b263b] text-white shadow-md border-gray-700/50"
+                  : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"
+              }`}
+            >
+              <span
+                className={`transition-colors ${
+                  isActive("/admin/turnos-disponibles")
+                    ? "text-blue-400"
+                    : "group-hover:text-blue-400"
+                }`}
+              >
+                <Clock size={18} />
+              </span>
+              <span>Turnos disponibles</span>
+            </Link>
+          )}
+
           {visibleGestionLinks.length > 0 && (
             <div className="pt-4 mt-2 border-t border-gray-800/50">
               <p className="px-3 pb-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
