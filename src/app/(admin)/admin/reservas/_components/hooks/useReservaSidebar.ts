@@ -284,7 +284,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
     const cancha = canchas.find((c) => Number(c.id_cancha) === id_cancha);
     const fromCierres = (cancha?.cierres || []).map((c) => {
-      let s = hhmmToDecimal(c.inicio, startHour);
+      const s = hhmmToDecimal(c.inicio, startHour);
       let e = hhmmToDecimal(c.fin, startHour);
       if (e <= s) e += 24;
       return { start: s, end: e, id: 0 };
@@ -565,6 +565,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
     let fin = "";
     let dur = 0;
+    let precioNum = 0;
 
     if (precioManual) {
       if (!inicio) return setCreateError("Falta horario desde");
@@ -577,9 +578,12 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         return setCreateError("Rango horario inválido (múltiplos de 30)");
       }
 
-      if (!Number.isFinite(Number(formData.precio)) || Number(formData.precio) <= 0) {
+      precioNum = Number(formData.precio);
+
+      if (!Number.isFinite(precioNum) || precioNum < 0) {
         return setCreateError("Precio manual inválido");
       }
+
     } else {
       if (!inicio) return setCreateError("Falta horario");
       dur = Number(formData.duracion);
@@ -612,7 +616,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         notas: formData.notas.trim() || null,
 
         precio_manual: precioManual,
-        precio_total_manual: precioManual ? Number(formData.precio || 0) : null,
+        precio_total_manual: precioManual ? precioNum : null,
       };
 
       if (formData.esTurnoFijo) {
