@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
+import { User, Calendar, MapPin, Clock } from "lucide-react";
 
 type ReservaRow = {
   id_reserva: number;
@@ -10,10 +13,7 @@ type ReservaRow = {
   fin_dia_offset: 0 | 1;
   estado: string;
   precio_total: number;
-  segmento: string;
-  cliente_nombre: string | null;
-  cliente_telefono: string | null;
-  created_at: string;
+  // Ya no usamos cliente_nombre de la reserva, lo traeremos del template o relación
 };
 
 type TemplateRow = {
@@ -27,43 +27,48 @@ type TemplateRow = {
   activo: boolean;
   segmento: "publico" | "profe";
   tipo_turno: string;
-  cliente_nombre: string | null;
-  cliente_telefono: string | null;
   start_date: string;
   end_date: string | null;
+  // ✅ Usamos la relación con clientes_manuales
+  clientes_manuales?: {
+    nombre: string;
+    telefono: string;
+    email: string;
+  };
 };
 
-/**
- * Los Server Components requieren URLs absolutas para fetch.
- */
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "";
 
 async function fetchTemplate(idTurnoFijo: number, idClub: number) {
+  // ✅ FIX: await cookies()
+  const cookieStore = await cookies();
   const res = await fetch(
     `${BASE_URL}/api/admin/turnos-fijos/${idTurnoFijo}?id_club=${idClub}`,
-    { 
-      cache: "no-store", 
-      headers: { cookie: cookies().toString() } 
-    }
+    {
+      cache: "no-store",
+      headers: { cookie: cookieStore.toString() },
+    },
   );
-  
+
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(json?.error || "Error leyendo turno fijo");
   return json?.data as TemplateRow;
 }
 
 async function fetchReservas(idTurnoFijo: number, idClub: number) {
+  const cookieStore = await cookies();
   const res = await fetch(
     `${BASE_URL}/api/admin/turnos-fijos/${idTurnoFijo}/reservas?id_club=${idClub}`,
-    { 
-      cache: "no-store", 
-      headers: { cookie: cookies().toString() } 
-    }
+    {
+      cache: "no-store",
+      headers: { cookie: cookieStore.toString() },
+    },
   );
-  
+
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(json?.error || "Error listando reservas");
-  return (json?.data || []) as ReservaRow[];
+  // Retornamos la data (manejando si viene como .data o directamente el array)
+  return (json?.data || json || []) as ReservaRow[];
 }
 
 export default async function TurnoFijoDetallePage({
@@ -74,7 +79,6 @@ export default async function TurnoFijoDetallePage({
   const { id } = await params;
   const id_turno_fijo = Number(id);
 
-  // Obtenemos el club actual mediante la utilidad de subdominio
   const club = await getCurrentClub();
   const id_club = Number(club?.id_club || 0);
 
@@ -82,95 +86,138 @@ export default async function TurnoFijoDetallePage({
     return (
       <div className="p-6">
         <p className="text-sm text-slate-600">
-          No se pudo resolver el club o el ID del turno fijo. 
-          Asegúrate de que el subdominio sea correcto.
+          No se pudo resolver el club o el ID.
         </p>
       </div>
     );
   }
 
-  // Ejecutamos ambas peticiones en paralelo para mayor velocidad
   const [tf, reservas] = await Promise.all([
     fetchTemplate(id_turno_fijo, id_club),
     fetchReservas(id_turno_fijo, id_club),
   ]);
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <Link
-            href={`/admin/turnos-fijos`}
-            className="text-sm font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1"
-          >
-            ← Volver al listado
-          </Link>
+    <div className="min-h-screen bg-slate-50 p-6 md:p-10 space-y-6">
+      <div className="flex flex-col gap-4">
+        <Link
+          href="/admin/turnos-fijos"
+          className="text-sm font-bold text-slate-500 hover:text-slate-800 flex items-center gap-2 transition-colors"
+        >
+          <ArrowLeft size={16} /> Volver al listado
+        </Link>
 
-          <h1 className="text-2xl font-black text-slate-900 mt-2">
-            Turno fijo · {tf.inicio} → {tf.fin} ({tf.duracion_min}m)
-            {tf.fin_dia_offset ? " (+1)" : ""}
-          </h1>
+        {/* Card de Configuración */}
+        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
+          <div className="flex justify-between items-start">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                  Turno Fijo: {tf.inicio} → {tf.fin}
+                </h1>
+                <span
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold border ${tf.activo ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-50 text-slate-400 border-slate-200"}`}
+                >
+                  {tf.activo ? "ACTIVO" : "INACTIVO"}
+                </span>
+              </div>
 
-          <div className="flex flex-wrap gap-2 mt-1 items-center">
-            <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
-              tf.activo ? "bg-green-100 text-green-800 border-green-200" : "bg-slate-100 text-slate-700 border-slate-200"
-            }`}>
-              {tf.activo ? "Activo" : "Inactivo"}
-            </span>
-            <p className="text-sm text-slate-600">
-              {tf.tipo_turno} · {tf.segmento} · Vigencia: {tf.start_date} {tf.end_date ? `→ ${tf.end_date}` : "→ sin fin"}
-            </p>
+              <div className="flex flex-wrap items-center gap-4 text-slate-500 text-sm">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <User size={16} className="text-slate-400" />
+                  {tf.clientes_manuales?.nombre || "Sin cliente"}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <MapPin size={16} className="text-slate-400" /> Cancha #
+                  {tf.id_cancha}
+                </span>
+                <span className="flex items-center gap-1.5 font-bold text-slate-800">
+                  <Clock size={16} className="text-slate-400" />{" "}
+                  {tf.duracion_min} minutos
+                </span>
+              </div>
+            </div>
           </div>
-
-          <p className="text-sm text-slate-600 mt-2">
-            Cliente: <b>{tf.cliente_nombre || "—"}</b> {tf.cliente_telefono ? `· ${tf.cliente_telefono}` : ""}
-          </p>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-          <div className="font-black text-slate-900">Historial de reservas generadas</div>
-          <div className="text-sm text-slate-600">
-            Total: <b>{reservas.length}</b>
-          </div>
-        </div>
+      {/* Listado de Reservas Generadas */}
+      <div className="space-y-4">
+        <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
+          <Calendar size={20} className="text-slate-400" /> Reservas en Agenda
+        </h3>
 
-        <div className="divide-y divide-slate-100">
-          {reservas.map((r) => (
-            <div
-              key={r.id_reserva}
-              className="px-4 py-4 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
-            >
-              <div className="min-w-0">
-                <div className="font-bold text-slate-900">
-                  {new Date(r.fecha).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })} · {r.inicio} → {r.fin}
-                  {r.fin_dia_offset ? " (+1)" : ""}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {reservas.map((r) => {
+            const fechaObj = new Date(r.fecha + "T12:00:00");
+            return (
+              <div
+                key={r.id_reserva}
+                className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="bg-slate-900 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                    #{r.id_reserva}
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 uppercase">
+                    {r.estado}
+                  </span>
                 </div>
-                <div className="flex items-center gap-2 mt-1">
-                   <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">{r.estado}</span>
-                   <span className="text-slate-300">|</span>
-                   <span className="text-xs text-slate-600 truncate">
-                    {r.cliente_nombre || "—"} {r.cliente_telefono ? `· ${r.cliente_telefono}` : ""}
+
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-slate-800">
+                    {format(fechaObj, "dd")}
+                  </span>
+                  <span className="text-sm font-bold text-slate-500 uppercase">
+                    {format(fechaObj, "MMMM", { locale: es })}
+                  </span>
+                </div>
+
+                <p className="text-sm font-medium text-slate-600 mt-1">
+                  {r.inicio} hs — {r.fin} hs{" "}
+                  {r.fin_dia_offset ? "(+1 día)" : ""}
+                </p>
+
+                <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                  <span className="text-xs text-slate-400 font-medium">
+                    Monto
+                  </span>
+                  <span className="font-black text-slate-800">
+                    ${r.precio_total.toLocaleString("es-AR")}
                   </span>
                 </div>
               </div>
-
-              <div className="shrink-0 text-right">
-                <div className="font-black text-slate-900">
-                  ${Number(r.precio_total || 0).toLocaleString("es-AR")}
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {reservas.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm text-slate-500 italic">
-              No se han encontrado reservas asociadas a este turno fijo todavía.
+            <div className="col-span-full bg-white p-12 rounded-3xl border border-dashed border-slate-300 text-center">
+              <Calendar className="mx-auto text-slate-200 mb-4" size={48} />
+              <p className="text-slate-500 font-medium">
+                No hay reservas generadas para este turno todavía.
+              </p>
             </div>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+// Icono faltante
+function ArrowLeft({ size }: { size: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m12 19-7-7 7-7M5 12h14" />
+    </svg>
   );
 }
