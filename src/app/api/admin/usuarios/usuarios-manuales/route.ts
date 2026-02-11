@@ -7,71 +7,82 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const id_club = searchParams.get("id_club");
+    const query = searchParams.get("q") || ""; // Por si quieres filtrar desde backend
 
     if (!id_club)
       return NextResponse.json({ error: "Falta id_club" }, { status: 400 });
 
-    // 1. Traemos reservas
-    const { data: reservas, error } = await supabaseAdmin
-      .from("reservas")
+    // Construimos la consulta sobre clientes_manuales
+    let queryBuilder = supabaseAdmin
+      .from("clientes_manuales")
       .select(
-        "cliente_nombre, cliente_telefono, cliente_email, precio_total, created_at, fecha, cliente_manual_activo",
+        `
+        id_cliente,
+        nombre,
+        telefono,
+        email,
+        notas,
+        activo,
+        updated_at,
+        reservas (
+          precio_total,
+          fecha,
+          estado
+        )
+      `,
       )
       .eq("id_club", id_club)
-      .is("id_usuario", null)
-      .order("created_at", { ascending: false });
+      .order("updated_at", { ascending: false });
+
+    // Si quieres búsqueda desde backend (opcional, tu front ya filtra en memoria)
+    if (query) {
+      queryBuilder = queryBuilder.or(
+        `nombre.ilike.%${query}%,telefono.ilike.%${query}%`,
+      );
+    }
+
+    const { data: clientesRaw, error } = await queryBuilder;
 
     if (error) throw error;
 
-    // 2. Traemos las notas guardadas para este club
-    const { data: notasData } = await supabaseAdmin
-      .from("club_usuarios_manuales_info")
-      .select("identificador, notas")
-      .eq("id_club", id_club);
+    // Procesar datos
+    const clientesProcesados = clientesRaw?.map((c: any) => {
+      const reservas = c.reservas || [];
+      const total_reservas = reservas.length;
 
-    // Creamos un mapa rápido para acceder a las notas
-    const notasMap = new Map();
-    notasData?.forEach((n) => {
-      notasMap.set(n.identificador, n.notas);
-    });
+      // Calcular gastado solo de reservas válidas
+      const total_gastado = reservas
+        .filter(
+          (r: any) => r.estado !== "cancelada" && r.estado !== "rechazada",
+        )
+        .reduce(
+          (acc: number, curr: any) => acc + Number(curr.precio_total || 0),
+          0,
+        );
 
-    // 3. Agrupar
-    const clientesMap = new Map();
-
-    reservas?.forEach((r) => {
-      const nombre = r.cliente_nombre?.trim() || "Sin Nombre";
-      const telefono = r.cliente_telefono?.trim() || "";
-      const email = r.cliente_email?.trim() || "";
-
-      // CLAVE ÚNICA (Debe coincidir con la lógica del POST)
-      const key = telefono ? telefono : nombre.toLowerCase();
-
-      if (!clientesMap.has(key)) {
-        // Recuperamos nota si existe
-        const notaGuardada = notasMap.get(key) || "";
-
-        clientesMap.set(key, {
-          id: key, // El ID es el identificador (tel o nombre)
-          nombre,
-          telefono,
-          email,
-          total_reservas: 0,
-          total_gastado: 0,
-          ultima_reserva: r.fecha,
-          activo: r.cliente_manual_activo !== false,
-          notas: notaGuardada, // <--- CAMPO NUEVO
-        });
+      // Última reserva
+      let ultima_reserva = null;
+      if (reservas.length > 0) {
+        reservas.sort((a: any, b: any) => (a.fecha < b.fecha ? 1 : -1));
+        ultima_reserva = reservas[0].fecha;
       }
 
-      const cliente = clientesMap.get(key);
-      cliente.total_reservas += 1;
-      cliente.total_gastado += Number(r.precio_total || 0);
+      return {
+        id: c.id_cliente,
+        nombre: c.nombre,
+        telefono: c.telefono,
+        email: c.email,
+        notas: c.notas,
+        activo: c.activo,
+        total_reservas,
+        total_gastado,
+        ultima_reserva: ultima_reserva || c.updated_at, // Si no jugó, fecha de actualización
+      };
     });
 
-    const listaClientes = Array.from(clientesMap.values());
-
-    return NextResponse.json({ ok: true, clientes: listaClientes });
+    return NextResponse.json({ ok: true, clientes: clientesProcesados });
   } catch (error: any) {
+    console.error("Error fetching clientes manuales:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

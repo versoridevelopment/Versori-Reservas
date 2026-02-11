@@ -11,52 +11,67 @@ export async function GET(req: Request) {
     if (!id_club)
       return NextResponse.json({ error: "Falta id_club" }, { status: 400 });
 
-    // 1. Traemos también la columna 'cliente_manual_activo'
-    const { data: reservas, error } = await supabaseAdmin
-      .from("reservas")
+    // 1. Consultar clientes_manuales y unir con reservas para estadísticas
+    // Usamos el !inner o left join implícito de Supabase
+    const { data: clientesRaw, error } = await supabaseAdmin
+      .from("clientes_manuales")
       .select(
-        "cliente_nombre, cliente_telefono, cliente_email, precio_total, created_at, fecha, cliente_manual_activo",
+        `
+        id_cliente,
+        nombre,
+        telefono,
+        email,
+        notas,
+        activo,
+        updated_at,
+        reservas (
+          precio_total,
+          fecha
+        )
+      `,
       )
       .eq("id_club", id_club)
-      .is("id_usuario", null)
-      .order("created_at", { ascending: false });
+      .order("updated_at", { ascending: false });
 
     if (error) throw error;
 
-    // 2. Agrupar
-    const clientesMap = new Map();
+    // 2. Procesar los datos para el frontend
+    // Calculamos totales en memoria (es rápido para listas de < 5000 clientes)
+    const clientesProcesados = clientesRaw?.map((c: any) => {
+      const reservas = c.reservas || [];
 
-    reservas?.forEach((r) => {
-      const nombre = r.cliente_nombre?.trim() || "Sin Nombre";
-      const telefono = r.cliente_telefono?.trim() || "";
-      const email = r.cliente_email?.trim() || "";
+      const total_reservas = reservas.length;
 
-      // Clave única
-      const key = telefono ? telefono : nombre.toLowerCase();
+      const total_gastado = reservas.reduce(
+        (acc: number, curr: any) => acc + Number(curr.precio_total || 0),
+        0,
+      );
 
-      if (!clientesMap.has(key)) {
-        clientesMap.set(key, {
-          id: key,
-          nombre,
-          telefono,
-          email,
-          total_reservas: 0,
-          total_gastado: 0,
-          ultima_reserva: r.fecha,
-          // Tomamos el estado de la reserva más reciente (como vienen ordenadas, es la actual)
-          activo: r.cliente_manual_activo !== false, // true por defecto
-        });
+      // Encontrar la fecha más reciente
+      // Ordenamos las fechas y tomamos la primera (o usamos reduce para max)
+      let ultima_reserva = null;
+      if (reservas.length > 0) {
+        // Asumiendo formato YYYY-MM-DD, string comparison funciona
+        reservas.sort((a: any, b: any) => (a.fecha < b.fecha ? 1 : -1));
+        ultima_reserva = reservas[0].fecha;
       }
 
-      const cliente = clientesMap.get(key);
-      cliente.total_reservas += 1;
-      cliente.total_gastado += Number(r.precio_total || 0);
+      return {
+        id: c.id_cliente, // Usamos el ID real de la base de datos
+        nombre: c.nombre,
+        telefono: c.telefono,
+        email: c.email,
+        notas: c.notas,
+        activo: c.activo,
+        total_reservas,
+        total_gastado,
+        ultima_reserva: ultima_reserva || c.updated_at, // Fallback a fecha de creación/update si no jugó
+      };
     });
 
-    const listaClientes = Array.from(clientesMap.values());
-
-    return NextResponse.json({ ok: true, clientes: listaClientes });
+    return NextResponse.json({ ok: true, clientes: clientesProcesados });
   } catch (error: any) {
+    console.error("Error fetching clientes manuales:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

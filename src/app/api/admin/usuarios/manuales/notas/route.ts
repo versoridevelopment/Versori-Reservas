@@ -3,24 +3,20 @@ import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export async function POST(req: Request) {
   try {
-    const { id_club, identificador, notas } = await req.json();
+    const { id_cliente, notas } = await req.json();
 
-    if (!id_club || !identificador) {
-      return NextResponse.json({ error: "Datos faltantes" }, { status: 400 });
+    if (!id_cliente) {
+      return NextResponse.json({ error: "Falta id_cliente" }, { status: 400 });
     }
 
-    // Usamos UPSERT: Si existe actualiza, si no crea.
+    // Actualizamos el campo 'notas' en la tabla del cliente
     const { error } = await supabaseAdmin
-      .from("club_usuarios_manuales_info")
-      .upsert(
-        {
-          id_club,
-          identificador, // Esto es el telefono o el nombre.toLowerCase()
-          notas,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id_club, identificador" },
-      );
+      .from("clientes_manuales")
+      .update({
+        notas: notas, // Guardamos el texto nuevo
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id_cliente", id_cliente);
 
     if (error) throw error;
 

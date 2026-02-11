@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import { format, subDays, startOfYear } from "date-fns";
 import { es } from "date-fns/locale";
@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 
+// Componentes de Gráficos (Asumo que ya los tienes creados en esa ruta)
 import { RevenueChart } from "./components/dashboard/RevenueChart";
 import { CourtRanking } from "./components/dashboard/CourtRanking";
 import { ClientRanking } from "./components/dashboard/ClientRanking";
@@ -42,6 +43,7 @@ const KpiCard = ({
   color,
   subtext,
   tooltip,
+  isMoney,
 }: any) => {
   const colorStyles: any = {
     blue: "bg-blue-50 text-blue-600 border-blue-100",
@@ -53,8 +55,14 @@ const KpiCard = ({
     red: "bg-red-50 text-red-600 border-red-100",
   };
 
-  const currentStyle =
-    colorStyles[color] || "bg-slate-50 text-slate-600 border-slate-100";
+  // ✅ Formateo compacto para que no se rompa la vista con millones
+  const displayValue =
+    isMoney && typeof value === "number"
+      ? new Intl.NumberFormat("es-AR", {
+          maximumFractionDigits: 1,
+          notation: value >= 1000000 ? "compact" : "standard",
+        }).format(value)
+      : value;
 
   return (
     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 relative group/card">
@@ -68,24 +76,25 @@ const KpiCard = ({
               <div className="group/tooltip relative">
                 <Info
                   size={12}
-                  className="text-slate-300 hover:text-slate-500 cursor-help transition-colors"
+                  className="text-slate-300 hover:text-slate-500 cursor-help"
                 />
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2.5 bg-slate-800 text-white text-[10px] leading-tight rounded-lg shadow-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-50 pointer-events-none text-center">
                   {tooltip}
-                  <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
                 </div>
               </div>
             )}
           </div>
-          <h3 className="text-2xl font-black text-slate-800 tracking-tight">
-            {value}
+          <h3 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-1">
+            {isMoney && <span className="text-slate-400 font-medium">$</span>}
+            {displayValue}
           </h3>
         </div>
-        <div className={`p-3 rounded-xl border ${currentStyle}`}>
+        <div
+          className={`p-3 rounded-xl border ${colorStyles[color] || "bg-slate-50"}`}
+        >
           <Icon size={22} strokeWidth={2} />
         </div>
       </div>
-
       <div className="flex items-center gap-2">
         {trend && (
           <span className="flex items-center text-[10px] font-bold text-emerald-700 bg-emerald-100/50 px-2 py-0.5 rounded-full">
@@ -93,10 +102,7 @@ const KpiCard = ({
           </span>
         )}
         {subtext && (
-          <p
-            className="text-xs text-slate-400 font-medium truncate max-w-[120px]"
-            title={subtext}
-          >
+          <p className="text-xs text-slate-400 font-medium truncate">
             {subtext}
           </p>
         )}
@@ -106,15 +112,17 @@ const KpiCard = ({
 };
 
 export default function DashboardPage() {
-  // Contexto
   const [clubId, setClubId] = useState<number | null>(null);
-  const [clubName, setClubName] = useState<string>("");
-  const [clubLogo, setClubLogo] = useState<string | null>(null);
-  const [userName, setUserName] = useState<string>("");
-  const [userRole, setUserRole] = useState<"admin" | "cajero" | null>(null);
-  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [clubInfo, setClubInfo] = useState({
+    name: "Mi Club",
+    logo: null as string | null,
+  });
+  const [user, setUser] = useState({
+    name: "Usuario",
+    role: null as "admin" | "cajero" | null,
+  });
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
-  // Data
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
   const [dateRange, setDateRange] = useState("30days");
@@ -126,95 +134,83 @@ export default function DashboardPage() {
     ),
   );
 
-  // 1. Reloj en tiempo real
+  // 1. Reloj
   useEffect(() => {
-    setCurrentTime(new Date());
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
 
-  // 2. Obtener Club, Usuario y Rol
+  // 2. Inicializar Contexto (Club, Usuario, Rol)
   useEffect(() => {
     const init = async () => {
       const {
-        data: { user },
+        data: { user: authUser },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!authUser) return;
 
-      // A. Obtener Perfil del Usuario
+      // Perfil
       const { data: profile } = await supabase
         .from("profiles")
         .select("nombre, apellido")
-        .eq("id_usuario", user.id)
+        .eq("id_usuario", authUser.id)
         .single();
 
-      if (profile) {
-        setUserName(`${profile.nombre} ${profile.apellido}`);
-      } else {
-        setUserName("Usuario");
-      }
-
-      // B. Obtener Club
-      let currentClubId = 9;
-      let currentClubName = "Mi Club";
-      let currentClubLogo = null;
+      // Club por subdominio
+      let cId = 9;
+      let cName = "Mi Club";
+      let cLogo = null;
 
       if (typeof window !== "undefined") {
-        const hostname = window.location.hostname;
-        const subdomain = hostname.split(".")[0];
-        if (subdomain && subdomain !== "localhost") {
-          const { data } = await supabase
+        const sub = window.location.hostname.split(".")[0];
+        if (sub && sub !== "localhost") {
+          const { data: club } = await supabase
             .from("clubes")
             .select("id_club, nombre, logo_url")
-            .eq("subdominio", subdomain)
+            .eq("subdominio", sub)
             .single();
-
-          if (data) {
-            currentClubId = data.id_club;
-            currentClubName = data.nombre;
-            currentClubLogo = data.logo_url;
+          if (club) {
+            cId = club.id_club;
+            cName = club.nombre;
+            cLogo = club.logo_url;
           }
         }
       }
-      setClubId(currentClubId);
-      setClubName(currentClubName);
-      setClubLogo(currentClubLogo);
 
-      // C. Obtener Rol
+      // Rol
       const { data: members } = await supabase
         .from("club_usuarios")
         .select("roles(nombre)")
-        .eq("id_usuario", user.id)
-        .eq("id_club", currentClubId);
+        .eq("id_usuario", authUser.id)
+        .eq("id_club", cId);
+      const isAdmin = members?.some((m: any) =>
+        ["admin", "administrador", "propietario"].includes(
+          m.roles?.nombre?.toLowerCase().trim(),
+        ),
+      );
 
-      const isAdmin = members?.some((m: any) => {
-        const rName = m.roles?.nombre?.toLowerCase().trim();
-        return (
-          rName === "admin" ||
-          rName === "administrador" ||
-          rName === "propietario"
-        );
+      setClubId(cId);
+      setClubInfo({ name: cName, logo: cLogo });
+      setUser({
+        name: profile ? `${profile.nombre} ${profile.apellido}` : "Usuario",
+        role: isAdmin ? "admin" : "cajero",
       });
-
-      setUserRole(isAdmin ? "admin" : "cajero");
     };
     init();
   }, [supabase]);
 
-  // 3. Fetch Estadísticas
+  // 3. Fetch de Estadísticas
   useEffect(() => {
     if (!clubId) return;
 
-    async function load() {
+    const loadStats = async () => {
       setLoading(true);
       try {
         const now = new Date();
         let fromDate = subDays(now, 30);
-
         if (dateRange === "7days") fromDate = subDays(now, 7);
         if (dateRange === "90days") fromDate = subDays(now, 90);
         if (dateRange === "year") fromDate = startOfYear(now);
-        if (dateRange === "all") fromDate = new Date("2020-01-01");
+        if (dateRange === "all") fromDate = new Date("2024-01-01");
 
         const from = format(fromDate, "yyyy-MM-dd");
         const to = format(now, "yyyy-MM-dd");
@@ -222,272 +218,164 @@ export default function DashboardPage() {
         const res = await fetch(
           `/api/dashboard/stats?clubId=${clubId}&from=${from}&to=${to}`,
         );
-        if (res.ok) setData(await res.json());
+        if (res.ok) {
+          setData(await res.json());
+        }
+      } catch (err) {
+        console.error("Dashboard Load Error:", err);
       } finally {
         setLoading(false);
       }
-    }
-    load();
+    };
+    loadStats();
   }, [clubId, dateRange]);
 
-  if (loading || !data?.kpis || !userRole) {
+  if (loading || !data) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
-        <Loader2 className="w-12 h-12 animate-spin text-slate-900 mb-4" />
+        <Loader2 className="w-10 h-10 animate-spin text-slate-900 mb-4" />
         <p className="text-slate-500 font-medium animate-pulse">
-          Sincronizando datos...
+          Sincronizando métricas...
         </p>
       </div>
     );
   }
 
   const { kpis, charts, comparativaCanchas } = data;
-  const isAdmin = userRole === "admin";
-
-  const dateStr = currentTime
-    ? format(currentTime, "EEEE d 'de' MMMM", { locale: es })
-    : "...";
-  const timeStr = currentTime ? format(currentTime, "HH:mm") : "--:--";
+  const isAdmin = user.role === "admin";
 
   return (
-    <div className="flex-1 w-full bg-slate-50 min-h-screen p-6 md:p-10 space-y-10 font-sans">
-      {/* --- HEADER PROFESIONAL --- */}
+    <div className="flex-1 w-full bg-slate-50 min-h-screen p-4 md:p-10 space-y-8 font-sans">
+      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-slate-200 pb-8">
         <div>
-          {/* Badge Club & Fecha */}
           <div className="flex flex-wrap items-center gap-3 mb-3">
-            <span className="pl-1 pr-3 py-1 rounded-full bg-slate-200 text-slate-700 text-[11px] font-bold uppercase tracking-wide flex items-center gap-2 shadow-sm border border-slate-300">
-              {clubLogo ? (
-                <div className="relative w-5 h-5 rounded-full overflow-hidden bg-white">
+            <span className="px-3 py-1 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 border border-slate-300">
+              {clubInfo.logo && (
+                <div className="relative w-4 h-4 rounded-full overflow-hidden bg-white">
                   <Image
-                    src={clubLogo}
+                    src={clubInfo.logo}
                     alt="Logo"
                     fill
                     className="object-cover"
                   />
                 </div>
-              ) : (
-                <Building2 size={14} className="text-slate-500 ml-1" />
               )}
-              {clubName}
+              {clubInfo.name}
             </span>
-
-            <span className="px-3 py-1 rounded-full bg-white text-slate-500 text-[11px] font-medium border border-slate-200 flex items-center gap-1.5 shadow-sm">
-              <CalendarRange size={12} /> {dateStr}
+            <span className="px-3 py-1 rounded-full bg-white text-slate-500 text-[10px] font-medium border border-slate-200 flex items-center gap-1.5">
+              <CalendarRange size={12} />{" "}
+              {format(currentTime, "EEEE d 'de' MMMM", { locale: es })}
               <span className="w-px h-3 bg-slate-200 mx-1"></span>
-              <Clock size={12} /> {timeStr} hs
+              <Clock size={12} /> {format(currentTime, "HH:mm")} hs
             </span>
           </div>
-
-          <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight leading-tight flex items-center gap-3">
-            Hola, {userName}
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+            Hola, {user.name}
           </h1>
-          <p className="text-slate-500 mt-2 max-w-lg text-sm leading-relaxed flex items-center gap-2">
-            <User size={14} className="text-slate-400" />
+          <p className="text-slate-500 mt-1 text-sm flex items-center gap-2">
+            <ShieldCheck size={14} className="text-blue-500" />
             {isAdmin
-              ? "Panel de Administración General"
+              ? "Panel de Control Administrativo"
               : "Panel de Operaciones"}
           </p>
         </div>
 
-        {/* SELECTOR DE RANGO */}
-        <div className="relative group min-w-[200px]">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <CalendarRange className="h-4 w-4 text-slate-500" />
-          </div>
+        {/* RANGO DE FECHAS */}
+        <div className="relative w-full md:w-auto">
+          <CalendarRange className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value)}
-            className="block w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 shadow-sm appearance-none cursor-pointer hover:bg-slate-50 transition-colors"
+            className="w-full md:w-48 pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none hover:bg-slate-50 transition-colors shadow-sm cursor-pointer appearance-none"
           >
             <option value="7days">Últimos 7 días</option>
             <option value="30days">Últimos 30 días</option>
             <option value="90days">Último Trimestre</option>
             <option value="year">Este Año</option>
-            <option value="all">Histórico Completo</option>
+            <option value="all">Histórico Total</option>
           </select>
-          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-            <ArrowRight className="h-3 w-3 text-slate-400 rotate-90" />
+        </div>
+      </div>
+
+      {/* KPI SECTION */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <KpiCard
+          title="Venta Bruta"
+          value={kpis.ingresos}
+          isMoney
+          color="emerald"
+          icon={DollarSign}
+          subtext="Facturación del periodo"
+          tooltip="Ingresos totales de todas las reservas confirmadas."
+        />
+        <KpiCard
+          title="Saldo a Cobrar"
+          value={kpis.saldoCobrar}
+          isMoney
+          color="rose"
+          icon={Wallet}
+          subtext="Pendiente en club"
+          tooltip="Dinero que debe abonarse al llegar al complejo."
+        />
+        <KpiCard
+          title="Turnos"
+          value={kpis.reservas}
+          color="violet"
+          icon={CalendarCheck}
+          subtext={`${kpis.horasVendidas} horas de juego`}
+        />
+        <KpiCard
+          title="Cancelación"
+          value={`${kpis.tasaCancelacion.toFixed(1)}%`}
+          color="red"
+          icon={AlertCircle}
+          subtext="Turnos no concretados"
+        />
+      </div>
+
+      {/* GRÁFICOS */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <Activity size={18} className="text-blue-500" /> Evolución de
+              Ingresos
+            </h3>
+          </div>
+          <div className="h-[300px] w-full">
+            <RevenueChart data={charts.revenue} />
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="mb-4">
+            <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <PieChart size={16} className="text-rose-500" /> Composición de
+              Pagos
+            </h3>
+          </div>
+          <div className="h-[250px] w-full">
+            <PaymentStatusPie data={charts.payments} />
           </div>
         </div>
       </div>
 
-      {/* --- 1. SECCIÓN FINANZAS (SOLO ADMIN) --- */}
-      {isAdmin && (
-        <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-500">
-          <h2 className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider pl-1">
-            <Activity size={14} /> Métricas Financieras
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            <KpiCard
-              title="Venta Bruta"
-              value={`$${kpis.ingresos.toLocaleString("es-AR")}`}
-              icon={DollarSign}
-              color="blue"
-              trend={dateRange === "all" ? "" : ""}
-              subtext="Facturación total"
-              tooltip="Suma total de todas las reservas confirmadas (Web + Manual)."
-            />
-            <KpiCard
-              title="Saldo Pendiente"
-              value={`$${kpis.saldoCobrar.toLocaleString("es-AR")}`}
-              icon={Wallet}
-              color="rose"
-              subtext="A cobrar en club"
-              tooltip="Dinero que falta cobrar (Precio Total - Seña)."
-            />
-            <KpiCard
-              title="Ticket Promedio"
-              value={`$${Math.round(kpis.ticketPromedio).toLocaleString("es-AR")}`}
-              icon={TrendingUp}
-              color="emerald"
-              subtext="Por reserva"
-              tooltip="Valor promedio de cada turno vendido."
-            />
-            <KpiCard
-              title="Cartera Activa"
-              value={kpis.clientesNuevos + kpis.clientesRecurrentes}
-              icon={Users}
-              color="indigo"
-              subtext={`${kpis.clientesNuevos} nuevos clientes`}
-              tooltip="Clientes únicos que jugaron en este periodo."
-            />
-          </div>
-        </div>
-      )}
-
-      {/* --- 2. SECCIÓN OPERATIVA (VISIBLE PARA TODOS) --- */}
-      <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-700 delay-100">
-        <h2 className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider pl-1">
-          <ShieldCheck size={14} /> Rendimiento Operativo
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-          {!isAdmin && (
-            <KpiCard
-              title="Cartera Activa"
-              value={kpis.clientesNuevos + kpis.clientesRecurrentes}
-              icon={Users}
-              color="indigo"
-              subtext={`${kpis.clientesNuevos} nuevos`}
-              tooltip="Clientes únicos que jugaron en este periodo."
-            />
-          )}
-
-          <KpiCard
-            title="Turnos Jugados"
-            value={kpis.reservas}
-            icon={CalendarCheck}
-            color="violet"
-            subtext="Reservas concretadas"
-          />
-          <KpiCard
-            title="Volumen Horas"
-            value={`${kpis.horasVendidas} hs`}
-            icon={Clock}
-            color="cyan"
-            subtext="Ocupación de pista"
-          />
-          <KpiCard
-            title="Tasa Cancelación"
-            value={`${kpis.tasaCancelacion.toFixed(1)}%`}
-            icon={AlertCircle}
-            color="red"
-            subtext="Turnos caídos"
-          />
-        </div>
-      </div>
-
-      {/* --- 3. GRÁFICOS DETALLADOS --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2 animate-in slide-in-from-bottom-4 duration-700 delay-200">
-        {/* Gráfico Financiero (SOLO ADMIN) */}
-        {isAdmin && (
-          <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
-            <div className="flex justify-between items-center mb-8">
-              <div>
-                <h3 className="text-lg font-bold text-slate-800">
-                  Evolución de Ingresos
-                </h3>
-                <p className="text-xs text-slate-500 font-medium mt-1">
-                  Comportamiento diario de la facturación
-                </p>
-              </div>
-              <div className="p-2 bg-slate-50 rounded-lg">
-                <BarChart3 className="text-slate-400" size={20} />
-              </div>
-            </div>
-            <div className="h-[300px] w-full">
-              <RevenueChart data={charts.revenue} />
-            </div>
-          </div>
-        )}
-
-        {/* Columna Derecha: Widgets */}
-        {/* Si no es admin, ocupará el espacio disponible en el flujo */}
-        <div
-          className={`flex flex-col gap-6 ${!isAdmin ? "lg:col-span-3 lg:grid lg:grid-cols-2" : ""}`}
-        >
-          {isAdmin && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
-              <div className="mb-6 flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                    <Wallet className="w-4 h-4 text-emerald-500" /> Estado de
-                    Cobros
-                  </h3>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Proporción Cobrado vs Pendiente
-                  </p>
-                </div>
-              </div>
-              <div className="h-[220px] w-full">
-                <PaymentStatusPie data={charts.payments} />
-              </div>
-            </div>
-          )}
-
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
-            <div className="mb-6">
-              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                <Zap className="w-4 h-4 text-yellow-500" /> Horarios de Mayor
-                Demanda
-              </h3>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Concentración de reservas por hora
-              </p>
-            </div>
-            {/* Aumentada altura para evitar recorte de etiquetas */}
-            <div className="h-[250px] w-full">
-              <HourlyActivityChart data={charts.hourly} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* --- 4. SECCIÓN INFERIOR (Rankings) --- */}
+      {/* RANKINGS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0 overflow-hidden">
-          <div className="mb-6 flex justify-between items-center">
-            <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-violet-600" /> Ranking de
-              Canchas
-            </h3>
-          </div>
-          <div className="w-full min-h-[250px]">
-            <CourtRanking data={comparativaCanchas || []} />
-          </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <BarChart3 size={18} className="text-indigo-500" /> Ocupación por
+            Cancha
+          </h3>
+          <CourtRanking data={comparativaCanchas} />
         </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col relative z-0 overflow-hidden">
-          <div className="mb-6 flex justify-between items-center">
-            <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-              <PieChart className="w-4 h-4 text-indigo-600" /> Clientes
-              Frecuentes
-            </h3>
-          </div>
-          <div className="flex-1">
-            <ClientRanking data={charts.topClientes} />
-          </div>
-          <div className="mt-6 pt-4 border-t border-slate-50"></div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <TrendingUp size={18} className="text-emerald-500" /> Clientes
+            Destacados
+          </h3>
+          <ClientRanking data={charts.topClientes} />
         </div>
       </div>
     </div>
