@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Search, History, Loader2, UserPlus } from "lucide-react";
 
 type ClienteResult = {
-  id: string; // ✅
+  id: string; // viene del endpoint (string)
   nombre: string;
   telefono: string;
   email: string;
@@ -14,13 +14,26 @@ type ClienteResult = {
 interface Props {
   idClub: number;
   initialValue?: string;
-  onSelect: (cliente: { nombre: string; telefono: string; email: string }) => void;
+
+  // ✅ cuando selecciona un resultado (cliente existente)
+  onSelect: (cliente: {
+    id_cliente_manual?: number;
+    id_cliente?: number;
+    id?: number;
+    nombre: string;
+    telefono: string;
+    email: string;
+  }) => void;
+
+  // ✅ cuando escribe manualmente (no es selección)
+  onChangeValue?: (value: string) => void;
 }
 
 export default function ClientSearchInput({
   idClub,
   initialValue = "",
   onSelect,
+  onChangeValue,
 }: Props) {
   const [query, setQuery] = useState(initialValue);
   const [results, setResults] = useState<ClienteResult[]>([]);
@@ -28,13 +41,13 @@ export default function ClientSearchInput({
   const [showDropdown, setShowDropdown] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // Sincronizar si cambia el valor inicial (ej: edición)
+  // Sync del valor inicial (ej: al abrir sidebar con data precargada)
   useEffect(() => {
     if (initialValue !== query) setQuery(initialValue);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialValue]);
 
-  // Búsqueda con Debounce
+  // Búsqueda con debounce
   useEffect(() => {
     if (query.length < 1) {
       setResults([]);
@@ -45,14 +58,13 @@ export default function ClientSearchInput({
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        // ✅ AQUI EL CAMBIO CLAVE: &type=manual
         const res = await fetch(
           `/api/admin/clientes/search?q=${encodeURIComponent(
             query,
           )}&id_club=${idClub}&type=manual`,
         );
-        const json = await res.json();
-        setResults(json.results || []);
+        const json = await res.json().catch(() => null);
+        setResults(json?.results || []);
         setShowDropdown(true);
       } catch (e) {
         console.error(e);
@@ -64,7 +76,7 @@ export default function ClientSearchInput({
     return () => clearTimeout(timer);
   }, [query, idClub]);
 
-  // Cerrar al hacer clic fuera
+  // Cerrar al click afuera
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
@@ -78,7 +90,11 @@ export default function ClientSearchInput({
   const handleSelect = (cliente: ClienteResult) => {
     setQuery(cliente.nombre);
     setShowDropdown(false);
+
+    // ✅ Convertimos id string -> number (si es numérico)
+    const idNum = Number(cliente.id);
     onSelect({
+      id_cliente_manual: Number.isFinite(idNum) ? idNum : undefined,
       nombre: cliente.nombre,
       telefono: cliente.telefono,
       email: cliente.email,
@@ -98,9 +114,13 @@ export default function ClientSearchInput({
           placeholder="Ej: L..."
           value={query}
           onChange={(e) => {
-            setQuery(e.target.value);
-            // Actualizamos el formulario padre en tiempo real mientras escribe
-            onSelect({ nombre: e.target.value, telefono: "", email: "" });
+            const v = e.target.value;
+            setQuery(v);
+
+            // ✅ AVISA AL PADRE: está escribiendo manualmente (NO selección)
+            onChangeValue?.(v);
+
+            // Si escribe algo, muestro dropdown (con resultados cuando lleguen)
             setShowDropdown(true);
           }}
           onFocus={() => query.length >= 1 && setShowDropdown(true)}
@@ -108,17 +128,22 @@ export default function ClientSearchInput({
         />
 
         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Search className="w-4 h-4" />
+          )}
         </div>
       </div>
 
-      {/* DROPDOWN DE RESULTADOS */}
+      {/* DROPDOWN */}
       {showDropdown && query.length >= 1 && (
         <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar ring-1 ring-black/5">
           {results.length > 0 ? (
             results.map((cliente) => (
               <button
                 key={cliente.id}
+                type="button"
                 onClick={() => handleSelect(cliente)}
                 className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 flex items-center justify-between group transition-colors"
               >

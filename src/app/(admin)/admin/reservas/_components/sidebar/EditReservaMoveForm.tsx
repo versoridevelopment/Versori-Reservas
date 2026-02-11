@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import type { CanchaUI, ReservaUI } from "../types";
-import { formatMoney } from "../hooks/useReservaSidebar";
+import { formatMoney } from "./hooks/useReservaSidebar";
 
 // ===== Helpers (copiados de tu hook) =====
 function pad2(n: number) {

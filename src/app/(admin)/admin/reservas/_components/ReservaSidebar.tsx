@@ -16,7 +16,7 @@ import { printReservaTicket } from "@/lib/printTicket";
 import {
   useReservaSidebar,
   type ReservaSidebarProps,
-} from "./hooks/useReservaSidebar";
+} from "./sidebar/hooks/useReservaSidebar";
 
 import CreateReservaForm from "./sidebar/CreateReservaForm";
 import ReservaDetails from "./sidebar/ReservaDetails";

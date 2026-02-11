@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { User, Phone, AlertCircle, Loader2, Tag, Check } from "lucide-react";
-import { formatMoney } from "../hooks/useReservaSidebar";
+import { formatMoney } from "./hooks/useReservaSidebar";
 import type { CanchaUI } from "../types";
 import { getTipoTurnoConfig } from "../types";
 import ClientSearchInput from "./ClientSearchInput";
@@ -93,7 +93,6 @@ export default function CreateReservaForm({
       if (results.length > 0) {
         const match = results[0];
 
-        // 👇 soporta diferentes nombres de campo que puedas estar devolviendo
         const id =
           Number(match.id_cliente_manual ?? match.id_cliente ?? match.id ?? 0) ||
           null;
@@ -126,7 +125,7 @@ export default function CreateReservaForm({
     }));
   };
 
-  // ✅ Ahora ClientSearchInput debería devolver también el id
+  // ✅ Selección desde dropdown (cliente existente)
   const handleClientSelect = (cliente: {
     id_cliente_manual?: number;
     id_cliente?: number;
@@ -173,7 +172,7 @@ export default function CreateReservaForm({
         </div>
       </div>
 
-      {/* SECCIÓN JUGADOR */}
+      {/* SECCIÓN JUGADOR (como antes: solo nombre del jugador + teléfono) */}
       <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4 relative">
         <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
           <User className="w-4 h-4 text-slate-400" /> Datos del Jugador
@@ -184,26 +183,14 @@ export default function CreateReservaForm({
             idClub={idClub}
             initialValue={formData.nombre}
             onSelect={handleClientSelect}
+            onChangeValue={(value) =>
+              setFormData((p: any) => ({
+                ...p,
+                nombre: value,
+                idClienteManual: null, // ✅ si escribe, invalida la selección previa
+              }))
+            }
           />
-
-          {/* Nombre (si lo editan manual, limpiamos idClienteManual) */}
-          <div className="relative group">
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
-              Nombre
-            </label>
-            <input
-              value={formData.nombre}
-              onChange={(e) =>
-                setFormData((p: any) => ({
-                  ...p,
-                  nombre: e.target.value,
-                  idClienteManual: null, // ✅ si cambió, ya no confiamos en el seleccionado
-                }))
-              }
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm"
-              placeholder="Ej: Juan Pérez"
-            />
-          </div>
 
           <div className="relative group">
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
@@ -232,25 +219,6 @@ export default function CreateReservaForm({
                 )}
               </div>
             </div>
-          </div>
-
-          {/* Email (si cambia, limpiamos idClienteManual) */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
-              Email (opcional)
-            </label>
-            <input
-              value={formData.email}
-              onChange={(e) =>
-                setFormData((p: any) => ({
-                  ...p,
-                  email: e.target.value,
-                  idClienteManual: null,
-                }))
-              }
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm"
-              placeholder="ej: juan@gmail.com"
-            />
           </div>
         </div>
 
@@ -484,6 +452,7 @@ export default function CreateReservaForm({
                 </select>
               </div>
             </div>
+
             <div>
               <label className="block text-[10px] font-black text-orange-700 uppercase">
                 Precio Total
@@ -509,13 +478,9 @@ export default function CreateReservaForm({
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
               Total a Pagar
             </span>
-            <div className="text-2xl font-black">
-              {formatMoney(formData.precio)}
-            </div>
+            <div className="text-2xl font-black">{formatMoney(formData.precio)}</div>
           </div>
-          {priceLoading && (
-            <Loader2 className="w-6 h-6 animate-spin text-slate-500" />
-          )}
+          {priceLoading && <Loader2 className="w-6 h-6 animate-spin text-slate-500" />}
         </div>
 
         {createError && (

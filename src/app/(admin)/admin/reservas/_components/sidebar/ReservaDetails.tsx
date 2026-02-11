@@ -14,7 +14,7 @@ import {
   CalendarRange,
   DollarSign,
 } from "lucide-react";
-import { formatMoney } from "../hooks/useReservaSidebar";
+import { formatMoney } from "./hooks/useReservaSidebar";
 import type { ReservaUI } from "../types";
 
 export default function ReservaDetails({
