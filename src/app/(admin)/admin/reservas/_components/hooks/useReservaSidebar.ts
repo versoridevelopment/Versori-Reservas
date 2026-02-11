@@ -106,7 +106,11 @@ function unitsToHHMM(u: number) {
   return `${pad2(hh)}:${pad2(mm)}`;
 }
 
-function buildFreeBlocks(dayStartU: number, dayEndU: number, occupiedU: IntervalU[]): FreeBlockU[] {
+function buildFreeBlocks(
+  dayStartU: number,
+  dayEndU: number,
+  occupiedU: IntervalU[],
+): FreeBlockU[] {
   if (dayEndU <= dayStartU) return [];
 
   const occ = occupiedU
@@ -136,6 +140,17 @@ function buildFreeBlocks(dayStartU: number, dayEndU: number, occupiedU: Interval
   return free;
 }
 
+// ✅ NUEVO
+function normalizePhone(input: string) {
+  return String(input || "").replace(/\D/g, "");
+}
+
+// ✅ HOY tu create no manda id_usuario, así que siempre es manual.
+// Si mañana agregás id_usuario, cambiás esta función.
+function isManualCliente() {
+  return true;
+}
+
 export function useReservaSidebar(props: ReservaSidebarProps) {
   const {
     isOpen,
@@ -155,7 +170,10 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     initialData,
   } = props;
 
-  const fechaISO = useMemo(() => toISODateLocal(fecha || selectedDate), [fecha, selectedDate]);
+  const fechaISO = useMemo(
+    () => toISODateLocal(fecha || selectedDate),
+    [fecha, selectedDate],
+  );
 
   // Reserva “full”
   const [reservaFull, setReservaFull] = useState<ReservaUI | null>(null);
@@ -165,7 +183,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     if (initialData) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setReservaFull((prev) =>
-        prev?.id_reserva === initialData.id_reserva ? prev : (initialData as any)
+        prev?.id_reserva === initialData.id_reserva
+          ? prev
+          : (initialData as any),
       );
     } else {
       setReservaFull(null);
@@ -176,7 +196,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   async function reloadFull() {
     if (!isOpen || isCreating || !reservaId) return;
     try {
-      const res = await fetch(`/api/admin/reservas/${reservaId}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/reservas/${reservaId}`, {
+        cache: "no-store",
+      });
       if (!res.ok) return;
       const json = await res.json().catch(() => null);
       const full = (json?.data ?? json) as ReservaUI | null;
@@ -192,7 +214,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     async function loadFull() {
       if (!isOpen || isCreating || !reservaId) return;
       try {
-        const res = await fetch(`/api/admin/reservas/${reservaId}`, { cache: "no-store" });
+        const res = await fetch(`/api/admin/reservas/${reservaId}`, {
+          cache: "no-store",
+        });
         if (!res.ok) return;
         const json = await res.json().catch(() => null);
         if (!alive) return;
@@ -302,14 +326,13 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         startU: toUnits30(o.start),
         endU: toUnits30(o.end),
       })),
-    [occupiedIntervals]
+    [occupiedIntervals],
   );
 
-  const freeBlocks = useMemo(() => buildFreeBlocks(dayStartU, dayEndU, occupiedU), [
-    dayStartU,
-    dayEndU,
-    occupiedU,
-  ]);
+  const freeBlocks = useMemo(
+    () => buildFreeBlocks(dayStartU, dayEndU, occupiedU),
+    [dayStartU, dayEndU, occupiedU],
+  );
 
   // 2) Available times (AUTO)
   const availableTimes = useMemo(() => {
@@ -322,11 +345,18 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
     const durU = Math.round(durMin / 30);
 
-    const out: { value: string; label: string; decimal: number; finLabel: string }[] = [];
+    const out: {
+      value: string;
+      label: string;
+      decimal: number;
+      finLabel: string;
+    }[] = [];
 
     for (let startU = dayStartU; startU + durU <= dayEndU; startU += 1) {
       const endU = startU + durU;
-      const block = freeBlocks.find((b) => startU >= b.startU && endU <= b.endU);
+      const block = freeBlocks.find(
+        (b) => startU >= b.startU && endU <= b.endU,
+      );
       if (!block) continue;
 
       const inicioHHMM = unitsToHHMM(startU);
@@ -341,8 +371,18 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     }
 
     const seen = new Set<string>();
-    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
-  }, [isOpen, isCreating, formData.duracion, formData.precioManual, freeBlocks, dayStartU, dayEndU]);
+    return out.filter((x) =>
+      seen.has(x.value) ? false : (seen.add(x.value), true),
+    );
+  }, [
+    isOpen,
+    isCreating,
+    formData.duracion,
+    formData.precioManual,
+    freeBlocks,
+    dayStartU,
+    dayEndU,
+  ]);
 
   // 2B) Options MANUAL: "desde"
   const manualDesdeOptions = useMemo(() => {
@@ -358,7 +398,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     }
 
     const seen = new Set<string>();
-    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
+    return out.filter((x) =>
+      seen.has(x.value) ? false : (seen.add(x.value), true),
+    );
   }, [isOpen, isCreating, formData.precioManual, freeBlocks]);
 
   // 2C) Options MANUAL: "hasta"
@@ -382,8 +424,17 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     }
 
     const seen = new Set<string>();
-    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
-  }, [isOpen, isCreating, formData.precioManual, formData.horaInicioManual, freeBlocks, startHour]);
+    return out.filter((x) =>
+      seen.has(x.value) ? false : (seen.add(x.value), true),
+    );
+  }, [
+    isOpen,
+    isCreating,
+    formData.precioManual,
+    formData.horaInicioManual,
+    freeBlocks,
+    startHour,
+  ]);
 
   const duracionManualCalculada = useMemo(() => {
     if (!formData.precioManual) return 0;
@@ -403,7 +454,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     if (!duracionManualCalculada) return;
 
     setFormData((p) =>
-      p.duracion === duracionManualCalculada ? p : { ...p, duracion: duracionManualCalculada }
+      p.duracion === duracionManualCalculada
+        ? p
+        : { ...p, duracion: duracionManualCalculada },
     );
   }, [isOpen, isCreating, formData.precioManual, duracionManualCalculada]);
 
@@ -496,7 +549,8 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
       const fin = addMinutesHHMM(inicio, dur);
 
-      const segmento_override: Segmento = formData.tipoTurno === "profesor" ? "profe" : "publico";
+      const segmento_override: Segmento =
+        formData.tipoTurno === "profesor" ? "profe" : "publico";
 
       setPriceLoading(true);
       setPriceError(null);
@@ -583,7 +637,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
       if (!Number.isFinite(precioNum) || precioNum < 0) {
         return setCreateError("Precio manual inválido");
       }
-
     } else {
       if (!inicio) return setCreateError("Falta horario");
       dur = Number(formData.duracion);
@@ -593,8 +646,19 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
       fin = addMinutesHHMM(inicio, dur);
     }
 
-    if (!formData.nombre.trim()) return setCreateError("Nombre requerido");
+    const nombre = formData.nombre.trim();
+    const telefonoRaw = formData.telefono.trim();
+    const telefonoNorm = normalizePhone(telefonoRaw);
+    const email = formData.email.trim();
+
+    if (!nombre) return setCreateError("Nombre requerido");
     if (!id_cancha) return setCreateError("Falta cancha");
+
+    // ✅ Teléfono obligatorio para cliente manual (tu backend ahora upsertea cliente_manual con tel NOT NULL)
+    if (isManualCliente()) {
+      if (!telefonoNorm) return setCreateError("Teléfono requerido");
+      if (telefonoNorm.length < 6) return setCreateError("Teléfono inválido");
+    }
 
     setCreateLoading(true);
 
@@ -610,9 +674,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         duracion_min: dur,
 
         tipo_turno: formData.tipoTurno,
-        cliente_nombre: formData.nombre.trim(),
-        cliente_telefono: formData.telefono.trim(),
-        cliente_email: formData.email.trim() || null,
+        cliente_nombre: nombre,
+        cliente_telefono: telefonoRaw, // backend normaliza (GENERATED STORED)
+        cliente_email: email ? email : null,
         notas: formData.notas.trim() || null,
 
         precio_manual: precioManual,
@@ -631,8 +695,17 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         body: JSON.stringify(payload),
       });
 
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Error creando");
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const msg = String(json?.error || "");
+
+        if (msg.includes("TEL_REQUERIDO")) throw new Error("Teléfono requerido");
+        if (msg.includes("duplicate") || msg.includes("UNIQUE"))
+          throw new Error("Ya existe un cliente con ese teléfono");
+
+        throw new Error(msg || "Error creando");
+      }
 
       if (onCreated) onCreated();
       onClose();
@@ -647,34 +720,34 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
   // ✅ Cancelación auditada (motivo + cancelado_por/at lo hace backend)
   async function handleCancelar(motivo?: string | null) {
-  if (!reservaFull) return;
+    if (!reservaFull) return;
 
-  const estado = (reservaFull as any).estado;
-  if (estado === "cancelada") return;
+    const estado = (reservaFull as any).estado;
+    if (estado === "cancelada") return;
 
-  try {
-    const res = await fetch(
-      `/api/admin/reservas/${reservaFull.id_reserva}/cancelar`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          motivo_cancelacion: motivo || null,
-        }),
-      },
-    );
+    try {
+      const res = await fetch(
+        `/api/admin/reservas/${reservaFull.id_reserva}/cancelar`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            motivo_cancelacion: motivo || null,
+          }),
+        },
+      );
 
-    const json = await res.json().catch(() => null);
-    if (!res.ok || !json?.ok) {
-      throw new Error(json?.error || "Error al cancelar");
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Error al cancelar");
+      }
+
+      if (onCreated) onCreated();
+      await reloadFull();
+    } catch (e: any) {
+      alert(e?.message || "Error al cancelar");
     }
-
-    if (onCreated) onCreated();
-    await reloadFull();
-  } catch (e: any) {
-    alert(e?.message || "Error al cancelar");
   }
-}
 
   function openCobro() {
     if (reservaFull) {

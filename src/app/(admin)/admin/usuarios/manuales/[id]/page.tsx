@@ -8,7 +8,6 @@ import {
   Mail,
   DollarSign,
   Trophy,
-  Clock,
   MapPin,
   Edit2,
   Loader2,
@@ -20,11 +19,13 @@ import {
   UserCog,
   History,
   MessageCircle,
+  User,
+  X,
 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 import { motion, AnimatePresence } from "framer-motion";
 
-// HELPERS
+// --- HELPERS ---
 const normalizePhone = (input: string) => {
   if (!input) return "";
   let clean = input.replace(/\D/g, "");
@@ -38,6 +39,12 @@ const getWhatsappLink = (phone: string) => {
   const clean = normalizePhone(phone);
   return clean ? `https://wa.me/549${clean}` : "#";
 };
+
+const formatCompactValue = (val: number) =>
+  new Intl.NumberFormat("es-AR", {
+    maximumFractionDigits: 1,
+    notation: val >= 1000000 ? "compact" : "standard",
+  }).format(val);
 
 const StatusBadge = ({ status }: { status: string }) => {
   const styles: any = {
@@ -64,7 +71,7 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
-// TIPOS ACTUALIZADOS
+// --- TIPOS ---
 type ReservaHistorial = {
   id_reserva: number;
   fecha: string;
@@ -77,10 +84,11 @@ type ReservaHistorial = {
   audit_accion: string;
   audit_fecha: string;
   audit_responsable: string;
-  motivo_cancelacion?: string | null; // ✅ Nuevo campo
+  motivo_cancelacion?: string | null;
 };
 
 type PerfilManual = {
+  id: number;
   nombre: string;
   telefono: string;
   email: string;
@@ -96,18 +104,20 @@ export default function DetalleUsuarioManualPage({
 }) {
   const router = useRouter();
   const { id } = use(params);
-  const clienteNombre = decodeURIComponent(id);
 
   const [perfil, setPerfil] = useState<PerfilManual | null>(null);
   const [historial, setHistorial] = useState<ReservaHistorial[]>([]);
   const [loading, setLoading] = useState(true);
   const [idClub, setIdClub] = useState<number | null>(null);
 
-  // Estados UI
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ telefono: "", email: "" });
+  const [editForm, setEditForm] = useState({
+    nombre: "",
+    telefono: "",
+    email: "",
+  });
   const [saving, setSaving] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
@@ -131,38 +141,44 @@ export default function DetalleUsuarioManualPage({
     getClub();
   }, [supabase]);
 
-  const loadData = async () => {
-    if (!idClub || !clienteNombre) return;
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `/api/admin/usuarios/manuales/${encodeURIComponent(clienteNombre)}?id_club=${idClub}`,
-      );
-      const json = await res.json();
-      if (json.ok) {
-        setPerfil(json.perfil);
-        setHistorial(json.historial);
-        setEditForm({
-          telefono: json.perfil.telefono,
-          email: json.perfil.email,
-        });
-        setNoteText(json.perfil.notas || "");
-      } else {
-        console.error("Backend error:", json.error);
-        setPerfil(null);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const loadData = async () => {
+      if (!idClub || !id) return;
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/admin/usuarios/manuales/${id}?id_club=${idClub}`,
+        );
+
+        if (!res.ok) {
+          setPerfil(null);
+          return;
+        }
+
+        const json = await res.json();
+        if (json.ok) {
+          setPerfil(json.perfil);
+          setHistorial(json.historial);
+
+          setEditForm({
+            nombre: json.perfil.nombre || "",
+            telefono: json.perfil.telefono || "",
+            email: json.perfil.email || "",
+          });
+          setNoteText(json.perfil.notas || "");
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     loadData();
-  }, [idClub, clienteNombre]);
+  }, [idClub, id]);
 
   const handleSaveEdit = async () => {
+    if (!perfil) return;
     setSaving(true);
     const cleanNewPhone = normalizePhone(editForm.telefono);
     try {
@@ -170,39 +186,40 @@ export default function DetalleUsuarioManualPage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          oldNombre: perfil?.nombre,
-          id_club: idClub,
-          newTelefono: cleanNewPhone,
-          newEmail: editForm.email,
+          id_cliente: perfil.id,
+          nombre: editForm.nombre,
+          telefono: cleanNewPhone,
+          email: editForm.email,
         }),
       });
       if (res.ok) {
         setIsEditOpen(false);
-        loadData();
-      } else {
-        setErrorMsg("Error al guardar.");
+        setPerfil((prev) =>
+          prev
+            ? {
+                ...prev,
+                nombre: editForm.nombre,
+                telefono: cleanNewPhone,
+                email: editForm.email,
+              }
+            : null,
+        );
       }
-    } catch {
-      setErrorMsg("Error de conexión");
+    } catch (e) {
+      console.error(e);
     } finally {
       setSaving(false);
     }
   };
 
   const handleSaveNote = async () => {
+    if (!perfil) return;
     setSavingNote(true);
     try {
-      const identificador = perfil?.telefono
-        ? perfil.telefono
-        : perfil?.nombre.toLowerCase();
       const res = await fetch("/api/admin/usuarios/manuales/notas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id_club: idClub,
-          identificador,
-          notas: noteText,
-        }),
+        body: JSON.stringify({ id_cliente: perfil.id, notas: noteText }),
       });
       if (res.ok) {
         setPerfil((prev) => (prev ? { ...prev, notas: noteText } : null));
@@ -228,10 +245,11 @@ export default function DetalleUsuarioManualPage({
         <Loader2 className="w-8 h-8 animate-spin text-slate-300" />
       </div>
     );
+
   if (!perfil)
     return (
       <div className="p-10 text-center text-slate-500">
-        Usuario no encontrado o sin historial.
+        Usuario no encontrado.
       </div>
     );
 
@@ -240,6 +258,7 @@ export default function DetalleUsuarioManualPage({
       <div className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-3 flex items-center gap-3 shadow-sm">
         <button
           onClick={() => router.back()}
+          aria-label="Volver"
           className="p-2 -ml-2 text-slate-500 hover:text-slate-800 active:bg-slate-100 rounded-full"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -253,8 +272,8 @@ export default function DetalleUsuarioManualPage({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 p-5 relative">
             <div className="flex flex-col sm:flex-row gap-5 items-center sm:items-start text-center sm:text-left">
-              <div className="w-20 h-20 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-3xl shadow-md">
-                {perfil.nombre.charAt(0).toUpperCase()}
+              <div className="w-20 h-20 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-3xl shadow-md uppercase">
+                {perfil.nombre.charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
                 <h2 className="text-2xl font-black text-slate-900 truncate">
@@ -276,13 +295,15 @@ export default function DetalleUsuarioManualPage({
                   <a
                     href={getWhatsappLink(perfil.telefono)}
                     target="_blank"
-                    className="p-2 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-200 hover:scale-105 transition-transform"
+                    aria-label="WhatsApp"
+                    className="p-2 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-200"
                   >
                     <MessageCircle className="w-4 h-4" />
                   </a>
                 )}
                 <button
                   onClick={() => setIsEditOpen(true)}
+                  aria-label="Editar"
                   className="p-2 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-xl border border-slate-200"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -290,28 +311,45 @@ export default function DetalleUsuarioManualPage({
               </div>
             </div>
           </div>
+
+          <div
+            onClick={() => setIsNoteModalOpen(true)}
+            className="bg-amber-50 rounded-2xl border border-amber-100 p-5 cursor-pointer hover:shadow-md transition-all"
+          >
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-xs font-bold text-amber-800 uppercase flex items-center gap-2">
+                <StickyNote className="w-4 h-4" /> Notas Internas
+              </h3>
+              <Edit2 className="w-3 h-3 text-amber-400" />
+            </div>
+            <p
+              className={`text-sm ${perfil.notas ? "text-amber-900" : "text-amber-800/50 italic"}`}
+            >
+              {perfil.notas || "Agregar observaciones..."}
+            </p>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm text-center">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
               Turnos Totales
             </span>
-            <div className="flex items-center gap-2 text-blue-600">
+            <div className="flex items-center justify-center gap-2 text-blue-600">
               <Trophy className="w-6 h-6" />
               <span className="text-3xl font-black">
                 {perfil.total_reservas}
               </span>
             </div>
           </div>
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm text-center">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">
               Inversión Histórica
             </span>
-            <div className="flex items-center gap-2 text-emerald-600">
-              <DollarSign className="w-6 h-6" />
-              <span className="text-3xl font-black">
-                {formatMoney(perfil.total_gastado)}
+            <div className="flex items-center justify-center gap-1 text-emerald-600">
+              <DollarSign className="w-6 h-6 shrink-0" />
+              <span className="text-xl md:text-3xl font-black whitespace-nowrap">
+                {formatCompactValue(perfil.total_gastado)}
               </span>
             </div>
           </div>
@@ -332,7 +370,7 @@ export default function DetalleUsuarioManualPage({
                     Estado
                   </th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase">
-                    Gestión / Auditoría
+                    Gestión
                   </th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase text-right">
                     Monto
@@ -341,15 +379,15 @@ export default function DetalleUsuarioManualPage({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {historial.map((r) => {
-                  const fecha = new Date(r.audit_fecha);
+                  const fechaAudit = new Date(r.audit_fecha);
                   const isCancel = r.audit_accion === "Cancelado";
                   return (
                     <tr
                       key={r.id_reserva}
                       className="hover:bg-slate-50 transition-colors"
                     >
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-slate-700 text-sm">
+                      <td className="px-6 py-4 text-sm">
+                        <p className="font-bold text-slate-700">
                           {new Date(r.fecha + "T12:00:00").toLocaleDateString(
                             "es-AR",
                             { day: "numeric", month: "short", year: "numeric" },
@@ -371,30 +409,20 @@ export default function DetalleUsuarioManualPage({
                             <UserCog className="w-3.5 h-3.5" />{" "}
                             {r.audit_responsable}
                           </div>
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 italic">
-                            <Clock className="w-3 h-3" /> {r.audit_accion}:{" "}
-                            {fecha.toLocaleDateString()}{" "}
-                            {fecha.toLocaleTimeString([], {
+                          <div className="text-[10px] text-slate-400 italic">
+                            {r.audit_accion}: {fechaAudit.toLocaleDateString()}{" "}
+                            {fechaAudit.toLocaleTimeString([], {
                               hour: "2-digit",
                               minute: "2-digit",
                             })}
                           </div>
-                          {/* ✅ SECCIÓN DE MOTIVO DE CANCELACIÓN */}
-                          {isCancel && r.motivo_cancelacion && (
-                            <div className="mt-1.5 p-2 bg-rose-50 border border-rose-100 rounded-md text-[10px] text-rose-800 leading-tight max-w-[250px]">
-                              <span className="font-bold block mb-0.5">
-                                Motivo:
-                              </span>
-                              {r.motivo_cancelacion}
-                            </div>
-                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <p className="font-black text-slate-700 text-sm">
+                        <p className="font-black text-slate-700">
                           {formatMoney(r.precio_total)}
                         </p>
-                        <p className="text-[9px] text-slate-400 uppercase">
+                        <p className="text-[9px] text-slate-400">
                           ID: #{r.id_reserva}
                         </p>
                       </td>
@@ -407,7 +435,7 @@ export default function DetalleUsuarioManualPage({
         </div>
       </div>
 
-      {/* Modales */}
+      {/* Modal Editar Perfil */}
       <AnimatePresence>
         {isEditOpen && (
           <div
@@ -423,24 +451,69 @@ export default function DetalleUsuarioManualPage({
             >
               <h3 className="font-bold text-lg mb-4">Editar Perfil</h3>
               <div className="space-y-4">
-                <input
-                  type="tel"
-                  value={editForm.telefono}
-                  onChange={(e) =>
-                    setEditForm({ ...editForm, telefono: e.target.value })
-                  }
-                  className="w-full p-3 border rounded-xl"
-                  placeholder="Teléfono"
-                />
-                <input
-                  type="email"
-                  value={editForm.email}
-                  onChange={(e) =>
-                    setEditForm({ ...editForm, email: e.target.value })
-                  }
-                  className="w-full p-3 border rounded-xl"
-                  placeholder="Email"
-                />
+                <div>
+                  <label
+                    htmlFor="edit-nombre"
+                    className="text-xs font-bold text-slate-500 mb-1 block"
+                  >
+                    Nombre
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="edit-nombre"
+                      type="text"
+                      value={editForm.nombre}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, nombre: e.target.value })
+                      }
+                      className="w-full pl-10 p-3 border rounded-xl"
+                      placeholder="Ingrese el nombre completo"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label
+                    htmlFor="edit-telefono"
+                    className="text-xs font-bold text-slate-500 mb-1 block"
+                  >
+                    Teléfono
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="edit-telefono"
+                      type="tel"
+                      value={editForm.telefono}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, telefono: e.target.value })
+                      }
+                      className="w-full pl-10 p-3 border rounded-xl"
+                      placeholder="Ej: 3794123456"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label
+                    htmlFor="edit-email"
+                    className="text-xs font-bold text-slate-500 mb-1 block"
+                  >
+                    Email
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="edit-email"
+                      type="email"
+                      value={editForm.email}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, email: e.target.value })
+                      }
+                      className="w-full pl-10 p-3 border rounded-xl"
+                      placeholder="correo@ejemplo.com"
+                    />
+                  </div>
+                </div>
                 <div className="flex gap-2 pt-2">
                   <button
                     onClick={() => setIsEditOpen(false)}
@@ -467,6 +540,7 @@ export default function DetalleUsuarioManualPage({
         )}
       </AnimatePresence>
 
+      {/* Modal Notas */}
       <AnimatePresence>
         {isNoteModalOpen && (
           <div
@@ -480,15 +554,25 @@ export default function DetalleUsuarioManualPage({
               className="bg-white w-full max-w-md rounded-2xl overflow-hidden shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-4 bg-amber-50 border-b border-amber-100 font-bold flex items-center gap-2 text-amber-800">
-                <StickyNote className="w-5 h-5" /> Notas Internas
+              <div className="p-4 bg-amber-50 border-b border-amber-100 font-bold flex items-center justify-between text-amber-800">
+                <div className="flex items-center gap-2">
+                  <StickyNote className="w-5 h-5" /> Notas Internas
+                </div>
+                <button
+                  onClick={() => setIsNoteModalOpen(false)}
+                  aria-label="Cerrar"
+                  className="p-1 hover:bg-amber-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
               <div className="p-6">
                 <textarea
-                  className="w-full h-32 p-3 border rounded-xl bg-amber-50/10 outline-none"
+                  aria-label="Campo de notas internas"
+                  className="w-full h-32 p-3 border rounded-xl bg-amber-50/10 outline-none resize-none"
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="Escribe observaciones..."
+                  placeholder="Escribe observaciones privadas sobre este cliente..."
                   autoFocus
                 />
                 <div className="flex justify-end gap-2 mt-4">
@@ -501,8 +585,9 @@ export default function DetalleUsuarioManualPage({
                   <button
                     onClick={handleSaveNote}
                     disabled={savingNote}
-                    className="px-6 py-2 bg-slate-900 text-white rounded-lg font-bold"
+                    className="px-6 py-2 bg-slate-900 text-white rounded-lg font-bold flex items-center gap-2"
                   >
+                    {savingNote && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
                     Guardar
                   </button>
                 </div>

@@ -28,44 +28,60 @@ export async function GET(request: Request) {
     const startDate = fromParam ? new Date(fromParam) : startOfMonth(now);
     const endDate = toParam ? new Date(toParam) : endOfMonth(now);
 
-    // 1. DATA HISTÓRICA
+    // 1. Obtener Reservas (Solo columnas existentes)
     const { data: reservas, error } = await supabaseAdmin
       .from("reservas")
       .select(
         `
-        id_cancha, fecha, inicio, fin, precio_total, monto_anticipo, 
-        estado, id_usuario, created_at, cliente_nombre,
+        id_reserva, id_cancha, fecha, inicio, fin, precio_total, monto_anticipo, 
+        estado, id_usuario, id_cliente_manual, created_at,
         canchas (nombre)
       `,
       )
       .eq("id_club", clubId)
-      .gte("fecha", startDate.toISOString())
-      .lte("fecha", endDate.toISOString());
+      .gte("fecha", startDate.toISOString().split("T")[0])
+      .lte("fecha", endDate.toISOString().split("T")[0]);
 
     if (error) throw error;
 
-    // 2. PERFILES (Solo para usuarios web)
+    // 2. Obtener Identidades de Clientes de forma robusta
     const userIds = Array.from(
       new Set(reservas?.map((r) => r.id_usuario).filter(Boolean)),
-    ) as string[];
-    const profilesMap = new Map();
-    if (userIds.length > 0) {
-      const { data: profiles } = await supabaseAdmin
-        .from("profiles")
-        .select("id_usuario, nombre, apellido, email")
-        .in("id_usuario", userIds);
-      profiles?.forEach((p) => profilesMap.set(p.id_usuario, p));
-    }
+    );
+    const manualIds = Array.from(
+      new Set(reservas?.map((r) => r.id_cliente_manual).filter(Boolean)),
+    );
 
-    // --- 3. PROCESAMIENTO AVANZADO ---
+    const [profilesRes, manualesRes] = await Promise.all([
+      userIds.length > 0
+        ? supabaseAdmin
+            .from("profiles")
+            .select("id_usuario, nombre, apellido")
+            .in("id_usuario", userIds)
+        : Promise.resolve({ data: [] }),
+      manualIds.length > 0
+        ? supabaseAdmin
+            .from("clientes_manuales")
+            .select("id_cliente, nombre")
+            .in("id_cliente", manualIds)
+        : Promise.resolve({ data: [] }),
+    ]);
 
-    let totalIngresos = 0;
-    let totalSaldoCobrar = 0;
-    let totalCobrado = 0;
-    let totalReservasValidas = 0;
-    let totalCanceladas = 0;
-    let minutosVendidos = 0;
-    let sumaLeadTimeHoras = 0;
+    const profilesMap = new Map(
+      profilesRes.data?.map((p) => [p.id_usuario, p]),
+    );
+    const manualesMap = new Map(
+      manualesRes.data?.map((m) => [m.id_cliente, m]),
+    );
+
+    // 3. Procesamiento de KPIs y Gráficos
+    let totalIngresos = 0,
+      totalSaldoCobrar = 0,
+      totalCobrado = 0;
+    let totalReservasValidas = 0,
+      totalCanceladas = 0,
+      minutosVendidos = 0,
+      sumaLeadTimeHoras = 0;
 
     const performanceCanchas = new Map();
     const clientesStats = new Map();
@@ -74,39 +90,32 @@ export async function GET(request: Request) {
     const actividadPorHora = new Array(24).fill(0);
 
     reservas?.forEach((r: any) => {
-      if (r.estado === "cancelada") {
+      if (r.estado === "cancelada" || r.estado === "rechazada") {
         totalCanceladas++;
         return;
       }
 
       totalReservasValidas++;
-      const ingresoTotal = Number(r.precio_total);
+      const ingresoTotal = Number(r.precio_total || 0);
       const anticipo = Number(r.monto_anticipo || 0);
 
-      // Finanzas
       totalIngresos += ingresoTotal;
-      const saldo = ingresoTotal - anticipo;
-      totalSaldoCobrar += saldo;
+      totalSaldoCobrar += ingresoTotal - anticipo;
       totalCobrado += anticipo;
 
-      // Tiempo
-      const fechaBase = r.fecha;
-      // Validación básica de fechas para evitar errores
-      if (!r.inicio || !r.fin) return;
+      // Procesar Horas y Lead Time
+      if (r.inicio && r.fin) {
+        const startDateTime = parseISO(`${r.fecha}T${r.inicio}`);
+        const endDateTime = parseISO(`${r.fecha}T${r.fin}`);
+        const createdDateTime = parseISO(r.created_at);
 
-      const startDateTime = parseISO(`${fechaBase}T${r.inicio}`);
-      const endDateTime = parseISO(`${fechaBase}T${r.fin}`);
-      const createdDateTime = parseISO(r.created_at);
+        const duracion = differenceInMinutes(endDateTime, startDateTime);
+        if (duracion > 0) minutosVendidos += duracion;
 
-      const duracionMinutos = differenceInMinutes(endDateTime, startDateTime);
-      if (duracionMinutos > 0) minutosVendidos += duracionMinutos;
+        const leadTime = differenceInHours(startDateTime, createdDateTime);
+        if (leadTime > 0) sumaLeadTimeHoras += leadTime;
 
-      const leadTime = differenceInHours(startDateTime, createdDateTime);
-      if (leadTime > 0) sumaLeadTimeHoras += leadTime;
-
-      // Por Hora
-      const horaInicio = getHours(startDateTime);
-      if (horaInicio >= 0 && horaInicio < 24) {
+        const horaInicio = getHours(startDateTime);
         actividadPorHora[horaInicio] += 1;
       }
 
@@ -123,19 +132,18 @@ export async function GET(request: Request) {
       pc.ingresos += ingresoTotal;
       pc.reservas += 1;
 
-      // Por Cliente (Web + Manual)
-      let clienteKey = "";
+      // Por Cliente (Identidad Limpia)
+      let clienteKey = "anonimo";
       let clienteNombre = "Anónimo";
 
       if (r.id_usuario) {
         clienteKey = r.id_usuario;
         const p = profilesMap.get(r.id_usuario);
         clienteNombre = p ? `${p.nombre} ${p.apellido}` : "Usuario Web";
-      } else {
-        // Cliente Manual
-        const rawName = r.cliente_nombre || "Cliente Manual";
-        clienteKey = `manual-${rawName.toLowerCase().trim()}`;
-        clienteNombre = rawName;
+      } else if (r.id_cliente_manual) {
+        clienteKey = `manual-${r.id_cliente_manual}`;
+        clienteNombre =
+          manualesMap.get(r.id_cliente_manual)?.nombre || "Cliente Manual";
       }
 
       if (!clientesStats.has(clienteKey)) {
@@ -156,90 +164,7 @@ export async function GET(request: Request) {
         fechaStr,
         (ingresosPorDia.get(fechaStr) || 0) + ingresoTotal,
       );
-
-      // Por Día Semana
-      const dayIndex = getDay(parseISO(r.fecha));
-      reservasPorDiaSemana[dayIndex] += 1;
-    });
-
-    // --- CÁLCULOS FINALES ---
-    const totalReservas = totalReservasValidas + totalCanceladas;
-    const tasaCancelacion =
-      totalReservas > 0 ? (totalCanceladas / totalReservas) * 100 : 0;
-    const horasVendidas = Math.round(minutosVendidos / 60);
-    const anticipacionPromedio =
-      totalReservasValidas > 0
-        ? Math.round(sumaLeadTimeHoras / totalReservasValidas)
-        : 0;
-
-    // Clientes
-    let clientesRecurrentes = 0;
-    let clientesNuevos = 0;
-    clientesStats.forEach((val) => {
-      if (val.reservas > 1) clientesRecurrentes++;
-      else clientesNuevos++;
-    });
-
-    // Formateo Gráficos
-    const chartRevenue = Array.from(ingresosPorDia).map(([name, value]) => ({
-      name,
-      value,
-    }));
-    const diasSemanaNombres = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-    const chartDiaSemana = reservasPorDiaSemana.map((val, i) => ({
-      name: diasSemanaNombres[i],
-      reservas: val,
-    }));
-
-    const chartHoras = actividadPorHora
-      .map((val, i) => ({
-        name: `${i}:00`,
-        reservas: val,
-      }))
-      .filter((h) => h.reservas > 0);
-
-    const chartPagos = [
-      { name: "Cobrado (Señas)", value: totalCobrado },
-      { name: "Pendiente (Saldo)", value: totalSaldoCobrar },
-    ];
-
-    const topClientes = Array.from(clientesStats.values())
-      .sort((a, b) => b.gastado - a.gastado)
-      .slice(0, 5);
-    const chartCanchas = Array.from(performanceCanchas.values()).sort(
-      (a, b) => b.ingresos - a.ingresos,
-    );
-
-    // 4. DATA EN VIVO
-    const { data: proximasRaw } = await supabaseAdmin
-      .from("reservas")
-      .select(
-        `id_reserva, inicio, fin, fecha, precio_total, estado, id_usuario, cliente_nombre, canchas(nombre)`,
-      )
-      .eq("id_club", clubId)
-      .neq("estado", "cancelada")
-      .gte("fecha", now.toISOString().split("T")[0])
-      .order("fecha", { ascending: true })
-      .order("inicio", { ascending: true })
-      .limit(7);
-
-    const proximas = proximasRaw?.map((p: any) => {
-      let nombreDisplay = "Cliente";
-      let emailDisplay = "-";
-
-      if (p.id_usuario && profilesMap.has(p.id_usuario)) {
-        const pr = profilesMap.get(p.id_usuario);
-        nombreDisplay = `${pr.nombre} ${pr.apellido}`;
-        emailDisplay = pr.email;
-      } else {
-        nombreDisplay = p.cliente_nombre || "Cliente Manual";
-      }
-
-      return {
-        ...p,
-        cliente: nombreDisplay,
-        email: emailDisplay,
-      };
+      reservasPorDiaSemana[getDay(parseISO(r.fecha))] += 1;
     });
 
     return NextResponse.json({
@@ -247,26 +172,49 @@ export async function GET(request: Request) {
         ingresos: totalIngresos,
         saldoCobrar: totalSaldoCobrar,
         reservas: totalReservasValidas,
-        horasVendidas,
-        anticipacion: anticipacionPromedio,
-        tasaCancelacion,
+        horasVendidas: Math.round(minutosVendidos / 60),
+        anticipacion: totalReservasValidas
+          ? Math.round(sumaLeadTimeHoras / totalReservasValidas)
+          : 0,
+        tasaCancelacion:
+          totalReservasValidas + totalCanceladas > 0
+            ? (totalCanceladas / (totalReservasValidas + totalCanceladas)) * 100
+            : 0,
         ticketPromedio: totalReservasValidas
           ? totalIngresos / totalReservasValidas
           : 0,
-        clientesNuevos,
-        clientesRecurrentes,
+        clientesNuevos: Array.from(clientesStats.values()).filter(
+          (c: any) => c.reservas === 1,
+        ).length,
+        clientesRecurrentes: Array.from(clientesStats.values()).filter(
+          (c: any) => c.reservas > 1,
+        ).length,
       },
       charts: {
-        revenue: chartRevenue,
-        weekDays: chartDiaSemana,
-        hourly: chartHoras,
-        payments: chartPagos,
-        topClientes,
+        revenue: Array.from(ingresosPorDia).map(([name, value]) => ({
+          name,
+          value,
+        })),
+        weekDays: ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map(
+          (name, i) => ({ name, reservas: reservasPorDiaSemana[i] }),
+        ),
+        hourly: actividadPorHora
+          .map((reservas, i) => ({ name: `${i}:00`, reservas }))
+          .filter((h) => h.reservas > 0),
+        payments: [
+          { name: "Cobrado", value: totalCobrado },
+          { name: "Pendiente", value: totalSaldoCobrar },
+        ],
+        topClientes: Array.from(clientesStats.values())
+          .sort((a: any, b: any) => b.gastado - a.gastado)
+          .slice(0, 5),
       },
-      comparativaCanchas: chartCanchas,
-      tablaReservas: proximas || [],
+      comparativaCanchas: Array.from(performanceCanchas.values()).sort(
+        (a, b) => b.ingresos - a.ingresos,
+      ),
     });
   } catch (error: any) {
+    console.error("Error Dashboard Stats:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

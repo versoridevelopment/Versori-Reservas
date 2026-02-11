@@ -281,9 +281,13 @@ export async function GET(req: Request) {
 
     const { data: reservasRaw, error: resErr } = await supabaseAdmin
       .from("reservas")
-      .select(
-        `id_reserva, id_club, id_cancha, id_usuario, fecha, inicio, fin, fin_dia_offset, estado, precio_total, monto_anticipo, segmento, tipo_turno, cliente_nombre, cliente_telefono, cliente_email, notas, origen, inicio_ts, fin_ts, reservas_pagos ( amount, status )`,
-      )
+      .select(`
+        id_reserva, id_club, id_cancha, id_usuario, id_cliente_manual,
+        fecha, inicio, fin, fin_dia_offset, estado, precio_total, monto_anticipo,
+        segmento, tipo_turno, notas, origen, inicio_ts, fin_ts,
+        clientes_manuales:clientes_manuales ( id_cliente, nombre, telefono, email ),
+        reservas_pagos ( amount, status )
+      `)
       .eq("id_club", id_club)
       .in("estado", ["confirmada", "pendiente_pago"])
       .lt("inicio_ts", windowEndISO)
@@ -352,8 +356,10 @@ export async function GET(req: Request) {
     const reservasOut = reservasValidas.map((r: any) => {
       const prof = r.id_usuario ? profilesMap.get(r.id_usuario) : null;
       const nombreProfile = prof
-        ? [prof.nombre, prof.apellido].filter(Boolean).join(" ")
+        ? [prof.nombre, prof.apellido].filter(Boolean).join(" ").trim()
         : "";
+
+      const manual = r.clientes_manuales || null;
 
       const totalPagado =
         r.reservas_pagos
@@ -363,25 +369,35 @@ export async function GET(req: Request) {
       const precio = Number(r.precio_total || 0);
       const saldo = Math.max(0, precio - totalPagado);
 
+      const cliente_nombre = String(
+        manual?.nombre || nombreProfile || "Sin nombre",
+      ).trim();
+      const cliente_telefono = String(
+        manual?.telefono || prof?.telefono || "",
+      );
+      const cliente_email = String(manual?.email || prof?.email || "");
+
       return {
         id_reserva: r.id_reserva,
         id_cancha: r.id_cancha,
+        id_usuario: r.id_usuario ?? null,
+        id_cliente_manual: r.id_cliente_manual ?? null,
+
         fecha: r.fecha,
         horaInicio: String(r.inicio).slice(0, 5),
         horaFin: String(r.fin).slice(0, 5),
         fin_dia_offset: Number(r.fin_dia_offset || 0),
+
         estado: r.estado,
         precio_total: precio,
         saldo_pendiente: saldo,
         segmento: r.segmento,
         tipo_turno: r.tipo_turno || "normal",
-        cliente_nombre: (
-          r.cliente_nombre ||
-          nombreProfile ||
-          "Sin nombre"
-        ).trim(),
-        cliente_telefono: r.cliente_telefono || prof?.telefono || "",
-        cliente_email: r.cliente_email || prof?.email || "",
+
+        cliente_nombre,
+        cliente_telefono,
+        cliente_email,
+
         notas: r.notas || "",
         origen: r.origen || "web",
         pagos_aprobados_total: totalPagado,

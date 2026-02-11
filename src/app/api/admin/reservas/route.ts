@@ -25,52 +25,42 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-// ✅ HELPER: Búsqueda flexible de cliente manual (Cascada: Teléfono -> Nombre)
+function normalizePhone(input: string) {
+  return String(input || "").replace(/\D/g, "");
+}
+
+// ✅ HELPER: Cliente manual (Teléfono requerido)
 async function getOrCreateClienteManual(
   id_club: number,
   nombre: string,
   telefono: string,
   email: string,
 ) {
-  const cleanName = nombre.trim();
-  const cleanPhone = telefono && telefono.trim() !== "" ? telefono.trim() : null;
-  const cleanEmail = email && email.trim() !== "" ? email.trim() : null;
+  const cleanName = String(nombre || "").trim();
+  const cleanPhoneRaw = String(telefono || "").trim();
+  const cleanPhone = normalizePhone(cleanPhoneRaw);
+  const cleanEmail = String(email || "").trim() || null;
 
   if (!cleanName) return null;
+  if (!cleanPhone) return "TEL_REQUERIDO" as const;
 
-  let existingClient = null;
+  // 1) buscar por teléfono normalizado
+  const { data: byPhone } = await supabaseAdmin
+    .from("clientes_manuales")
+    .select("id_cliente")
+    .eq("id_club", id_club)
+    .eq("telefono_normalizado", cleanPhone) // ✅ CAMBIO CLAVE
+    .maybeSingle();
 
-  // 1. Intentar buscar por teléfono primero
-  if (cleanPhone) {
-    const { data: byPhone } = await supabaseAdmin
-      .from("clientes_manuales")
-      .select("id_cliente")
-      .eq("id_club", id_club)
-      .eq("telefono", cleanPhone)
-      .maybeSingle();
-    existingClient = byPhone;
-  }
+  if (byPhone?.id_cliente) return byPhone.id_cliente;
 
-  // 2. Si no hay match por teléfono, buscar por nombre exacto
-  if (!existingClient) {
-    const { data: byName } = await supabaseAdmin
-      .from("clientes_manuales")
-      .select("id_cliente")
-      .eq("id_club", id_club)
-      .eq("nombre", cleanName)
-      .maybeSingle();
-    existingClient = byName;
-  }
-
-  if (existingClient) return existingClient.id_cliente;
-
-  // 3. Si no existe, crear nuevo registro
+  // 2) crear
   const { data: created, error } = await supabaseAdmin
     .from("clientes_manuales")
     .insert({
       id_club,
       nombre: cleanName,
-      telefono: cleanPhone,
+      telefono: cleanPhoneRaw, // guarda raw
       email: cleanEmail,
     })
     .select("id_cliente")
@@ -113,12 +103,21 @@ export async function POST(req: Request) {
     const notas = body?.notas ?? null;
     const id_usuario = body?.id_usuario || null;
 
+    // (los seguimos leyendo del body solo para vincular/crear cliente_manual)
     const cliente_nombre = String(body?.cliente_nombre ?? "").trim();
     const cliente_telefono = String(body?.cliente_telefono ?? "").trim();
     const cliente_email = String(body?.cliente_email ?? "").trim();
 
     if (!id_club || !id_cancha || !fecha || !inicio) {
       return NextResponse.json({ error: "Faltan datos" }, { status: 400 });
+    }
+
+    // ✅ Si es cliente manual => teléfono requerido
+    if (!id_usuario && cliente_nombre.length > 0) {
+      const telNorm = normalizePhone(cliente_telefono);
+      if (!telNorm) {
+        return NextResponse.json({ error: "TEL_REQUERIDO" }, { status: 400 });
+      }
     }
 
     // Duración / fin / offset
@@ -149,7 +148,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: perm.error }, { status: perm.status as number });
     }
 
-    // ✅ VALIDAR BLOQUEOS (CIERRES) — no crear reserva en horario de cierre parcial/total
+    // ✅ VALIDAR BLOQUEOS (CIERRES)
     const { data: cierres } = await supabaseAdmin
       .from("club_cierres")
       .select("inicio, fin, fin_dia_offset, motivo")
@@ -162,6 +161,7 @@ export async function POST(req: Request) {
       for (const cierre of cierres) {
         let cierreStartMin: number;
         let cierreEndMin: number;
+
         if (!cierre.inicio || !cierre.fin) {
           cierreStartMin = 0;
           cierreEndMin = 1440 * 2;
@@ -171,6 +171,7 @@ export async function POST(req: Request) {
           const offset = Number((cierre as { fin_dia_offset?: number }).fin_dia_offset || 0);
           cierreEndMin = offset === 1 ? finBase + 1440 : finBase;
         }
+
         if (startMin < cierreEndMin && endMinAbs > cierreStartMin) {
           return NextResponse.json(
             { error: `Horario bloqueado: ${cierre.motivo || "Cierre"}` },
@@ -187,6 +188,7 @@ export async function POST(req: Request) {
     let segmento = tipo_turno === "profesor" ? "profe" : "publico";
 
     const precio_manual = !!body?.precio_manual;
+
     if (precio_manual) {
       precio_total = Number(body?.precio_total_manual ?? 0);
     } else {
@@ -230,18 +232,25 @@ export async function POST(req: Request) {
     const pct = Number(clubData?.anticipo_porcentaje ?? 50);
     const monto_anticipo = round2(precio_total * (pct / 100));
 
-    // ✅ VINCULACIÓN CLIENTE MANUAL (Mejora del primer archivo)
+    // ✅ VINCULACIÓN CLIENTE MANUAL (guardamos SOLO id_cliente_manual)
     let id_cliente_manual = null;
+
     if (!id_usuario && cliente_nombre.length > 0) {
-      id_cliente_manual = await getOrCreateClienteManual(
+      const r = await getOrCreateClienteManual(
         id_club,
         cliente_nombre,
         cliente_telefono,
         cliente_email,
       );
+
+      if (r === "TEL_REQUERIDO") {
+        return NextResponse.json({ error: "TEL_REQUERIDO" }, { status: 400 });
+      }
+
+      id_cliente_manual = r;
     }
 
-    // Insert Final
+    // Insert Final (sin cliente_* y sin cliente_manual_activo)
     const { data: inserted, error: insErr } = await supabaseAdmin
       .from("reservas")
       .insert({
@@ -257,13 +266,10 @@ export async function POST(req: Request) {
         monto_anticipo,
         tipo_turno,
         notas: notas || null,
-        cliente_nombre: cliente_nombre || null,
-        cliente_telefono: cliente_telefono || null,
-        cliente_email: cliente_email || null,
         origen: "admin",
         creado_por: adminUserId,
         id_usuario: id_usuario,
-        id_cliente_manual,
+        id_cliente_manual: id_cliente_manual,
         id_tarifario,
         id_regla,
         segmento,
@@ -272,6 +278,7 @@ export async function POST(req: Request) {
       .single();
 
     if (insErr) {
+      // Si tu EXCLUDE dispara, acá te va a venir un error de constraint.
       return NextResponse.json({ error: insErr.message }, { status: 500 });
     }
 

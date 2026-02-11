@@ -109,7 +109,8 @@ export default function CreateReservaForm({
           ...prev,
           nombre: match.nombre,
           email: match.email || prev.email,
-          telefono: cleanPhone, // Guardamos el limpio
+          telefono: match.telefono || cleanPhone,
+ // Guardamos el limpio
         }));
         setMatchFound(`Cliente recuperado: ${match.nombre}`);
         setTimeout(() => setMatchFound(null), 3000);

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Search, History, Loader2, UserPlus } from "lucide-react";
 
 type ClienteResult = {
-  id: string;
+  id: string; // ✅
   nombre: string;
   telefono: string;
   email: string;
@@ -14,11 +14,7 @@ type ClienteResult = {
 interface Props {
   idClub: number;
   initialValue?: string;
-  onSelect: (cliente: {
-    nombre: string;
-    telefono: string;
-    email: string;
-  }) => void;
+  onSelect: (cliente: { nombre: string; telefono: string; email: string }) => void;
 }
 
 export default function ClientSearchInput({
@@ -35,6 +31,7 @@ export default function ClientSearchInput({
   // Sincronizar si cambia el valor inicial (ej: edición)
   useEffect(() => {
     if (initialValue !== query) setQuery(initialValue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialValue]);
 
   // Búsqueda con Debounce
@@ -50,7 +47,9 @@ export default function ClientSearchInput({
       try {
         // ✅ AQUI EL CAMBIO CLAVE: &type=manual
         const res = await fetch(
-          `/api/admin/clientes/search?q=${encodeURIComponent(query)}&id_club=${idClub}&type=manual`,
+          `/api/admin/clientes/search?q=${encodeURIComponent(
+            query,
+          )}&id_club=${idClub}&type=manual`,
         );
         const json = await res.json();
         setResults(json.results || []);
@@ -68,10 +67,7 @@ export default function ClientSearchInput({
   // Cerrar al hacer clic fuera
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (
-        wrapperRef.current &&
-        !wrapperRef.current.contains(event.target as Node)
-      ) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setShowDropdown(false);
       }
     }
@@ -94,6 +90,7 @@ export default function ClientSearchInput({
       <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
         Nombre del Jugador
       </label>
+
       <div className="relative group">
         <input
           type="text"
@@ -109,50 +106,51 @@ export default function ClientSearchInput({
           onFocus={() => query.length >= 1 && setShowDropdown(true)}
           autoComplete="off"
         />
+
         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-          {loading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Search className="w-4 h-4" />
-          )}
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
         </div>
       </div>
 
       {/* DROPDOWN DE RESULTADOS */}
       {showDropdown && query.length >= 1 && (
         <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto custom-scrollbar ring-1 ring-black/5">
-          {results.length > 0
-            ? results.map((cliente) => (
-                <button
-                  key={cliente.id}
-                  onClick={() => handleSelect(cliente)}
-                  className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 flex items-center justify-between group transition-colors"
-                >
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center bg-orange-100 text-orange-600">
-                      <History className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-slate-800 truncate group-hover:text-blue-600">
-                        {cliente.nombre}
-                      </p>
-                      <div className="flex items-center gap-2 text-xs text-slate-500 truncate">
-                        {cliente.telefono ? (
-                          <span>{cliente.telefono}</span>
-                        ) : (
-                          <span className="italic text-slate-400">Sin tel</span>
-                        )}
-                      </div>
+          {results.length > 0 ? (
+            results.map((cliente) => (
+              <button
+                key={cliente.id}
+                onClick={() => handleSelect(cliente)}
+                className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 flex items-center justify-between group transition-colors"
+              >
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center bg-orange-100 text-orange-600">
+                    <History className="w-4 h-4" />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800 truncate group-hover:text-blue-600">
+                      {cliente.nombre}
+                    </p>
+
+                    <div className="flex items-center gap-2 text-xs text-slate-500 truncate">
+                      {cliente.telefono ? (
+                        <span>{cliente.telefono}</span>
+                      ) : (
+                        <span className="italic text-slate-400">Sin tel</span>
+                      )}
                     </div>
                   </div>
-                </button>
-              ))
-            : !loading && (
-                <div className="px-4 py-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                  <UserPlus className="w-4 h-4" />
-                  <span>Cliente nuevo</span>
                 </div>
-              )}
+              </button>
+            ))
+          ) : (
+            !loading && (
+              <div className="px-4 py-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                <UserPlus className="w-4 h-4" />
+                <span>Cliente nuevo</span>
+              </div>
+            )
+          )}
         </div>
       )}
     </div>
