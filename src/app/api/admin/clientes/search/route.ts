@@ -3,60 +3,62 @@ import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export const runtime = "nodejs";
 
+function normalizePhone(input: string) {
+  return String(input || "").replace(/\D/g, "");
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const query = searchParams.get("q") || "";
-    const id_club = searchParams.get("id_club");
-    const type = searchParams.get("type"); // Recibimos el filtro "manual"
 
-    // Validación mínima
-    if (!id_club) return NextResponse.json({ results: [] });
-    if (query.length < 1) return NextResponse.json({ results: [] });
+    const qRaw = searchParams.get("q") || "";
+    const q = qRaw.trim();
+    const id_club = Number(searchParams.get("id_club"));
+    const type = (searchParams.get("type") || "").trim(); // "manual"
 
-    // --- LÓGICA: Buscar SOLO MANUALES (Historial de Reservas) ---
-    // Buscamos reservas de este club, que NO tengan usuario registrado (id_usuario es null)
-    // y que coincidan con el nombre o teléfono.
-    const { data: manuales } = await supabaseAdmin
-      .from("reservas")
-      .select("cliente_nombre, cliente_telefono, cliente_email")
+    if (!id_club || !Number.isFinite(id_club)) return NextResponse.json({ results: [] });
+    if (q.length < 1) return NextResponse.json({ results: [] });
+
+    // Por ahora: SOLO manuales (como venís usando)
+    if (type && type !== "manual") return NextResponse.json({ results: [] });
+
+    const qPhone = normalizePhone(q);
+
+    // armamos OR: por nombre o por teléfono normalizado
+    // - nombre: ilike
+    // - telefono_normalizado: ilike si viene dígitos (sirve para buscar por parte del número)
+    const orParts: string[] = [`nombre.ilike.%${q.replace(/%/g, "")}%`];
+
+    if (qPhone.length >= 1) {
+      orParts.push(`telefono_normalizado.ilike.%${qPhone}%`);
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("clientes_manuales")
+      .select("id_cliente, nombre, telefono, email")
       .eq("id_club", id_club)
-      .is("id_usuario", null) // ⚠️ CLAVE: Solo usuarios sin cuenta
-      .or(`cliente_nombre.ilike.%${query}%,cliente_telefono.ilike.%${query}%`)
-      .order("created_at", { ascending: false }) // Los más recientes primero
-      .limit(50); // Limitamos para rapidez
+      .eq("activo", true)
+      .or(orParts.join(","))
+      .order("updated_at", { ascending: false })
+      .limit(50);
 
-    // --- DEDUPLICACIÓN ---
-    // Como un cliente manual puede tener 20 reservas pasadas,
-    // usamos un Map para devolver solo uno único por nombre.
-    const uniqueMap = new Map();
+    if (error) {
+      console.error("[clientes/search] error:", error.message);
+      return NextResponse.json({ results: [] });
+    }
 
-    manuales?.forEach((m) => {
-      if (m.cliente_nombre) {
-        // Normalizamos el nombre para evitar "Juan" y "juan" duplicados
-        const key = m.cliente_nombre.trim().toLowerCase();
-
-        if (!uniqueMap.has(key)) {
-          uniqueMap.set(key, {
-            id: `man-${key}`, // ID temporal para que React no se queje
-            nombre: m.cliente_nombre.trim(),
-            telefono: m.cliente_telefono || "",
-            email: m.cliente_email || "",
-            tipo: "manual", // Badge para diferenciar visualmente
-          });
-        }
-      }
-    });
-
-    const results = Array.from(uniqueMap.values());
-
-    // NOTA: Si en el futuro quieres buscar también usuarios web,
-    // aquí agregaríamos el `if (type !== 'manual') { ... buscar en profiles ... }`
-    // pero por ahora, tu requisito es ESTRICTAMENTE manuales.
+    const results =
+      (data || []).map((c) => ({
+        id: String(c.id_cliente), // <- string para React key / tu type actual
+        nombre: (c.nombre || "").trim(),
+        telefono: c.telefono || "",
+        email: c.email || "",
+        tipo: "manual" as const,
+      })) || [];
 
     return NextResponse.json({ results });
-  } catch (error) {
-    console.error("Error en búsqueda de clientes:", error);
+  } catch (err) {
+    console.error("Error en búsqueda de clientes:", err);
     return NextResponse.json({ results: [] });
   }
 }
