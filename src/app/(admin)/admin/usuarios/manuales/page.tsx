@@ -10,15 +10,13 @@ import {
   ChevronDown,
   Trophy,
   Clock,
-  Frown,
   MoreVertical,
   ExternalLink,
   DollarSign,
   Power,
   Ban,
-  StickyNote,
-  X,
-  Save,
+  Loader2,
+  Frown,
 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 import { motion, AnimatePresence } from "framer-motion";
@@ -26,7 +24,7 @@ import { useRouter } from "next/navigation";
 
 // --- TIPOS ---
 type ClienteManual = {
-  id: string; // Es el identificador (tel o nombre)
+  id: number;
   nombre: string;
   telefono: string;
   email: string;
@@ -45,19 +43,11 @@ export default function UsuariosManualesPage() {
   const [search, setSearch] = useState("");
   const [idClub, setIdClub] = useState<number | null>(null);
   const [userRole, setUserRole] = useState<"admin" | "cajero" | null>(null);
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
 
   const router = useRouter();
   const [sortBy, setSortBy] = useState<SortField>("reciente");
   const [showFilters, setShowFilters] = useState(false);
-
-  // --- ESTADOS PARA MODAL DE NOTAS ---
-  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
-  const [editingCliente, setEditingCliente] = useState<ClienteManual | null>(
-    null,
-  );
-  const [noteText, setNoteText] = useState("");
-  const [savingNote, setSavingNote] = useState(false);
 
   const [supabase] = useState(() =>
     createBrowserClient(
@@ -66,7 +56,7 @@ export default function UsuariosManualesPage() {
     ),
   );
 
-  // 1. Init Data
+  // 1. Init Data (Club y Rol)
   useEffect(() => {
     const init = async () => {
       const {
@@ -95,7 +85,7 @@ export default function UsuariosManualesPage() {
         .eq("id_usuario", user.id)
         .eq("id_club", currentClubId);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Eliminado el eslint-disable innecesario
       const isAdmin = members?.some((m: any) => {
         const rName = m.roles?.nombre?.toLowerCase().trim();
         return (
@@ -110,24 +100,24 @@ export default function UsuariosManualesPage() {
     init();
   }, [supabase]);
 
-  // 2. Fetch Clientes
-  const fetchClientes = async () => {
-    if (!idClub) return;
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `/api/admin/usuarios/usuarios-manuales?id_club=${idClub}`,
-      );
-      const json = await res.json();
-      if (json.ok) setClientes(json.clientes);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // 2. Fetch Clientes (Definido dentro del effect para evitar warning de deps)
   useEffect(() => {
+    const fetchClientes = async () => {
+      if (!idClub) return;
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/admin/usuarios/usuarios-manuales?id_club=${idClub}`,
+        );
+        const json = await res.json();
+        if (json.ok) setClientes(json.clientes);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchClientes();
   }, [idClub]);
 
@@ -150,7 +140,7 @@ export default function UsuariosManualesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nombre: cliente.nombre,
+          id_cliente: cliente.id,
           id_club: idClub,
           nuevoEstado,
         }),
@@ -170,49 +160,6 @@ export default function UsuariosManualesPage() {
     }
   };
 
-  // --- LOGICA NOTAS ---
-  const openNoteModal = (cliente: ClienteManual, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setActiveMenuId(null);
-    setEditingCliente(cliente);
-    setNoteText(cliente.notas || "");
-    setIsNoteModalOpen(true);
-  };
-
-  const handleSaveNote = async () => {
-    if (!editingCliente || !idClub) return;
-    setSavingNote(true);
-
-    try {
-      const res = await fetch("/api/admin/usuarios/manuales/notas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id_club: idClub,
-          identificador: editingCliente.id, // ID es el key (tel o nombre)
-          notas: noteText,
-        }),
-      });
-
-      if (res.ok) {
-        // Actualizar estado local
-        setClientes((prev) =>
-          prev.map((c) =>
-            c.id === editingCliente.id ? { ...c, notas: noteText } : c,
-          ),
-        );
-        setIsNoteModalOpen(false);
-      } else {
-        alert("Error al guardar la nota");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Error de conexión");
-    } finally {
-      setSavingNote(false);
-    }
-  };
-
   // --- FILTRADO ---
   const filteredAndSorted = useMemo(() => {
     let result = [...clientes];
@@ -222,8 +169,7 @@ export default function UsuariosManualesPage() {
         (c) =>
           c.nombre.toLowerCase().includes(q) ||
           c.telefono.includes(q) ||
-          c.email?.toLowerCase().includes(q) ||
-          c.notas?.toLowerCase().includes(q),
+          c.email?.toLowerCase().includes(q),
       );
     }
     result.sort((a, b) => {
@@ -394,7 +340,7 @@ export default function UsuariosManualesPage() {
         {/* LISTA */}
         {loading ? (
           <div className="p-20 flex flex-col items-center justify-center gap-4">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+            <Loader2 className="animate-spin h-8 w-8 text-orange-500" />
             <p className="text-slate-400 font-medium text-sm">Cargando...</p>
           </div>
         ) : filteredAndSorted.length === 0 ? (
@@ -415,9 +361,7 @@ export default function UsuariosManualesPage() {
                   <div
                     key={cliente.id}
                     onClick={() =>
-                      router.push(
-                        `/admin/usuarios/manuales/${encodeURIComponent(cliente.nombre)}`,
-                      )
+                      router.push(`/admin/usuarios/manuales/${cliente.id}`)
                     }
                     className={`bg-white p-4 rounded-xl border border-slate-200 shadow-sm active:scale-[0.98] transition-transform relative ${
                       !esActivo ? "opacity-75 grayscale bg-slate-50" : ""
@@ -436,13 +380,9 @@ export default function UsuariosManualesPage() {
                         </div>
                         <div>
                           <div className="flex items-center gap-1">
-                            {/* ✅ CORRECCIÓN NOMBRE */}
                             <h3 className="font-bold text-slate-800 text-sm">
                               {cliente.nombre || "Usuario Desconocido"}
                             </h3>
-                            {cliente.notas && (
-                              <StickyNote className="w-3 h-3 text-yellow-500 fill-yellow-500/20" />
-                            )}
                           </div>
                           {!esActivo && (
                             <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase">
@@ -455,6 +395,7 @@ export default function UsuariosManualesPage() {
                       {userRole === "admin" && (
                         <div className="relative">
                           <button
+                            aria-label="Opciones"
                             onClick={(e) => {
                               e.stopPropagation();
                               setActiveMenuId(
@@ -472,7 +413,7 @@ export default function UsuariosManualesPage() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   router.push(
-                                    `/admin/usuarios/manuales/${encodeURIComponent(cliente.nombre)}`,
+                                    `/admin/usuarios/manuales/${cliente.id}`,
                                   );
                                 }}
                                 className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
@@ -480,13 +421,7 @@ export default function UsuariosManualesPage() {
                                 <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
                                 Ver / Editar
                               </button>
-                              <button
-                                onClick={(e) => openNoteModal(cliente, e)}
-                                className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
-                              >
-                                <StickyNote className="w-3.5 h-3.5 text-yellow-500" />
-                                {cliente.notas ? "Editar Nota" : "Crear Nota"}
-                              </button>
+
                               <button
                                 onClick={(e) => handleToggleStatus(cliente, e)}
                                 className={`w-full text-left px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-2 ${
@@ -573,7 +508,7 @@ export default function UsuariosManualesPage() {
                           key={cliente.id}
                           onClick={() =>
                             router.push(
-                              `/admin/usuarios/manuales/${encodeURIComponent(cliente.nombre)}`,
+                              `/admin/usuarios/manuales/${cliente.id}`,
                             )
                           }
                           className={`transition-colors group cursor-pointer relative ${
@@ -595,9 +530,6 @@ export default function UsuariosManualesPage() {
                               </div>
                               <div className="font-bold text-slate-800">
                                 {cliente.nombre}
-                                {cliente.notas && (
-                                  <StickyNote className="w-3 h-3 text-yellow-500 fill-yellow-500/20 inline ml-2" />
-                                )}
                               </div>
                             </div>
                           </td>
@@ -653,6 +585,7 @@ export default function UsuariosManualesPage() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <button
+                                aria-label="Opciones"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setActiveMenuId(
@@ -672,23 +605,13 @@ export default function UsuariosManualesPage() {
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       router.push(
-                                        `/admin/usuarios/manuales/${encodeURIComponent(cliente.nombre)}`,
+                                        `/admin/usuarios/manuales/${cliente.id}`,
                                       );
                                     }}
                                     className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5 text-blue-500" />{" "}
                                     Ver / Editar
-                                  </button>
-
-                                  <button
-                                    onClick={(e) => openNoteModal(cliente, e)}
-                                    className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
-                                  >
-                                    <StickyNote className="w-3.5 h-3.5 text-yellow-500" />
-                                    {cliente.notas
-                                      ? "Editar Nota"
-                                      : "Crear Nota"}
                                   </button>
 
                                   <button
@@ -727,75 +650,6 @@ export default function UsuariosManualesPage() {
           </>
         )}
       </div>
-
-      {/* --- MODAL PARA EDITAR NOTAS --- */}
-      <AnimatePresence>
-        {isNoteModalOpen && editingCliente && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-            onClick={() => setIsNoteModalOpen(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
-            >
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                  <StickyNote className="w-5 h-5 text-yellow-500" />
-                  Notas de Usuario
-                </h3>
-                <button
-                  onClick={() => setIsNoteModalOpen(false)}
-                  className="p-1 hover:bg-slate-200 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5 text-slate-400" />
-                </button>
-              </div>
-
-              <div className="p-6">
-                <p className="text-sm text-slate-500 mb-2">
-                  Editando nota para:{" "}
-                  <span className="font-bold text-slate-700">
-                    {editingCliente.nombre}
-                  </span>
-                </p>
-                <textarea
-                  className="w-full h-32 p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none resize-none text-slate-700 text-sm bg-yellow-50/30"
-                  placeholder="Escribe aquí observaciones importantes sobre este cliente (ej: Preferencia de cancha, deudas, horarios...)"
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  autoFocus
-                />
-              </div>
-
-              <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
-                <button
-                  onClick={() => setIsNoteModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleSaveNote}
-                  disabled={savingNote}
-                  className="px-4 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {savingNote ? (
-                    "Guardando..."
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" /> Guardar Nota
-                    </>
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

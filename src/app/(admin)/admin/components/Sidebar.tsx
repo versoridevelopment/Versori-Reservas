@@ -54,13 +54,12 @@ type MenuLink = {
   allowedRoles: UserRole[];
 };
 
-// ✅ Definición de Props para recibir datos del Layout
+// ✅ Definición de Props
 interface SidebarProps {
   clubName?: string;
   clubLogo?: string | null;
 }
 
-// ✅ Función aceptando props
 export function Sidebar({
   clubName: serverClubName,
   clubLogo: serverClubLogo,
@@ -85,8 +84,9 @@ export function Sidebar({
 
   const [clubId, setClubId] = useState<number>(9);
 
-  // ✅ Usamos props del servidor si existen, si no, null (se llenará con useEffect si es necesario)
-  // Nota: Para visualización usamos directamente las variables serverClubName/Logo en el JSX
+  // Variables de visualización
+  const finalClubLogo = serverClubLogo;
+  const finalClubName = serverClubName || "Mi Club";
 
   const [canchas, setCanchas] = useState<
     { id_cancha: number; nombre: string }[]
@@ -123,7 +123,6 @@ export function Sidebar({
       if (!user) return;
 
       let currentClubId = 9;
-      // let currentClubLogo = null; // Ya no lo necesitamos para visualización, viene por props
 
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
@@ -131,7 +130,7 @@ export function Sidebar({
         if (subdomain && subdomain !== "localhost" && subdomain !== "www") {
           const { data: clubData } = await supabase
             .from("clubes")
-            .select("id_club") // Solo ID, logo y nombre vienen del server component
+            .select("id_club")
             .eq("subdominio", subdomain)
             .maybeSingle();
           if (clubData) {
@@ -140,7 +139,6 @@ export function Sidebar({
         }
       }
       setClubId(currentClubId);
-      // setClubLogo(currentClubLogo); // Usaremos serverClubLogo
 
       const { data: canchasData } = await supabase
         .from("canchas")
@@ -313,32 +311,45 @@ export function Sidebar({
 
   if (!isMounted) return null;
 
-  // Variables finales para renderizar (prioridad: props > estado default)
-  const finalClubLogo = serverClubLogo;
-  const finalClubName = serverClubName || "Mi Club";
-
   return (
     <>
+      {/* BOTÓN HAMBURGUESA FLOTANTE (SOLO visible si el menú está CERRADO) */}
       <button
-        onClick={() => setIsMobileOpen(!isMobileOpen)}
-        className="md:hidden fixed top-4 left-4 z-50 p-2 bg-[#0d1b2a] text-white rounded-lg shadow-lg border border-gray-700 hover:bg-[#1b263b] transition-colors"
+        onClick={() => setIsMobileOpen(true)}
+        className={`md:hidden fixed top-3 left-3 z-30 p-2.5 bg-white/90 backdrop-blur-sm border border-slate-200 text-slate-700 rounded-full shadow-lg hover:bg-white transition-all active:scale-95 ${
+          isMobileOpen ? "opacity-0 pointer-events-none" : "opacity-100"
+        }`}
+        aria-label="Abrir menú"
       >
-        {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
+        <Menu size={22} strokeWidth={2.5} />
       </button>
 
+      {/* BACKDROP */}
       {isMobileOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
           onClick={() => setIsMobileOpen(false)}
         />
       )}
 
+      {/* SIDEBAR */}
       <aside
-        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl z-40 overflow-hidden transition-transform duration-300 ease-in-out ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
+        className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl z-50 overflow-hidden transition-transform duration-300 ease-in-out ${
+          isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        }`}
       >
         {/* HEADER */}
         <div className="flex flex-col items-center pt-8 pb-6 px-4 bg-[#0b1623] relative">
           <div className="absolute top-0 left-0 w-full h-40 bg-gradient-to-b from-[#1b263b] via-[#0d1b2a]/80 to-transparent pointer-events-none" />
+
+          {/* Botón de CERRAR interno (Solo visible en móvil) */}
+          <button
+            onClick={() => setIsMobileOpen(false)}
+            className="md:hidden absolute top-3 right-3 p-2 bg-white/10 text-white hover:bg-white/20 rounded-full transition-colors z-20"
+            aria-label="Cerrar menú"
+          >
+            <X size={20} />
+          </button>
 
           {/* Logo del Club Hero */}
           <div className="relative w-36 h-36 mb-4 z-10 group cursor-default">
@@ -357,7 +368,6 @@ export function Sidebar({
               </div>
             ) : (
               <div className="w-full h-full bg-[#1b263b] rounded-full flex items-center justify-center text-blue-400/50 border border-blue-900/30 shadow-[0_0_30px_rgba(59,130,246,0.1)]">
-                {/* Fallback si no hay logo: Inicial del nombre */}
                 <span className="text-4xl font-bold text-white/20">
                   {finalClubName.charAt(0)}
                 </span>
@@ -400,7 +410,7 @@ export function Sidebar({
           </div>
         </div>
 
-        {/* Scrollbar Oculta */}
+        {/* MENÚ DE NAVEGACIÓN */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {visibleMainLinks.map((link) => (
             <Link
@@ -418,6 +428,7 @@ export function Sidebar({
             </Link>
           ))}
 
+          {/* SUBMENÚ USUARIOS */}
           {visibleUsuariosLinks.length > 0 && (
             <div className="pt-2">
               <button
@@ -455,6 +466,7 @@ export function Sidebar({
             </div>
           )}
 
+          {/* BOTÓN CIERRES */}
           {(userRole === "admin" ||
             userRole === "staff" ||
             userRole === "cajero") && (
@@ -472,6 +484,7 @@ export function Sidebar({
             </button>
           )}
 
+          {/* TURNOS DISPONIBLES */}
           {(userRole === "admin" ||
             userRole === "staff" ||
             userRole === "cajero") && (
@@ -497,6 +510,7 @@ export function Sidebar({
             </Link>
           )}
 
+          {/* SUBMENÚ GESTIÓN */}
           {visibleGestionLinks.length > 0 && (
             <div className="pt-4 mt-2 border-t border-gray-800/50">
               <p className="px-3 pb-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
@@ -537,6 +551,7 @@ export function Sidebar({
             </div>
           )}
 
+          {/* SUBMENÚ PERSONALIZACIÓN */}
           {visiblePersonalizacionLinks.length > 0 && (
             <div className="pt-2 mt-2">
               <button
