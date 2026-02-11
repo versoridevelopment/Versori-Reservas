@@ -13,10 +13,8 @@ import {
 import { useState, useEffect, useMemo } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { printReservaTicket } from "@/lib/printTicket";
-import {
-  useReservaSidebar,
-  type ReservaSidebarProps,
-} from "./sidebar/hooks/useReservaSidebar";
+import { useReservaSidebar } from "./sidebar/hooks/useReservaSidebar";
+import type { ReservaSidebarProps } from "./sidebar/lib/types";
 
 import CreateReservaForm from "./sidebar/CreateReservaForm";
 import ReservaDetails from "./sidebar/ReservaDetails";
