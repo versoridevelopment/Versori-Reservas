@@ -146,7 +146,6 @@ function normalizePhone(input: string) {
 }
 
 // ✅ HOY tu create no manda id_usuario, así que siempre es manual.
-// Si mañana agregás id_usuario, cambiás esta función.
 function isManualCliente() {
   return true;
 }
@@ -243,6 +242,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   const [cobroError, setCobroError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<{
+    // ✅ NUEVO
+    idClienteManual: number | null;
+
     nombre: string;
     telefono: string;
     email: string;
@@ -264,6 +266,8 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     weeksAhead: number;
     endDate: string;
   }>({
+    idClienteManual: null,
+
     nombre: "",
     telefono: "",
     email: "",
@@ -633,7 +637,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
       }
 
       precioNum = Number(formData.precio);
-
       if (!Number.isFinite(precioNum) || precioNum < 0) {
         return setCreateError("Precio manual inválido");
       }
@@ -651,13 +654,15 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     const telefonoNorm = normalizePhone(telefonoRaw);
     const email = formData.email.trim();
 
-    if (!nombre) return setCreateError("Nombre requerido");
     if (!id_cancha) return setCreateError("Falta cancha");
 
-    // ✅ Teléfono obligatorio para cliente manual (tu backend ahora upsertea cliente_manual con tel NOT NULL)
-    if (isManualCliente()) {
-      if (!telefonoNorm) return setCreateError("Teléfono requerido");
-      if (telefonoNorm.length < 6) return setCreateError("Teléfono inválido");
+    // ✅ Si NO hay idClienteManual, exigimos los datos mínimos para poder crear/buscar
+    if (!formData.idClienteManual) {
+      if (!nombre) return setCreateError("Nombre requerido");
+      if (isManualCliente()) {
+        if (!telefonoNorm) return setCreateError("Teléfono requerido");
+        if (telefonoNorm.length < 6) return setCreateError("Teléfono inválido");
+      }
     }
 
     setCreateLoading(true);
@@ -674,10 +679,15 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         duracion_min: dur,
 
         tipo_turno: formData.tipoTurno,
-        cliente_nombre: nombre,
-        cliente_telefono: telefonoRaw, // backend normaliza (GENERATED STORED)
-        cliente_email: email ? email : null,
         notas: formData.notas.trim() || null,
+
+        // ✅ NUEVO: si existe, lo usamos
+        id_cliente_manual: formData.idClienteManual ?? null,
+
+        // ✅ Backwards/compat: si no hay id, mandamos datos para crear/buscar
+        cliente_nombre: nombre || null,
+        cliente_telefono: telefonoRaw || null,
+        cliente_email: email ? email : null,
 
         precio_manual: precioManual,
         precio_total_manual: precioManual ? precioNum : null,
@@ -686,7 +696,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
       if (formData.esTurnoFijo) {
         payload.weeks_ahead = Number(formData.weeksAhead || 8);
         payload.start_date = fechaISO;
-        payload.dow = new Date(fechaISO + "T12:00:00").getDay();
+        payload.end_date = formData.endDate ? String(formData.endDate) : null;
       }
 
       const res = await fetch(url, {
@@ -699,18 +709,23 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
       if (!res.ok) {
         const msg = String(json?.error || "");
-
         if (msg.includes("TEL_REQUERIDO")) throw new Error("Teléfono requerido");
         if (msg.includes("duplicate") || msg.includes("UNIQUE"))
           throw new Error("Ya existe un cliente con ese teléfono");
-
         throw new Error(msg || "Error creando");
       }
 
       if (onCreated) onCreated();
       onClose();
 
-      setFormData((prev) => ({ ...prev, nombre: "", telefono: "", email: "", notas: "" }));
+      setFormData((prev) => ({
+        ...prev,
+        idClienteManual: null,
+        nombre: "",
+        telefono: "",
+        email: "",
+        notas: "",
+      }));
     } catch (e: any) {
       setCreateError(e.message);
     } finally {
@@ -718,7 +733,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     }
   }
 
-  // ✅ Cancelación auditada (motivo + cancelado_por/at lo hace backend)
+  // ✅ Cancelación auditada
   async function handleCancelar(motivo?: string | null) {
     if (!reservaFull) return;
 
@@ -751,7 +766,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
   function openCobro() {
     if (reservaFull) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deuda = Number((reservaFull as any).saldo_pendiente || 0);
       setCobroMonto(deuda > 0 ? deuda : 0);
       setShowCobro(true);
@@ -818,6 +832,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     handleCobrar,
     getWhatsappLink,
 
-    reloadFull, // ✅ export
+    reloadFull,
   };
 }

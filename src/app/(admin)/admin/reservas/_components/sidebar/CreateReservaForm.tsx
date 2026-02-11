@@ -1,19 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  User,
-  Phone,
-  Mail,
-  AlertCircle,
-  Loader2,
-  CalendarDays,
-  Check,
-  RefreshCw,
-  Clock,
-  MapPin,
-  Tag,
-} from "lucide-react";
+import { User, Phone, AlertCircle, Loader2, Tag, Check } from "lucide-react";
 import { formatMoney } from "../hooks/useReservaSidebar";
 import type { CanchaUI } from "../types";
 import { getTipoTurnoConfig } from "../types";
@@ -59,7 +47,7 @@ export default function CreateReservaForm({
   createError,
   idClub,
 }: Props) {
-  const [checking, setChecking] = useState(false); // ✅ Estado para el loader del teléfono
+  const [checking, setChecking] = useState(false);
   const [matchFound, setMatchFound] = useState<string | null>(null);
 
   const esFijo = !!formData.esTurnoFijo;
@@ -89,7 +77,7 @@ export default function CreateReservaForm({
     }
   }, [formData.tipoTurno, setFormData]);
 
-  // ✅ NUEVA FUNCIÓN: Verifica si el teléfono ya existe en clientes_manuales
+  // ✅ Verifica si el teléfono ya existe y recupera idClienteManual
   const checkExistingUserByPhone = async (phone: string) => {
     const cleanPhone = normalizePhone(phone);
     if (cleanPhone.length < 6) return;
@@ -99,19 +87,25 @@ export default function CreateReservaForm({
       const res = await fetch(
         `/api/admin/clientes/search?q=${cleanPhone}&id_club=${idClub}&type=manual`,
       );
-      const json = await res.json();
-      const results = json.results || [];
+      const json = await res.json().catch(() => null);
+      const results = json?.results || [];
 
       if (results.length > 0) {
-        // Encontramos una coincidencia exacta o cercana por teléfono
         const match = results[0];
+
+        // 👇 soporta diferentes nombres de campo que puedas estar devolviendo
+        const id =
+          Number(match.id_cliente_manual ?? match.id_cliente ?? match.id ?? 0) ||
+          null;
+
         setFormData((prev: any) => ({
           ...prev,
-          nombre: match.nombre,
+          idClienteManual: id,
+          nombre: match.nombre ?? prev.nombre,
           email: match.email || prev.email,
           telefono: match.telefono || cleanPhone,
- // Guardamos el limpio
         }));
+
         setMatchFound(`Cliente recuperado: ${match.nombre}`);
         setTimeout(() => setMatchFound(null), 3000);
       }
@@ -132,17 +126,27 @@ export default function CreateReservaForm({
     }));
   };
 
+  // ✅ Ahora ClientSearchInput debería devolver también el id
   const handleClientSelect = (cliente: {
+    id_cliente_manual?: number;
+    id_cliente?: number;
+    id?: number;
     nombre: string;
     telefono: string;
     email: string;
   }) => {
+    const id =
+      Number(cliente.id_cliente_manual ?? cliente.id_cliente ?? cliente.id ?? 0) ||
+      null;
+
     setFormData((prev: any) => ({
       ...prev,
+      idClienteManual: id,
       nombre: cliente.nombre,
       telefono: normalizePhone(cliente.telefono || prev.telefono),
       email: cliente.email || prev.email,
     }));
+
     if (cliente.telefono) {
       setMatchFound("Historial recuperado");
       setTimeout(() => setMatchFound(null), 3000);
@@ -182,6 +186,25 @@ export default function CreateReservaForm({
             onSelect={handleClientSelect}
           />
 
+          {/* Nombre (si lo editan manual, limpiamos idClienteManual) */}
+          <div className="relative group">
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
+              Nombre
+            </label>
+            <input
+              value={formData.nombre}
+              onChange={(e) =>
+                setFormData((p: any) => ({
+                  ...p,
+                  nombre: e.target.value,
+                  idClienteManual: null, // ✅ si cambió, ya no confiamos en el seleccionado
+                }))
+              }
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm"
+              placeholder="Ej: Juan Pérez"
+            />
+          </div>
+
           <div className="relative group">
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
               Teléfono
@@ -191,9 +214,13 @@ export default function CreateReservaForm({
                 type="tel"
                 value={formData.telefono}
                 onChange={(e) =>
-                  setFormData({ ...formData, telefono: e.target.value })
+                  setFormData((p: any) => ({
+                    ...p,
+                    telefono: e.target.value,
+                    idClienteManual: null, // ✅ si cambió, limpiamos selección
+                  }))
                 }
-                onBlur={(e) => checkExistingUserByPhone(e.target.value)} // ✅ EJECUTA LA VERIFICACIÓN AL SALIR
+                onBlur={(e) => checkExistingUserByPhone(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm font-mono"
                 placeholder="Ej: 3794123456"
               />
@@ -205,6 +232,25 @@ export default function CreateReservaForm({
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Email (si cambia, limpiamos idClienteManual) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
+              Email (opcional)
+            </label>
+            <input
+              value={formData.email}
+              onChange={(e) =>
+                setFormData((p: any) => ({
+                  ...p,
+                  email: e.target.value,
+                  idClienteManual: null,
+                }))
+              }
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm"
+              placeholder="ej: juan@gmail.com"
+            />
           </div>
         </div>
 
@@ -230,7 +276,12 @@ export default function CreateReservaForm({
               <button
                 key={tipo}
                 type="button"
-                onClick={() => setFormData({ ...formData, tipoTurno: v })}
+                onClick={() =>
+                  setFormData((p: any) => ({
+                    ...p,
+                    tipoTurno: v,
+                  }))
+                }
                 className={`py-2.5 px-1 rounded-xl text-[10px] font-black uppercase tracking-tight border-2 transition-all active:scale-90
                   ${
                     isSelected
@@ -255,7 +306,7 @@ export default function CreateReservaForm({
             className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20"
             value={formData.canchaId}
             onChange={(e) =>
-              setFormData({ ...formData, canchaId: e.target.value })
+              setFormData((p: any) => ({ ...p, canchaId: e.target.value }))
             }
           >
             <option value="">Seleccionar cancha</option>
@@ -270,7 +321,9 @@ export default function CreateReservaForm({
         {/* Turno Fijo */}
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100">
           <label
-            className={`flex items-center gap-2 text-sm font-bold text-slate-700 ${formData.tipoTurno === "fijo" ? "cursor-default" : "cursor-pointer"}`}
+            className={`flex items-center gap-2 text-sm font-bold text-slate-700 ${
+              formData.tipoTurno === "fijo" ? "cursor-default" : "cursor-pointer"
+            }`}
           >
             <input
               type="checkbox"
@@ -352,7 +405,7 @@ export default function CreateReservaForm({
                 className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm"
                 value={formData.horaInicio}
                 onChange={(e) =>
-                  setFormData({ ...formData, horaInicio: e.target.value })
+                  setFormData((p: any) => ({ ...p, horaInicio: e.target.value }))
                 }
               >
                 {availableTimes.map((t) => (
@@ -370,7 +423,10 @@ export default function CreateReservaForm({
                 className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm"
                 value={Number(formData.duracion)}
                 onChange={(e) =>
-                  setFormData({ ...formData, duracion: Number(e.target.value) })
+                  setFormData((p: any) => ({
+                    ...p,
+                    duracion: Number(e.target.value),
+                  }))
                 }
               >
                 {DURACIONES_AUTO.map((m) => (
@@ -436,7 +492,10 @@ export default function CreateReservaForm({
                 type="number"
                 value={Number(formData.precio || 0)}
                 onChange={(e) =>
-                  setFormData({ ...formData, precio: Number(e.target.value) })
+                  setFormData((p: any) => ({
+                    ...p,
+                    precio: Number(e.target.value),
+                  }))
                 }
                 className="w-full p-2 rounded-lg border border-orange-200 text-sm font-bold"
               />
@@ -462,6 +521,12 @@ export default function CreateReservaForm({
         {createError && (
           <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-bold flex items-center gap-2">
             <AlertCircle className="w-4 h-4" /> {createError}
+          </div>
+        )}
+
+        {priceError && (
+          <div className="p-3 bg-orange-50 border border-orange-100 rounded-xl text-xs text-orange-700 font-bold flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" /> {priceError}
           </div>
         )}
       </div>
