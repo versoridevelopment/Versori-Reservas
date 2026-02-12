@@ -13,8 +13,6 @@ import {
   MoreVertical,
   ExternalLink,
   DollarSign,
-  Power,
-  Ban,
   Loader2,
   Frown,
 } from "lucide-react";
@@ -31,7 +29,6 @@ type ClienteManual = {
   total_reservas: number;
   total_gastado: number;
   ultima_reserva: string;
-  activo: boolean;
   notas: string;
 };
 
@@ -56,7 +53,6 @@ export default function UsuariosManualesPage() {
     ),
   );
 
-  // 1. Init Data (Club y Rol)
   useEffect(() => {
     const init = async () => {
       const {
@@ -64,7 +60,7 @@ export default function UsuariosManualesPage() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      let currentClubId = 9; // Default fallback
+      let currentClubId = 9;
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
         const subdomain = hostname.split(".")[0];
@@ -85,7 +81,6 @@ export default function UsuariosManualesPage() {
         .eq("id_usuario", user.id)
         .eq("id_club", currentClubId);
 
-      // Eliminado el eslint-disable innecesario
       const isAdmin = members?.some((m: any) => {
         const rName = m.roles?.nombre?.toLowerCase().trim();
         return (
@@ -100,7 +95,6 @@ export default function UsuariosManualesPage() {
     init();
   }, [supabase]);
 
-  // 2. Fetch Clientes (Definido dentro del effect para evitar warning de deps)
   useEffect(() => {
     const fetchClientes = async () => {
       if (!idClub) return;
@@ -121,45 +115,6 @@ export default function UsuariosManualesPage() {
     fetchClientes();
   }, [idClub]);
 
-  // --- ACCIONES ---
-  const handleToggleStatus = async (
-    cliente: ClienteManual,
-    e: React.MouseEvent,
-  ) => {
-    e.stopPropagation();
-    setActiveMenuId(null);
-
-    const estadoActual = cliente.activo !== false;
-    const nuevoEstado = !estadoActual;
-    const accion = nuevoEstado ? "ACTIVAR" : "DESACTIVAR";
-
-    if (!confirm(`¿Estás seguro de ${accion} a "${cliente.nombre}"?`)) return;
-
-    try {
-      const res = await fetch("/api/admin/usuarios/manuales/toggle-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id_cliente: cliente.id,
-          id_club: idClub,
-          nuevoEstado,
-        }),
-      });
-
-      if (res.ok) {
-        setClientes((prev) =>
-          prev.map((c) =>
-            c.id === cliente.id ? { ...c, activo: nuevoEstado } : c,
-          ),
-        );
-      } else {
-        alert("Error al cambiar estado.");
-      }
-    } catch {
-      alert("Error de conexión.");
-    }
-  };
-
   // --- FILTRADO ---
   const filteredAndSorted = useMemo(() => {
     let result = [...clientes];
@@ -173,10 +128,6 @@ export default function UsuariosManualesPage() {
       );
     }
     result.sort((a, b) => {
-      const aActivo = a.activo !== false;
-      const bActivo = b.activo !== false;
-      if (aActivo !== bActivo) return aActivo ? -1 : 1;
-
       if (sortBy === "reciente")
         return (
           new Date(b.ultima_reserva).getTime() -
@@ -227,10 +178,10 @@ export default function UsuariosManualesPage() {
                 }`}
               >
                 <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider">
-                  Activos
+                  Total Clientes
                 </span>
                 <span className="text-lg font-black text-slate-800">
-                  {clientes.filter((c) => c.activo !== false).length}
+                  {clientes.length}
                 </span>
               </div>
               {userRole === "admin" && (
@@ -269,7 +220,6 @@ export default function UsuariosManualesPage() {
             />
           </div>
 
-          {/* FILTROS */}
           <div className="relative w-full md:w-auto">
             <button
               onClick={(e) => {
@@ -355,120 +305,77 @@ export default function UsuariosManualesPage() {
           <>
             {/* VISTA MÓVIL */}
             <div className="grid grid-cols-1 gap-3 md:hidden">
-              {filteredAndSorted.map((cliente) => {
-                const esActivo = cliente.activo !== false;
-                return (
-                  <div
-                    key={cliente.id}
-                    onClick={() =>
-                      router.push(`/admin/usuarios/manuales/${cliente.id}`)
-                    }
-                    className={`bg-white p-4 rounded-xl border border-slate-200 shadow-sm active:scale-[0.98] transition-transform relative ${
-                      !esActivo ? "opacity-75 grayscale bg-slate-50" : ""
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-                            esActivo
-                              ? "bg-slate-100 text-slate-700"
-                              : "bg-slate-200 text-slate-400"
-                          }`}
-                        >
-                          {cliente.nombre.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1">
-                            <h3 className="font-bold text-slate-800 text-sm">
-                              {cliente.nombre || "Usuario Desconocido"}
-                            </h3>
-                          </div>
-                          {!esActivo && (
-                            <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase">
-                              Desactivado
-                            </span>
-                          )}
-                        </div>
+              {filteredAndSorted.map((cliente) => (
+                <div
+                  key={cliente.id}
+                  onClick={() =>
+                    router.push(`/admin/usuarios/manuales/${cliente.id}`)
+                  }
+                  className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm active:scale-[0.98] transition-transform relative"
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-slate-100 text-slate-700">
+                        {cliente.nombre.charAt(0).toUpperCase()}
                       </div>
-
-                      {userRole === "admin" && (
-                        <div className="relative">
-                          <button
-                            aria-label="Opciones"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuId(
-                                activeMenuId === cliente.id ? null : cliente.id,
-                              );
-                            }}
-                            className="p-2 -mr-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full"
-                          >
-                            <MoreVertical className="w-5 h-5" />
-                          </button>
-
-                          {activeMenuId === cliente.id && (
-                            <div className="absolute right-0 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-100 z-30 p-1 animate-in fade-in zoom-in-95">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  router.push(
-                                    `/admin/usuarios/manuales/${cliente.id}`,
-                                  );
-                                }}
-                                className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
-                                Ver / Editar
-                              </button>
-
-                              <button
-                                onClick={(e) => handleToggleStatus(cliente, e)}
-                                className={`w-full text-left px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-2 ${
-                                  esActivo
-                                    ? "text-red-600 hover:bg-red-50"
-                                    : "text-green-600 hover:bg-green-50"
-                                }`}
-                              >
-                                {esActivo ? (
-                                  <>
-                                    <Ban className="w-3.5 h-3.5" /> Desactivar
-                                  </>
-                                ) : (
-                                  <>
-                                    <Power className="w-3.5 h-3.5" /> Reactivar
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      <h3 className="font-bold text-slate-800 text-sm">
+                        {cliente.nombre || "Usuario Desconocido"}
+                      </h3>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 mb-3">
+                    <button
+                      aria-label="Opciones"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMenuId(
+                          activeMenuId === cliente.id ? null : cliente.id,
+                        );
+                      }}
+                      className="p-2 -mr-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full"
+                    >
+                      <MoreVertical className="w-5 h-5" />
+                    </button>
+
+                    {activeMenuId === cliente.id && (
+                      <div className="absolute right-4 top-12 w-40 bg-white rounded-xl shadow-xl border border-slate-100 z-30 p-1 animate-in fade-in zoom-in-95">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            router.push(
+                              `/admin/usuarios/manuales/${cliente.id}`,
+                            );
+                          }}
+                          className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
+                          Ver Perfil
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                      <span className="block text-[9px] font-bold text-slate-400 uppercase">
+                        Turnos
+                      </span>
+                      <span className="text-sm font-bold text-slate-800">
+                        {cliente.total_reservas}
+                      </span>
+                    </div>
+                    {userRole === "admin" && (
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="block text-[9px] font-bold text-slate-400 uppercase">
-                          Turnos
+                          Gastado
                         </span>
-                        <span className="text-sm font-bold text-slate-800">
-                          {cliente.total_reservas}
+                        <span className="text-sm font-bold text-green-700">
+                          {formatMoney(cliente.total_gastado)}
                         </span>
                       </div>
-                      {userRole === "admin" && (
-                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                          <span className="block text-[9px] font-bold text-slate-400 uppercase">
-                            Gastado
-                          </span>
-                          <span className="text-sm font-bold text-green-700">
-                            {formatMoney(cliente.total_gastado)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
 
             {/* VISTA ESCRITORIO */}
@@ -494,155 +401,110 @@ export default function UsuariosManualesPage() {
                       <th className="px-6 py-5 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">
                         Última Visita
                       </th>
-                      {userRole === "admin" && (
-                        <th className="px-6 py-5 text-xs font-bold text-slate-400 uppercase tracking-wider text-right"></th>
-                      )}
+                      <th className="px-6 py-5 text-xs font-bold text-slate-400 uppercase tracking-wider text-right"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredAndSorted.map((cliente) => {
-                      const esActivo = cliente.activo !== false;
+                    {filteredAndSorted.map((cliente) => (
+                      <tr
+                        key={cliente.id}
+                        onClick={() =>
+                          router.push(`/admin/usuarios/manuales/${cliente.id}`)
+                        }
+                        className="transition-colors group cursor-pointer hover:bg-orange-50/40 relative"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-lg bg-slate-100 text-slate-600 group-hover:bg-orange-100 group-hover:text-orange-600 transition-colors">
+                              {cliente.nombre.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="font-bold text-slate-800">
+                              {cliente.nombre}
+                            </div>
+                          </div>
+                        </td>
 
-                      return (
-                        <tr
-                          key={cliente.id}
-                          onClick={() =>
-                            router.push(
-                              `/admin/usuarios/manuales/${cliente.id}`,
-                            )
-                          }
-                          className={`transition-colors group cursor-pointer relative ${
-                            esActivo
-                              ? "hover:bg-orange-50/40"
-                              : "bg-slate-50/50 grayscale opacity-70 hover:bg-slate-100"
-                          }`}
-                        >
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-4">
-                              <div
-                                className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-lg transition-colors ${
-                                  esActivo
-                                    ? "bg-slate-100 text-slate-600 group-hover:bg-orange-100 group-hover:text-orange-600"
-                                    : "bg-slate-200 text-slate-400"
-                                }`}
-                              >
-                                {cliente.nombre.charAt(0).toUpperCase()}
+                        <td className="px-6 py-4">
+                          <div className="space-y-1">
+                            {cliente.telefono ? (
+                              <div className="flex items-center gap-2 text-sm text-slate-600">
+                                <Phone className="w-3.5 h-3.5 text-slate-400" />{" "}
+                                {cliente.telefono}
                               </div>
-                              <div className="font-bold text-slate-800">
-                                {cliente.nombre}
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">
+                                Sin teléfono
+                              </span>
+                            )}
+                            {cliente.email && (
+                              <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <Mail className="w-3.5 h-3.5 text-slate-400" />{" "}
+                                {cliente.email}
                               </div>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="px-6 py-4 text-center">
+                          <span className="inline-flex items-center justify-center px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-700">
+                            {cliente.total_reservas}
+                          </span>
+                        </td>
+
+                        {userRole === "admin" && (
+                          <td className="px-6 py-4 text-right">
+                            <div className="font-bold text-slate-800 group-hover:text-green-700 transition-colors">
+                              {formatMoney(cliente.total_gastado)}
                             </div>
                           </td>
+                        )}
 
-                          <td className="px-6 py-4">
-                            <div className="space-y-1">
-                              {cliente.telefono ? (
-                                <div className="flex items-center gap-2 text-sm text-slate-600">
-                                  <Phone className="w-3.5 h-3.5 text-slate-400" />{" "}
-                                  {cliente.telefono}
-                                </div>
-                              ) : (
-                                <span className="text-xs text-slate-400 italic">
-                                  Sin teléfono
-                                </span>
-                              )}
-                              {cliente.email && (
-                                <div className="flex items-center gap-2 text-xs text-slate-500">
-                                  <Mail className="w-3.5 h-3.5 text-slate-400" />{" "}
-                                  {cliente.email}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-
-                          <td className="px-6 py-4 text-center">
-                            <span className="inline-flex items-center justify-center px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-700">
-                              {cliente.total_reservas}
-                            </span>
-                          </td>
-
-                          {userRole === "admin" && (
-                            <td className="px-6 py-4 text-right">
-                              <div className="font-bold text-slate-800 group-hover:text-green-700 transition-colors">
-                                {formatMoney(cliente.total_gastado)}
-                              </div>
-                            </td>
-                          )}
-
-                          <td className="px-6 py-4 text-right text-sm text-slate-500">
-                            {new Date(
-                              cliente.ultima_reserva,
-                            ).toLocaleDateString("es-AR", {
+                        <td className="px-6 py-4 text-right text-sm text-slate-500">
+                          {new Date(cliente.ultima_reserva).toLocaleDateString(
+                            "es-AR",
+                            {
                               day: "numeric",
                               month: "short",
                               year: "numeric",
-                            })}
-                          </td>
+                            },
+                          )}
+                        </td>
 
-                          {userRole === "admin" && (
-                            <td
-                              className="px-6 py-4 text-right relative"
-                              onClick={(e) => e.stopPropagation()}
-                            >
+                        <td
+                          className="px-6 py-4 text-right relative"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuId(
+                                activeMenuId === cliente.id ? null : cliente.id,
+                              );
+                            }}
+                            className="p-2 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+
+                          {activeMenuId === cliente.id && (
+                            <div className="absolute right-8 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-100 z-50 p-1 animate-in fade-in zoom-in-95 duration-100">
                               <button
-                                aria-label="Opciones"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setActiveMenuId(
-                                    activeMenuId === cliente.id
-                                      ? null
-                                      : cliente.id,
+                                  router.push(
+                                    `/admin/usuarios/manuales/${cliente.id}`,
                                   );
                                 }}
-                                className="p-2 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                                className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
                               >
-                                <MoreVertical className="w-4 h-4" />
+                                <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
+                                Ver Perfil
                               </button>
-
-                              {activeMenuId === cliente.id && (
-                                <div className="absolute right-8 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-100 z-50 p-1 animate-in fade-in zoom-in-95 duration-100">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      router.push(
-                                        `/admin/usuarios/manuales/${cliente.id}`,
-                                      );
-                                    }}
-                                    className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
-                                  >
-                                    <ExternalLink className="w-3.5 h-3.5 text-blue-500" />{" "}
-                                    Ver / Editar
-                                  </button>
-
-                                  <button
-                                    onClick={(e) =>
-                                      handleToggleStatus(cliente, e)
-                                    }
-                                    className={`w-full text-left px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-2 ${
-                                      esActivo
-                                        ? "text-red-600 hover:bg-red-50"
-                                        : "text-green-600 hover:bg-green-50"
-                                    }`}
-                                  >
-                                    {esActivo ? (
-                                      <>
-                                        <Ban className="w-3.5 h-3.5" />{" "}
-                                        Desactivar
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Power className="w-3.5 h-3.5" />{" "}
-                                        Reactivar
-                                      </>
-                                    )}
-                                  </button>
-                                </div>
-                              )}
-                            </td>
+                            </div>
                           )}
-                        </tr>
-                      );
-                    })}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

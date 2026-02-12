@@ -1,11 +1,74 @@
+// src/app/api/admin/turnos-fijos/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-// --- HELPERS (Se mantienen igual) ---
+type TipoTurno =
+  | "normal"
+  | "profesor"
+  | "torneo"
+  | "escuela"
+  | "cumpleanos"
+  | "abonado";
+
+type Segmento = "publico" | "profe";
+
+// ✅ Duraciones habilitadas (alineado con tu grilla y tu UI)
+const DURACIONES_VALIDAS = [30, 60, 90, 120, 150, 180, 210, 240] as const;
+type DuracionMin = (typeof DURACIONES_VALIDAS)[number];
+
+function isDuracionValida(n: number): n is DuracionMin {
+  return (DURACIONES_VALIDAS as readonly number[]).includes(n);
+}
+
+type Body = {
+  id_club: number;
+  id_cancha: number;
+
+  // desde UI
+  inicio: string; // "HH:MM"
+  duracion_min: number; // ✅ 30..240
+  tipo_turno?: TipoTurno;
+  notas?: string | null;
+
+  // UI manda texto, pero backend ahora resuelve/crea cliente manual
+  cliente_nombre?: string | null;
+  cliente_telefono?: string | null;
+  cliente_email?: string | null;
+
+  // ✅ NUEVO: si ya lo tenés, lo podés mandar y listo
+  id_cliente_manual?: number | null;
+
+  // turno fijo
+  start_date: string; // YYYY-MM-DD
+  end_date?: string | null; // YYYY-MM-DD | null
+  weeks_ahead?: number; // default 8
+  on_conflict?: "skip" | "abort"; // default skip
+
+  // opcional (admin)
+  segmento_override?: Segmento;
+};
+
+type Conflict = {
+  fecha: string;
+  inicio: string;
+  fin: string;
+  reason:
+    | "TURNOS_SOLAPADOS"
+    | "ERROR_PRECIO"
+    | "PRECIO_INVALIDO"
+    | "ERROR_INSERT"
+    | "ERROR_CLUB";
+  detail?: any;
+};
+
+// ======================
+// Helpers tiempo/fechas
+// ======================
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -15,160 +78,608 @@ function toMin(hhmm: string) {
 }
 function minToHHMM(minAbs: number) {
   const m = ((minAbs % 1440) + 1440) % 1440;
-  return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+  const hh = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${pad2(hh)}:${pad2(mm)}`;
 }
 function computeEnd(inicioHHMM: string, duracion_min: number) {
   const startMin = toMin(inicioHHMM);
   const endMinAbs = startMin + duracion_min;
-  return {
-    fin: minToHHMM(endMinAbs),
-    fin_dia_offset: endMinAbs >= 1440 ? 1 : 0,
-  };
+  // ✅ UNIFICADO
+  const fin_dia_offset: 0 | 1 = endMinAbs >= 1440 ? 1 : 0;
+  const fin = minToHHMM(endMinAbs);
+  return { fin, fin_dia_offset };
 }
 function addDaysISO(dateISO: string, add: number) {
   const [y, m, d] = dateISO.split("-").map(Number);
   const dt = new Date(y, m - 1, d + add);
-  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+function weekday0SunAR(fechaISO: string) {
+  const d = new Date(`${fechaISO}T00:00:00-03:00`);
+  return d.getDay(); // 0..6
+}
+function clampWeeks(n: number) {
+  if (!Number.isFinite(n)) return 8;
+  return Math.min(52, Math.max(1, Math.floor(n)));
+}
+function dowFromISO(fechaISO: string) {
+  const d = new Date(`${fechaISO}T00:00:00-03:00`);
+  return d.getDay(); // 0..6
+}
+function todayISO() {
+  const dt = new Date();
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const d = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
+// ======================
+// Auth / permisos
+// ======================
 async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
-  const { data } = await supabaseAdmin
+  const { id_club, userId } = params;
+
+  const { data, error } = await supabaseAdmin
     .from("club_usuarios")
-    .select("roles!inner(nombre)")
-    .eq("id_club", params.id_club)
-    .eq("id_usuario", params.userId)
+    .select("id_usuario, id_club, roles!inner(nombre)")
+    .eq("id_club", id_club)
+    .eq("id_usuario", userId)
     .in("roles.nombre", ["admin", "cajero"])
     .limit(1);
-  return data && data.length > 0
-    ? { ok: true }
-    : { ok: false, status: 403, error: "Sin permisos" };
+
+  if (error) {
+    return {
+      ok: false as const,
+      status: 500,
+      error: `Error validando rol: ${error.message}`,
+    };
+  }
+  if (!data || data.length === 0) {
+    return {
+      ok: false as const,
+      status: 403,
+      error: "No tenés permisos admin/staff en este club",
+    };
+  }
+  return { ok: true as const };
 }
 
-// --- POST: CREAR TURNO FIJO ---
+// ======================
+// ✅ Clientes manuales (nuevo esquema)
+// ======================
+function normalizePhone(input: string) {
+  return String(input || "").replace(/\D/g, "");
+}
+
+async function getOrCreateClienteManual(params: {
+  id_club: number;
+  id_cliente_manual?: number | null;
+  nombre?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+}) {
+  const id_club = Number(params.id_club);
+
+  const idIn = Number(params.id_cliente_manual || 0) || null;
+  if (idIn) return idIn;
+
+  const nombre = String(params.nombre || "").trim();
+  const telRaw = String(params.telefono || "").trim();
+  const telNorm = normalizePhone(telRaw);
+  const email = String(params.email || "").trim() || null;
+
+  // Tu UI exige nombre, y el backend exige teléfono para manual (por tu NOT NULL / normalizado)
+  if (!telNorm) return "TEL_REQUERIDO" as const;
+
+  // buscar por tel normalizado (recomendado si tenés columna STORED)
+  const { data: found, error: fErr } = await supabaseAdmin
+    .from("clientes_manuales")
+    .select("id_cliente")
+    .eq("id_club", id_club)
+    .eq("telefono_normalizado", telNorm)
+    .maybeSingle();
+
+  if (fErr) {
+    // si no existe telefono_normalizado, caés acá y lo resolvemos por telefono “raw”
+    const { data: found2 } = await supabaseAdmin
+      .from("clientes_manuales")
+      .select("id_cliente, telefono")
+      .eq("id_club", id_club)
+      .ilike("telefono", `%${telNorm}%`)
+      .maybeSingle();
+    if (found2?.id_cliente) return found2.id_cliente;
+  } else {
+    if (found?.id_cliente) return found.id_cliente;
+  }
+
+  const { data: created, error: cErr } = await supabaseAdmin
+    .from("clientes_manuales")
+    .insert({
+      id_club,
+      nombre: nombre || "Cliente",
+      telefono: telRaw,
+      email,
+    })
+    .select("id_cliente")
+    .single();
+
+  if (cErr || !created?.id_cliente) return null;
+  return created.id_cliente;
+}
+
+// ======================
+// POST: crear turno fijo + instancias
+// ======================
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const id_club = Number(body.id_club);
-    const id_cliente_manual = Number(body.id_cliente_manual);
+    const body = (await req.json().catch(() => null)) as Body | null;
 
-    if (!id_cliente_manual)
+    const id_club = Number(body?.id_club);
+    const id_cancha = Number(body?.id_cancha);
+
+    const inicio = String(body?.inicio || "");
+    const duracion_min = Number(body?.duracion_min || 0);
+
+    const tipo_turno = String(body?.tipo_turno || "normal") as TipoTurno;
+    const notas = body?.notas ?? null;
+
+    const cliente_nombre = String(body?.cliente_nombre ?? "");
+    const cliente_telefono = String(body?.cliente_telefono ?? "");
+    const cliente_email = String(body?.cliente_email ?? "");
+
+    const start_date = String(body?.start_date || "");
+    const end_date = body?.end_date ? String(body.end_date) : null;
+
+    const weeks_ahead = clampWeeks(Number(body?.weeks_ahead ?? 8));
+    const on_conflict = (body?.on_conflict || "skip") as "skip" | "abort";
+
+    const segmento_override: Segmento =
+      body?.segmento_override ||
+      (tipo_turno === "profesor" ? "profe" : "publico");
+
+    // ===== Validaciones (se mantienen) =====
+    if (!id_club || Number.isNaN(id_club))
+      return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
+
+    if (!id_cancha || Number.isNaN(id_cancha))
+      return NextResponse.json({ error: "id_cancha requerido" }, { status: 400 });
+
+    if (!/^\d{2}:\d{2}$/.test(inicio))
       return NextResponse.json(
-        { error: "Se requiere un ID de cliente manual" },
+        { error: "inicio inválido (HH:MM)" },
         { status: 400 },
       );
 
+    if (!isDuracionValida(duracion_min))
+      return NextResponse.json(
+        { error: "duracion_min inválida (30..240 en múltiplos de 30)" },
+        { status: 400 },
+      );
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start_date))
+      return NextResponse.json(
+        { error: "start_date inválida (YYYY-MM-DD)" },
+        { status: 400 },
+      );
+
+    if (end_date && !/^\d{4}-\d{2}-\d{2}$/.test(end_date))
+      return NextResponse.json(
+        { error: "end_date inválida (YYYY-MM-DD)" },
+        { status: 400 },
+      );
+
+    if (cliente_nombre.trim() === "" && cliente_telefono.trim() === "") {
+      return NextResponse.json(
+        { error: "Cliente requerido (nombre o teléfono)" },
+        { status: 400 },
+      );
+    }
+
+    // ===== Auth =====
     const supabase = await getSupabaseServerClient();
-    const { data: authRes } = await supabase.auth.getUser();
-    if (!authRes.user)
+    const { data: authRes, error: aErr } = await supabase.auth.getUser();
+    if (aErr)
+      return NextResponse.json(
+        { error: "No se pudo validar sesión" },
+        { status: 401 },
+      );
+    const adminUserId = authRes?.user?.id ?? null;
+    if (!adminUserId)
       return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
 
-    const perm = await assertAdminOrStaff({ id_club, userId: authRes.user.id });
+    // ===== Permisos =====
+    const perm = await assertAdminOrStaff({ id_club, userId: adminUserId });
     if (!perm.ok)
       return NextResponse.json({ error: perm.error }, { status: perm.status });
 
-    const { fin, fin_dia_offset } = computeEnd(body.inicio, body.duracion_min);
-    const dow = new Date(`${body.start_date}T00:00:00-03:00`).getDay();
+    // ✅ Resolver/crear cliente manual (nuevo esquema)
+    const id_cliente_manual_in = Number(body?.id_cliente_manual || 0) || null;
+    const id_cliente_manual = await getOrCreateClienteManual({
+      id_club,
+      id_cliente_manual: id_cliente_manual_in,
+      nombre: cliente_nombre,
+      telefono: cliente_telefono,
+      email: cliente_email,
+    });
 
-    // 1. Insertar Template
+    if (id_cliente_manual === "TEL_REQUERIDO") {
+      return NextResponse.json({ error: "TEL_REQUERIDO" }, { status: 400 });
+    }
+    if (!id_cliente_manual) {
+      return NextResponse.json(
+        { error: "No se pudo resolver cliente manual" },
+        { status: 500 },
+      );
+    }
+
+    // ===== Fin + offset unificado =====
+    const { fin, fin_dia_offset } = computeEnd(inicio, duracion_min);
+
+    // dow del start_date
+    const dow = weekday0SunAR(start_date);
+
+    // ===== 1) Crear template (MODIFICADO: id_cliente_manual) =====
     const { data: tf, error: tfErr } = await supabaseAdmin
       .from("turnos_fijos")
       .insert({
         id_club,
-        id_cancha: body.id_cancha,
-        id_cliente_manual, // ✅ NUEVO: Relación por ID
+        id_cancha,
+        id_cliente_manual, // ✅
+
         dow,
-        inicio: body.inicio,
-        duracion_min: body.duracion_min,
+        inicio,
+        duracion_min,
         fin,
         fin_dia_offset,
         activo: true,
-        segmento: body.segmento_override || "publico",
-        tipo_turno: body.tipo_turno || "normal",
-        notas: body.notas || null,
-        start_date: body.start_date,
-        creado_por: authRes.user.id,
+
+        segmento: segmento_override,
+        tipo_turno,
+        notas: notas?.toString() || null,
+
+        start_date,
+        end_date,
+        creado_por: adminUserId,
       })
       .select("id_turno_fijo")
       .single();
 
-    if (tfErr) throw tfErr;
-
-    // 2. Generar Instancias de Reserva
-    const weeks = Math.min(52, body.weeks_ahead || 8);
-    const inserts = [];
-    for (let i = 0; i <= weeks; i++) {
-      inserts.push({
-        id_club,
-        id_cancha: body.id_cancha,
-        id_cliente_manual, // ✅ Heredado a la reserva
-        fecha: addDaysISO(body.start_date, i * 7),
-        inicio: body.inicio,
-        fin,
-        fin_dia_offset,
-        estado: "confirmada",
-        precio_total: 0, // Cálculo de precio según tu lógica
-        tipo_turno: body.tipo_turno || "normal",
-        origen: "turno_fijo",
-        id_turno_fijo: tf.id_turno_fijo,
-        creado_por: authRes.user.id,
-      });
+    if (tfErr || !tf) {
+      return NextResponse.json(
+        {
+          error: `Error creando turno fijo: ${tfErr?.message || "unknown"}`,
+          detail: tfErr,
+        },
+        { status: 500 },
+      );
     }
 
-    const { error: insErr } = await supabaseAdmin
-      .from("reservas")
-      .insert(inserts);
-    if (insErr) throw insErr;
+    const id_turno_fijo = Number((tf as any).id_turno_fijo);
+
+    // ===== 2) Rango de generación =====
+    const maxEnd = addDaysISO(start_date, weeks_ahead * 7);
+    const limitEnd = end_date
+      ? end_date < maxEnd
+        ? end_date
+        : maxEnd
+      : maxEnd;
+
+    const fechas: string[] = [];
+    for (let i = 0; i <= weeks_ahead; i++) {
+      const f = addDaysISO(start_date, i * 7);
+      if (f > limitEnd) break;
+      fechas.push(f);
+    }
+
+    // ===== 3) Anticipo: leer club UNA sola vez =====
+    const { data: club, error: cErr } = await supabaseAdmin
+      .from("clubes")
+      .select("id_club, anticipo_porcentaje")
+      .eq("id_club", id_club)
+      .maybeSingle();
+
+    if (cErr || !club) {
+      return NextResponse.json(
+        { error: "Error leyendo club para anticipo", detail: cErr },
+        { status: 500 },
+      );
+    }
+
+    const pctRaw = Number((club as any).anticipo_porcentaje ?? 50);
+    const pct = Math.min(100, Math.max(0, pctRaw));
+
+    async function calcularPrecio(params: {
+      fecha: string;
+      inicio: string;
+      fin: string;
+    }) {
+      const calcRes = await fetch(
+        new URL("/api/reservas/calcular-precio", req.url),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: req.headers.get("cookie") || "",
+          },
+          body: JSON.stringify({
+            id_club,
+            id_cancha,
+            fecha: params.fecha,
+            inicio: params.inicio,
+            fin: params.fin,
+            segmento_override,
+          }),
+          cache: "no-store",
+        },
+      );
+
+      const calcJson = await calcRes.json().catch(() => null);
+      return { calcRes, calcJson };
+    }
+
+    // ===== 4) Generar instancias =====
+    const conflicts: Conflict[] = [];
+    let created_count = 0;
+
+    for (const fecha of fechas) {
+      let precio_total = 0;
+      let id_tarifario: number | null = null;
+      let id_regla: number | null = null;
+      let segmento: Segmento = segmento_override;
+
+      try {
+        const { calcRes, calcJson } = await calcularPrecio({
+          fecha,
+          inicio,
+          fin,
+        });
+
+        if (!calcRes.ok || !calcJson?.ok) {
+          conflicts.push({
+            fecha,
+            inicio,
+            fin,
+            reason: "ERROR_PRECIO",
+            detail: calcJson,
+          });
+          if (on_conflict === "abort") break;
+          continue;
+        }
+
+        precio_total = Number(calcJson.precio_total || 0);
+        if (!Number.isFinite(precio_total) || precio_total <= 0) {
+          conflicts.push({
+            fecha,
+            inicio,
+            fin,
+            reason: "PRECIO_INVALIDO",
+            detail: calcJson,
+          });
+          if (on_conflict === "abort") break;
+          continue;
+        }
+
+        id_tarifario = Number(calcJson.id_tarifario);
+        id_regla = Number(calcJson.id_regla);
+        segmento = (calcJson.segmento ?? segmento_override) as Segmento;
+      } catch (e: any) {
+        conflicts.push({
+          fecha,
+          inicio,
+          fin,
+          reason: "ERROR_PRECIO",
+          detail: e?.message || e,
+        });
+        if (on_conflict === "abort") break;
+        continue;
+      }
+
+      const monto_anticipo = Math.round(precio_total * (pct / 100) * 100) / 100;
+
+      // ✅ MODIFICADO: guardar id_cliente_manual (y NO cliente_* texto)
+      const { error: insErr } = await supabaseAdmin.from("reservas").insert({
+        id_club,
+        id_cancha,
+        id_usuario: null,
+
+        id_cliente_manual, // ✅
+
+        fecha,
+        inicio,
+        fin,
+        fin_dia_offset,
+
+        estado: "confirmada",
+        precio_total,
+        anticipo_porcentaje: pct,
+        monto_anticipo,
+
+        segmento,
+        id_tarifario: Number.isFinite(id_tarifario) ? id_tarifario : null,
+        id_regla: Number.isFinite(id_regla) ? id_regla : null,
+
+        tipo_turno,
+        notas: notas?.toString() || null,
+
+        origen: "turno_fijo",
+        creado_por: adminUserId,
+        expires_at: null,
+
+        id_turno_fijo,
+      });
+
+      if (insErr) {
+        if ((insErr as any).code === "23P01") {
+          conflicts.push({ fecha, inicio, fin, reason: "TURNOS_SOLAPADOS" });
+          if (on_conflict === "abort") break;
+          continue;
+        }
+
+        conflicts.push({
+          fecha,
+          inicio,
+          fin,
+          reason: "ERROR_INSERT",
+          detail: insErr,
+        });
+        if (on_conflict === "abort") break;
+        continue;
+      }
+
+      created_count++;
+    }
 
     return NextResponse.json({
       ok: true,
-      id_turno_fijo: tf.id_turno_fijo,
-      created_count: inserts.length,
+      id_turno_fijo,
+      created_count,
+      conflicts,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error("[POST /api/admin/turnos-fijos] ex:", e);
+    return NextResponse.json(
+      { error: e?.message || "Error interno" },
+      { status: 500 },
+    );
   }
 }
 
-// --- GET: LISTAR TURNOS FIJOS ---
+// ======================
+// GET: listar turnos fijos
+// ======================
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const id_club = Number(searchParams.get("id_club"));
+    const url = new URL(req.url);
 
-    // 1. Traer templates planos
-    const { data: templates, error } = await supabaseAdmin
+    const id_club = Number(url.searchParams.get("id_club") || 0);
+    const fecha = url.searchParams.get("fecha"); // opcional
+    const include_future_count =
+      url.searchParams.get("include_future_count") === "1" ||
+      url.searchParams.get("include_future_count") === "true";
+
+    if (!id_club)
+      return NextResponse.json(
+        { ok: false, error: "id_club requerido" },
+        { status: 400 },
+      );
+
+    const supabase = await getSupabaseServerClient();
+    const { data: authRes, error: aErr } = await supabase.auth.getUser();
+    if (aErr)
+      return NextResponse.json(
+        { ok: false, error: "No se pudo validar sesión" },
+        { status: 401 },
+      );
+    const userId = authRes?.user?.id ?? null;
+    if (!userId)
+      return NextResponse.json(
+        { ok: false, error: "LOGIN_REQUERIDO" },
+        { status: 401 },
+      );
+
+    const perm = await assertAdminOrStaff({ id_club, userId });
+    if (!perm.ok)
+      return NextResponse.json(
+        { ok: false, error: perm.error },
+        { status: perm.status },
+      );
+
+    let q = supabaseAdmin
       .from("turnos_fijos")
-      .select("*")
+      .select(
+        // ✅ MODIFICADO: incluye id_cliente_manual (y NO cliente_* texto)
+        "id_turno_fijo,id_club,id_cancha,id_cliente_manual,dow,inicio,duracion_min,fin,fin_dia_offset,activo,segmento,tipo_turno,notas,start_date,end_date,created_at,updated_at",
+      )
       .eq("id_club", id_club)
       .order("activo", { ascending: false })
       .order("inicio", { ascending: true });
 
-    if (error) throw error;
+    if (fecha) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+        return NextResponse.json(
+          { ok: false, error: "fecha inválida (YYYY-MM-DD)" },
+          { status: 400 },
+        );
+      }
+      const dow = dowFromISO(fecha);
+      q = q
+        .eq("dow", dow)
+        .lte("start_date", fecha)
+        .or(`end_date.is.null,end_date.gte.${fecha}`);
+    }
 
-    // 2. Resolver Clientes Manuales por separado (Consultas paralelas)
+    const { data: templates, error: tErr } = await q;
+    if (tErr)
+      return NextResponse.json(
+        { ok: false, error: tErr.message },
+        { status: 500 },
+      );
+
+    // ✅ Resolver cliente_manual -> cliente_* para devolver igual que antes
     const manualIds = Array.from(
-      new Set(templates?.map((t) => t.id_cliente_manual).filter(Boolean)),
+      new Set((templates || []).map((t: any) => t.id_cliente_manual).filter(Boolean)),
     );
 
-    let manualesMap = new Map();
+    const manualMap = new Map<number, any>();
     if (manualIds.length > 0) {
       const { data: manRes } = await supabaseAdmin
         .from("clientes_manuales")
-        .select("id_cliente, nombre, telefono")
+        .select("id_cliente,nombre,telefono,email")
         .in("id_cliente", manualIds);
-      manRes?.forEach((m) => manualesMap.set(m.id_cliente, m));
+
+      (manRes || []).forEach((m: any) => manualMap.set(Number(m.id_cliente), m));
     }
 
-    // 3. Ensamblar datos limpios
-    const data = (templates || []).map((tf) => ({
-      ...tf,
-      cliente_nombre:
-        manualesMap.get(tf.id_cliente_manual)?.nombre || "Invitado",
-      cliente_telefono: manualesMap.get(tf.id_cliente_manual)?.telefono || "",
-    }));
+    const merged = (templates || []).map((tf: any) => {
+      const c = manualMap.get(Number(tf.id_cliente_manual));
+      return {
+        ...tf,
+        cliente_nombre: c?.nombre || "Invitado",
+        cliente_telefono: c?.telefono || "",
+        cliente_email: c?.email || "",
+      };
+    });
 
-    return NextResponse.json({ ok: true, data });
+    if (!include_future_count) {
+      return NextResponse.json({
+        ok: true,
+        fecha: fecha ?? null,
+        dow: fecha ? dowFromISO(fecha) : null,
+        data: merged,
+      });
+    }
+
+    const hoy = todayISO();
+    const rows = await Promise.all(
+      merged.map(async (tf: any) => {
+        const { count, error } = await supabaseAdmin
+          .from("reservas")
+          .select("id_reserva", { count: "exact", head: true })
+          .eq("id_club", id_club)
+          .eq("id_turno_fijo", tf.id_turno_fijo)
+          .gte("fecha", hoy)
+          .in("estado", ["confirmada", "pendiente_pago"]);
+
+        return { ...tf, future_count: error ? 0 : Number(count || 0) };
+      }),
+    );
+
+    return NextResponse.json({
+      ok: true,
+      fecha: fecha ?? null,
+      dow: fecha ? dowFromISO(fecha) : null,
+      data: rows,
+    });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error("[GET /api/admin/turnos-fijos] ex:", e);
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Error interno" },
+      { status: 500 },
+    );
   }
 }
